@@ -1,0 +1,20 @@
+{
+  "name": "canteen-playwright-framework",
+  "version": "1.0.0",
+  "description": "Playwright + TypeScript framework for Compass Canteen (Nexus) mobile automation via Appium",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:mobile": "npx playwright test --project=mobile",
+    "test:headed": "npx playwright test --project=mobile --headed",
+    "report": "npx playwright show-report reports/html"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "webdriverio": "^9.5.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
