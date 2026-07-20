@@ -1,5 +1,6 @@
 import { test as base, expect } from '@playwright/test';
 import { remote, type Browser } from 'webdriverio';
+import { execSync } from 'child_process';
 import { mobileConfig } from '../config/mobile.config';
 
 type MobileFixtures = {
@@ -8,12 +9,105 @@ type MobileFixtures = {
 
 export const test = base.extend<MobileFixtures>({
   driver: async ({}, use) => {
+    const appId = mobileConfig.capabilities['appium:appPackage'];
+    const deviceName = mobileConfig.capabilities['appium:deviceName'];
+
+    // Force a clean, logged-out state on every session so tests never
+    // silently skip Login due to a persisted session from a prior run
+    // (the app supports session restore - see clearUserSession in the
+    // SecureStorageHelper unit tests - which caused exactly this issue).
+    //
+    // Done via a direct adb pm clear BEFORE the session starts, rather than
+    // Appium's mobile: clearApp + mobile: activateApp run after session
+    // creation - that combo doesn't reliably cold-start the app once it's
+    // been cleared (activateApp only brings an already-running app to the
+    // foreground). Clearing first and letting the normal capability-driven
+    // launch (appPackage/appActivity) do the actual cold start avoids that -
+    // that launch path is already proven to work.
+    //
+    // (Briefly disabled to test whether it was causing the SSL cert
+    // validation failures seen navigating past Login - disproven: the same
+    // "Trust anchor for certification path not found" error reproduced
+    // manually via the Privacy Policy link, independent of pm clear
+    // entirely. That's a real app-level WebView cert-trust bug, unrelated
+    // to this reset step. Restored.)
+    try {
+      execSync(`adb -s ${deviceName} shell pm clear ${appId}`);
+    } catch (e) {
+      console.warn(`Could not clear app data for ${appId} before session start:`, e);
+    }
+
+    // appium:autoGrantPermissions doesn't reliably suppress this app's runtime
+    // camera permission prompt in practice - it still surfaces on first launch
+    // after a clear, blocking the WebView Login screen underneath. Granting
+    // directly via adb (after the clear above, since clearing revokes any
+    // previously granted permissions) is deterministic and avoids depending on
+    // that capability's behavior.
+    // Full list confirmed via `adb shell dumpsys package com.canteen.nexus`
+    // (the USER_SENSITIVE_WHEN_GRANTED-flagged permissions are the ones the
+    // app actually prompts for at runtime).
+    const runtimePermissions = [
+      'android.permission.CAMERA',
+      'android.permission.ACCESS_FINE_LOCATION',
+      'android.permission.ACCESS_COARSE_LOCATION',
+      'android.permission.BLUETOOTH_CONNECT',
+      'android.permission.BLUETOOTH_SCAN',
+      'android.permission.BLUETOOTH_ADVERTISE',
+      'android.permission.READ_PHONE_STATE',
+      'android.permission.READ_EXTERNAL_STORAGE',
+      'android.permission.RECORD_AUDIO'
+    ];
+    for (const permission of runtimePermissions) {
+      try {
+        execSync(`adb -s ${deviceName} shell pm grant ${appId} ${permission}`);
+      } catch (e) {
+        console.warn(`Could not grant ${permission} to ${appId}:`, e);
+      }
+    }
+
     const driver = await remote({
       hostname: mobileConfig.appium.host,
       port: mobileConfig.appium.port,
       path: mobileConfig.appium.path,
-      capabilities: mobileConfig.capabilities
+      capabilities: {
+        ...mobileConfig.capabilities,
+        // The app is launched via appPackage/appActivity (already installed),
+        // not a local APK, so Appium requires noReset: true here - it has no
+        // `app` capability to install/reinstall from. mobile.config.ts's base
+        // capabilities also set fullReset: true, which must be explicitly
+        // overridden to false here too - otherwise both end up true (they're
+        // mutually exclusive) since the spread above still carries it through.
+        // The actual data reset now happens via the adb pm clear above.
+        'appium:noReset': true,
+        'appium:fullReset': false,
+        // The app declares CAMERA/location/Bluetooth permissions - after a
+        // fresh pm clear, a first-run permission dialog can pop up and block
+        // the WebView underneath, which looks exactly like "app not visibly
+        // launching" while locators keep timing out.
+        'appium:autoGrantPermissions': true
+      }
     });
+
+    // The app can show an in-app "Confirm sign off" dialog on launch - a
+    // session-restore artifact (some auth/cookie state can survive the adb
+    // pm clear above even though local storage doesn't) where the app
+    // detects a still-valid session and asks to confirm signing off before
+    // it will render a clean Login screen. This is unrelated to OS
+    // permission dialogs and needs its own dismissal: tap "Sign off" if
+    // present, but don't fail the test if the dialog never appears (e.g.
+    // on a genuinely fresh install with no prior session at all).
+    //
+    // Locator uses content-desc, not text - confirmed via an actual page
+    // source dump that this button (like the rest of this Flutter app) has
+    // text="" and exposes its accessible label only via content-desc.
+    try {
+      const signOffButton = await driver.$('//*[@content-desc="Sign off"]');
+      if (await signOffButton.isDisplayed().catch(() => false)) {
+        await signOffButton.click();
+      }
+    } catch (e) {
+      // Dialog wasn't present - nothing to do.
+    }
 
     await use(driver);
 
