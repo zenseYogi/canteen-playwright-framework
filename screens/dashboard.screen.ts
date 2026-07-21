@@ -6,16 +6,23 @@ import type { Lob } from '../utils/lob';
  * Dashboard / location-selection screen. Ported from dashboard_keywords.robot.
  */
 export class DashboardScreen extends BaseScreen {
-  // FRAGILE: deeply nested structural path with no stable identifier, ported
-  // as-is from dashboard.yaml. Re-verify against the current build - see
-  // docs/rf-to-playwright-reuse.md.
+  // Ported dashboard.yaml locator was confirmed BROKEN via live verification
+  // against build 0.1.73 (0 matches, even after accounting for the
+  // raw-uiautomator-dump-vs-Appium-page-source tag format difference).
+  // Replaced with a content-desc-anchored selector confirmed live: the three
+  // location rows are android.widget.ImageView siblings following the
+  // "Pending action (N)" tab, which is far more stable than the original's
+  // absolute structural position.
   private readonly deliveryLocationList =
-    '//android.widget.FrameLayout[@resource-id="android:id/content"]/android.widget.FrameLayout/android.view.View/android.view.View/android.view.View/android.view.View[2]/android.view.View[10]/android.view.View';
+    '//android.view.View[contains(@content-desc,"Pending action")]/following-sibling::android.view.View//android.widget.ImageView[@clickable="true"]';
 
-  // Case preserved exactly as in dashboard.yaml ("Market" capitalized,
-  // "coffee"/"vending" lowercase) - presumably matches the app's own
-  // accessibility labels, not a typo to "fix".
-  private readonly marketLob = '//android.widget.ImageView[contains(@content-desc,"Market")]';
+  // CORRECTED: dashboard.yaml declared this capitalized ("Market"), which
+  // this doc previously assumed was a real app inconsistency worth
+  // preserving verbatim. Live verification against build 0.1.73 showed the
+  // actual per-location LOB card's content-desc is lowercase
+  // ("market\n1 Service stations "), matching coffee/vending's convention -
+  // the capitalized version was simply wrong, not a real quirk.
+  private readonly marketLob = '//android.widget.ImageView[contains(@content-desc,"market")]';
   private readonly coffeeLob = '//android.widget.ImageView[contains(@content-desc,"coffee")]';
   private readonly vendingLob = '//android.widget.ImageView[contains(@content-desc,"vending")]';
 

@@ -5,7 +5,10 @@ import type { Position } from '../utils/position';
  * Market LOB - servicing a delivery location. Ported from market_keywords.robot.
  */
 export class MarketServiceScreen extends BaseScreen {
-  private readonly marketLob = '//android.widget.ImageView[contains(@content-desc,"Market")]';
+  // CORRECTED (live-verified against build 0.1.73): real content-desc is
+  // lowercase "market", not "Market" - see DashboardScreen's marketLob for
+  // the same fix and full context.
+  private readonly marketLob = '//android.widget.ImageView[contains(@content-desc,"market")]';
   private readonly fillsTitle = '~Product fills';
   private readonly audit = '//android.view.View[starts-with(@content-desc,"Audit")]';
 
