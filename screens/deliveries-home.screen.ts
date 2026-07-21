@@ -5,7 +5,6 @@ import { BaseScreen } from './base.screen';
 // file just illustrates the shape a recorded class should take so it can
 // be dropped straight into tests/generated/ and used from a spec.
 export class DeliveriesHomeScreen extends BaseScreen {
-  private startDayButton = '~Start day';
   private editScheduleButton = '~Edit schedule';
   private scheduleItem = (name: string) => `//android.widget.TextView[@text="${name}"]`;
 

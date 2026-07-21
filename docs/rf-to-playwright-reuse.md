@@ -18,7 +18,7 @@ and flow logic, not reinterpreting a different stack.
 | 2 | Port RF's currently-active coverage | Dashboard-loaded check (folded into login.spec.ts); Truck Returns open/add/delete for Coffee (`truck-stock-truck-returns.spec.ts`) | Done |
 | 3 | LOB service flows | `dashboard.screen.ts`, `coffee-service.screen.ts`, `market-service.screen.ts`, `vending-service.screen.ts` (no shared `lob-service.screen.ts` base - see Phase 3 notes) | Screen classes done; spec test deferred (see Phase 3 notes) |
 | 4 | Transfers + Route Inventory + Route Shopping | `transfers.screen.ts`, `truck-stock-route-inventory.screen.ts`, `truck-stock-route-shopping.screen.ts` | Screen classes done; spec test pending a decision |
-| 5 | Prep Tasks | `prep-tasks.screen.ts` | Not started |
+| 5 | Prep Tasks | `prep-tasks.screen.ts` | Screen class done; spec test deferred (see [[rf-port-spec-test-plan]] / project memory) |
 | 6 | Open items / cleanup | Resolve `draw_gestures.py` usage question; re-verify fragile xpaths; try `appium:permissions` capability swap | Not started |
 
 ## TL;DR
@@ -167,6 +167,14 @@ Tag-based filtering (`run_tests.py`'s `--include`/`--exclude`) maps to Playwrigh
 - RF's single-add keywords targeted "Route 001" while its bulk-add keywords targeted "Route 002" for the exact same routeToRoute flow - preserved as a `routeNumber` parameter (default 1) on `TransfersScreen.addProduct()` rather than hardcoded, so the difference is a call-site choice, not two code paths.
 - **Found another redundant-but-harmless RF pattern, not reproduced**: `truck_stock_route_inventory.robot`'s bulk-add keyword manually clicks/clears/types "can" into a scoped search field on every loop iteration, then immediately calls the shared search-and-select keyword which does the identical click/clear/type against what's very likely the same visible field. `TruckStockRouteInventoryScreen.addProduct()` just calls `searchAndSelect()` once per iteration.
 - **No end-to-end spec test written yet for Transfers/Route Inventory/Route Shopping** - unlike Phase 3, the underlying keyword logic here is internally consistent (no stub methods, no inconsistent partial drafts), it's specifically the `test.robot` wiring that's commented out for all of it. Held off pending the same kind of decision as Phase 3.
+
+## Phase 5 notes
+
+- Skip is identically shaped across all four prep-task sub-screens (Product Collection, Money Operations, Additional Prep, Checks) - `PrepTasksScreen.skipSubScreen(trigger)`. Complete is identical for the latter three but NOT Product Collection, which has an extra photo-capture step afterward (RF's Complete flow there waits for the camera shutter to auto-appear rather than tapping a trigger + Take Photo first, so it doesn't reuse `BaseScreen.capturePhoto()` - a different shape than the before/after-photo helper). Kept as `completeSubScreen(trigger)` + a separate `completeProductCollection()`.
+- Ported "Validate user is able to complete the prep task successfully" faithfully as one method (`completeFullDayPrep()`), including two sub-steps the RF source itself had commented out (Product Collection's "Select All Checkboxes", and the Checks screen's vehicle-check-checkbox + Dismiss popup) - noted in the method's doc comment rather than silently reproduced or silently dropped, since this is a single, internally-consistent keyword (unlike Phase 3's problem of *inconsistent* commenting across sibling LOB drafts), so it was safe to port as-is.
+- Two more duplicate-locator finds, resolved by hoisting to `BaseScreen`: `prep_tasks_continue_button` (`prep_tasks.yaml`) is the exact same value as the already-shared `continueButton`; `dashboard.yaml`'s `start_day_button` and `prep_tasks.yaml`'s `prep_task_start_day_button` are the same xpath - now `BaseScreen.startDayButton`, used by both `HomeScreen` and `PrepTasksScreen` (and the pre-existing example file `deliveries-home.screen.ts` had its own third copy under the same name, which had to be removed to avoid a property-type collision with the newly-hoisted one).
+- `prep_task_sub_options_screen_back_button` (`prep_tasks.yaml`) really is identical to `back_button` (unlike `transfers.yaml`'s `transfer_to_screen_back_button`, corrected in Phase 4 notes) - reuses `BaseScreen.backButton` as-is.
+- No spec test written, per the standing plan (see project memory / [[rf-port-spec-test-plan]]): spec authoring across all phases waits until the Manual Test Case doc + APK are available.
 
 ## Open items to verify before trusting
 

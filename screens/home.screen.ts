@@ -4,7 +4,6 @@ import { BaseScreen } from './base.screen';
  * Home / dashboard screen - lands here after successful login + MFA.
  */
 export class HomeScreen extends BaseScreen {
-  private readonly startDayButton = '//*[@content-desc="Start day"]';
   // Ported from dashboard.yaml's title_deliveries - the specific element RF's
   // "Validate user is on the dashboard page" keyword waits on.
   private readonly deliveriesTitle = '//android.view.View[contains(@content-desc, "Deliveries")]';

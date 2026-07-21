@@ -61,6 +61,11 @@ export class BaseScreen {
     return { coffee: this.coffeeTab, market: this.marketTab, vending: this.vendingTab }[lob];
   }
 
+  // dashboard.yaml's start_day_button and prep_tasks.yaml's
+  // prep_task_start_day_button are the exact same xpath under two names -
+  // used by both HomeScreen (Dashboard) and PrepTasksScreen.
+  protected readonly startDayButton = '//android.widget.Button[@content-desc="Start day"]';
+
   // navigation_menu.yaml's collapsible "Truck stock" group toggle - needed
   // by TruckStockTruckReturnsScreen, TruckStockRouteInventoryScreen, and
   // TruckStockRouteShoppingScreen alike to expand the group before its first
