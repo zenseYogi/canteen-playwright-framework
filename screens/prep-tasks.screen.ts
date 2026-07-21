@@ -32,6 +32,52 @@ export class PrepTasksScreen extends BaseScreen {
   private readonly quantityField = (productName: string) => `//android.widget.EditText[contains(@hint,"${productName}")]`;
   private readonly addButton = '~Add';
 
+  /**
+   * Public access to the four sub-screen trigger locators, for passing into
+   * skipSubScreen()/completeSubScreen()/openBackPressPopup() from spec code -
+   * those are generic (all four sub-screens share the same skip/complete
+   * shape), so this exposes one small surface rather than four near-
+   * duplicate skipX()/completeX() wrapper methods per sub-screen.
+   */
+  get subScreenTriggers() {
+    return {
+      productCollection: this.productCollection,
+      moneyOperations: this.moneyOperations,
+      additionalPrep: this.additionalPrep,
+      checks: this.checks
+    };
+  }
+
+  /** Ported from Excel TC071 "I am able to view all prep categories" - confirmed live: all four tiles render as starts-with-matched ImageViews. */
+  async arePrepCategoriesVisible(): Promise<{
+    productCollection: boolean;
+    moneyOperations: boolean;
+    additionalPrep: boolean;
+    checks: boolean;
+  }> {
+    return {
+      productCollection: await this.isVisible(this.productCollection),
+      moneyOperations: await this.isVisible(this.moneyOperations),
+      additionalPrep: await this.isVisible(this.additionalPrep),
+      checks: await this.isVisible(this.checks)
+    };
+  }
+
+  async isProductCollectionTitleVisible(): Promise<boolean> {
+    return this.isVisible(this.productCollectionTitle);
+  }
+
+  /** For the Excel's Continue-enablement TCs (e.g. "maintain enablement with at least one selected") - NOT yet confirmed live whether Continue is actually disabled with zero items selected; see docs/rf-to-playwright-reuse.md. */
+  async isContinueEnabled(): Promise<boolean> {
+    return this.isEnabled(this.continueButton);
+  }
+
+  /** Confirms the back-press Skip/Complete popup (Excel TC180) is showing - both options visible at once. */
+  async isBackPressPopupVisible(): Promise<boolean> {
+    const [skip, complete] = await Promise.all([this.isVisible(this.skipButton), this.isVisible(this.completeButton)]);
+    return skip && complete;
+  }
+
   async openFromHamburgerMenu(): Promise<void> {
     await this.tap(this.hamburgerIcon);
     await this.waitFor(this.navMenuPrepTask);
@@ -53,11 +99,25 @@ export class PrepTasksScreen extends BaseScreen {
     await this.tap(trigger);
   }
 
-  /** Skip is identically shaped across all four prep-task sub-screens. */
-  async skipSubScreen(trigger: string): Promise<void> {
+  /** Opens a sub-screen and triggers the back-press Skip/Complete popup (Excel TC180/182), without committing to either choice yet. */
+  async openBackPressPopup(trigger: string): Promise<void> {
     await this.openSubScreen(trigger);
     await this.tap(this.backButton);
+  }
+
+  /** Taps Skip/Complete on an already-open back-press popup (see openBackPressPopup) - separate from skipSubScreen/completeSubScreen so callers that already opened the popup (e.g. to assert isBackPressPopupVisible() first) don't have to re-navigate. */
+  async confirmSkip(): Promise<void> {
     await this.tap(this.skipButton);
+  }
+
+  async confirmComplete(): Promise<void> {
+    await this.tap(this.completeButton);
+  }
+
+  /** Skip is identically shaped across all four prep-task sub-screens. */
+  async skipSubScreen(trigger: string): Promise<void> {
+    await this.openBackPressPopup(trigger);
+    await this.confirmSkip();
   }
 
   /**
@@ -66,9 +126,8 @@ export class PrepTasksScreen extends BaseScreen {
    * afterward (see completeProductCollection).
    */
   async completeSubScreen(trigger: string): Promise<void> {
-    await this.openSubScreen(trigger);
-    await this.tap(this.backButton);
-    await this.tap(this.completeButton);
+    await this.openBackPressPopup(trigger);
+    await this.confirmComplete();
   }
 
   /**

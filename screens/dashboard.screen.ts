@@ -30,6 +30,29 @@ export class DashboardScreen extends BaseScreen {
     return { coffee: this.coffeeLob, market: this.marketLob, vending: this.vendingLob }[lob];
   }
 
+  // Live-verified (build 0.1.73): a service station row under an expanded
+  // LOB card has content-desc "{LocationName}\n{lob}" (e.g. "CuraLeaf\nmarket") -
+  // an android.view.View, distinct from the LOB card's own ImageView tile.
+  // Only confirmed against a single-service-station example; not yet tested
+  // with more than one station under a card.
+  private firstServiceStationUnder(lob: Lob): string {
+    return `//android.view.View[contains(@content-desc,"${lob}")]`;
+  }
+
+  /**
+   * From a location's detail screen (after clickLocationByPosition), expands
+   * the given LOB's card and taps its first service station row. New method,
+   * not ported from RF - built from this session's live navigation, since
+   * BaseScreen.selectServiceLocation()/MarketServiceScreen.clickServiceLocation()
+   * assume a different, unverified screen layout (a positional list after
+   * just the LOB icon becomes visible) that doesn't match what was actually
+   * walked through live.
+   */
+  async openFirstServiceStation(lob: Lob): Promise<void> {
+    await this.clickLob(lob);
+    await this.tap(this.firstServiceStationUnder(lob));
+  }
+
   async getLocationCount(): Promise<number> {
     await this.waitFor(this.deliveryLocationList);
     const elements = await this.driver.$$(this.deliveryLocationList);

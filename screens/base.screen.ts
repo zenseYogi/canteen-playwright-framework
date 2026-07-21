@@ -140,6 +140,12 @@ export class BaseScreen {
     return el.isDisplayed().catch(() => false);
   }
 
+  /** Element's enabled/disabled state - distinct from isVisible/isDisplayed. Needed for the Excel test suite's many "Continue/Add disabled until X" assertions, which RF never tested. */
+  async isEnabled(selector: string): Promise<boolean> {
+    const el = await this.driver.$(selector);
+    return el.isEnabled().catch(() => false);
+  }
+
   async waitFor(selector: string): Promise<void> {
     const el = await this.driver.$(selector);
     await el.waitForDisplayed({ timeout: mobileConfig.timeouts.element });

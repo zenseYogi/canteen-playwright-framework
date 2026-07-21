@@ -18,8 +18,9 @@ and flow logic, not reinterpreting a different stack.
 | 2 | Port RF's currently-active coverage | Dashboard-loaded check (folded into login.spec.ts); Truck Returns open/add/delete for Coffee (`truck-stock-truck-returns.spec.ts`) | Done |
 | 3 | LOB service flows | `dashboard.screen.ts`, `coffee-service.screen.ts`, `market-service.screen.ts`, `vending-service.screen.ts` (no shared `lob-service.screen.ts` base - see Phase 3 notes) | Screen classes done; spec test deferred (see Phase 3 notes) |
 | 4 | Transfers + Route Inventory + Route Shopping | `transfers.screen.ts`, `truck-stock-route-inventory.screen.ts`, `truck-stock-route-shopping.screen.ts` | Screen classes done; spec test deferred (see project memory) |
-| 5 | Prep Tasks | `prep-tasks.screen.ts` | Screen class done; spec test deferred (see project memory) |
+| 5 | Prep Tasks | `prep-tasks.screen.ts` | Screen class done; spec test written (`prep-tasks.spec.ts`) - see Phase 7 below |
 | 6 | Open items / cleanup | Resolve `draw_gestures.py` usage question; re-verify fragile xpaths; try `appium:permissions` capability swap | See Phase 6 notes - permissions swap investigated (not changing), fragile-xpath re-verification blocked on device/APK access, `draw_gestures.py` usage pending your check |
+| 7 | Spec authoring from `Optimized_TCs_V_2.0.xlsx` (Tier 1 + Tier 2) | `prep-tasks.spec.ts`, `market-service.spec.ts` + new assertion methods on `PrepTasksScreen`/`MarketServiceScreen`/`DashboardScreen` | Done for Tier 1 (Login + Prep Tasks, ~75 TCs) and Tier 2 (Market Money Ops + Delivery/Add Product entry, ~15 TCs) - see Phase 7 notes |
 
 ## TL;DR
 
@@ -228,3 +229,16 @@ Some methods that look "incomplete" aren't bugs to fix - `performDelivery`/`perf
 - Re-capture the fragile absolute-xpath locators listed above against the current build before wiring them into new TS screens - blocked on device/APK access.
 - ~~Confirm whether `appium:permissions` + `autoGrantPermissions` capabilities (RF's approach) can replace the current adb-loop permission-granting in `appium.fixture.ts`~~ **Resolved (Phase 6)**: not changing it - `autoGrantPermissions` was already tried in this exact fixture and found unreliable for this app; see Phase 6 notes.
 - ~~`BaseScreen.swipeAndDelete`'s delete-icon xpath suffix is an unconfirmed placeholder~~ **Resolved**: confirmed against the untruncated `common_keywords.robot` source as `/android.widget.Button` - matches what was already in place.
+
+## Phase 7 notes: spec authoring from Optimized_TCs_V_2.0.xlsx (Tier 1 + Tier 2)
+
+Following the "how much can we complete now" analysis (Tier 1 = ready with near-zero new code, Tier 2 = ready with one small addition), wrote the actual spec files rather than just estimating:
+
+- **New `BaseScreen.isEnabled(selector)`** - distinct from `isVisible`, needed for the Excel's many "Continue/Add disabled until X" assertions that RF never tested at all.
+- **`PrepTasksScreen` additions**: `arePrepCategoriesVisible()`, `isProductCollectionTitleVisible()`, `isBackPressPopupVisible()`, `isContinueEnabled()`, and a `subScreenTriggers` public getter (exposes the four sub-screen trigger locators so spec code can call the existing generic `skipSubScreen`/`completeSubScreen`/`openBackPressPopup` methods - avoids needing four near-duplicate `skipX()`/`completeX()` wrapper methods per sub-screen). Also split `confirmSkip()`/`confirmComplete()` out of `skipSubScreen`/`completeSubScreen` so a spec that already opened the back-press popup (to assert `isBackPressPopupVisible()`) doesn't have to re-navigate just to tap Skip/Complete.
+- **`MarketServiceScreen` additions**: `isProductFillsTitleVisible()`, `isMoneyCollectionScreenVisible()` (all 5 Money Operations field locators), `openMoneyOperations()` (opens without submitting - `performMoneyOperations()` now calls this internally), `openAddProductFromFills()`, `isAddProductScreenVisible()`, `addProductButtonStates()`.
+- **`DashboardScreen` addition**: `openFirstServiceStation(lob)` - a genuinely new navigation method, not from RF. Needed because `BaseScreen.selectServiceLocation()`/`MarketServiceScreen.clickServiceLocation()` assume a different, unverified screen layout (a positional list after the LOB icon becomes visible) that doesn't match the real navigation this session actually walked through live (location row → expand LOB card → tap service station row). Only confirmed against a single-service-station example.
+- **`tests/mobile/prep-tasks.spec.ts`** (2 tests): all four prep categories visible, full Start Day completion, and the back-press Skip popup.
+- **`tests/mobile/market-service.spec.ts`** (2 tests): Money Operations field presence, and Add Product entry screen + button-enablement states. Both start from login and complete Start Day first, since that's a real prerequisite gate discovered this session.
+
+**Scope discipline maintained**: none of these assert field validation *behavior* (reject negative/alphabetic input, decimal handling) - only presence/reachability/enablement state, since the behavior itself hasn't been tested live. `isContinueEnabled()` was added but deliberately not asserted against a specific expected value anywhere, since live observation contradicted the Excel's "Continue disabled initially" claim for Prep Tasks' Money Operations and this needs re-verification before asserting either way.
