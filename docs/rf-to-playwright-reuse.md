@@ -17,9 +17,9 @@ and flow logic, not reinterpreting a different stack.
 | 1 | Foundational helpers | `BaseScreen` additions (`navigateTo`, `searchAndSelect`, `selectAllCheckboxes`, `swipe`, `swipeAndDelete`, `swipeAndDeleteByLabel`, `capturePhoto`, `scrollDown`), `utils/position.ts`, failure-screenshot capture in `appium.fixture.ts` | Done |
 | 2 | Port RF's currently-active coverage | Dashboard-loaded check (folded into login.spec.ts); Truck Returns open/add/delete for Coffee (`truck-stock-truck-returns.spec.ts`) | Done |
 | 3 | LOB service flows | `dashboard.screen.ts`, `coffee-service.screen.ts`, `market-service.screen.ts`, `vending-service.screen.ts` (no shared `lob-service.screen.ts` base - see Phase 3 notes) | Screen classes done; spec test deferred (see Phase 3 notes) |
-| 4 | Transfers + Route Inventory + Route Shopping | `transfers.screen.ts`, `truck-stock-route-inventory.screen.ts`, `truck-stock-route-shopping.screen.ts` | Screen classes done; spec test pending a decision |
-| 5 | Prep Tasks | `prep-tasks.screen.ts` | Screen class done; spec test deferred (see [[rf-port-spec-test-plan]] / project memory) |
-| 6 | Open items / cleanup | Resolve `draw_gestures.py` usage question; re-verify fragile xpaths; try `appium:permissions` capability swap | Not started |
+| 4 | Transfers + Route Inventory + Route Shopping | `transfers.screen.ts`, `truck-stock-route-inventory.screen.ts`, `truck-stock-route-shopping.screen.ts` | Screen classes done; spec test deferred (see project memory) |
+| 5 | Prep Tasks | `prep-tasks.screen.ts` | Screen class done; spec test deferred (see project memory) |
+| 6 | Open items / cleanup | Resolve `draw_gestures.py` usage question; re-verify fragile xpaths; try `appium:permissions` capability swap | See Phase 6 notes - permissions swap investigated (not changing), fragile-xpath re-verification blocked on device/APK access, `draw_gestures.py` usage pending your check |
 
 ## TL;DR
 
@@ -176,9 +176,15 @@ Tag-based filtering (`run_tests.py`'s `--include`/`--exclude`) maps to Playwrigh
 - `prep_task_sub_options_screen_back_button` (`prep_tasks.yaml`) really is identical to `back_button` (unlike `transfers.yaml`'s `transfer_to_screen_back_button`, corrected in Phase 4 notes) - reuses `BaseScreen.backButton` as-is.
 - No spec test written, per the standing plan (see project memory / [[rf-port-spec-test-plan]]): spec authoring across all phases waits until the Manual Test Case doc + APK are available.
 
+## Phase 6 notes
+
+- **`appium:permissions` capability swap - investigated, decided against changing it.** `appium.fixture.ts`'s own existing comment documents that `appium:autoGrantPermissions: true` was already tried and found unreliable for this app specifically - the camera permission prompt still surfaced after a fresh `pm clear`, blocking the WebView underneath. The adb `pm grant` loop is the fallback that was built *because* the capability-based approach failed in practice. `appium:autoGrantPermissions` is already set in the fixture's capabilities today (it just isn't sufficient alone). There's no emulator/device available in this environment to test whether the more targeted `appium:permissions` capability (pre-granting specific permissions before session start, a different mechanism than `autoGrantPermissions`) behaves any better - swapping proven, hard-won-reliable infrastructure for an unverified alternative on a guess would be a real regression risk. Left as-is.
+- **Fragile xpath re-verification** - genuinely needs a live device/APK to check locators against the real app; this isn't something that can be resolved by reading code. Rides along with the same upcoming step as the deferred spec-file work (see project memory) - both need real device access, not a separate task.
+- **`draw_gestures.py` usage** - still unresolved; the user is checking whether `draw_letter_a` is actually called from any RF keyword (e.g. the signature-capture step in `coffee_keywords.robot`) or is an orphaned/experimental file. `CoffeeServiceScreen.performDelivery()`'s signature step currently just taps the signature pad twice (matching what's actually in `coffee_keywords.robot`) - if `draw_gestures.py` turns out to be wired in elsewhere, that step should be rebuilt on `BaseScreen.tapAt()`'s W3C pointer actions rather than the deprecated `TouchAction` API `draw_gestures.py` uses.
+
 ## Open items to verify before trusting
 
-- Does `draw_gestures.py`'s `draw_letter_a` actually get invoked anywhere, or is it an orphaned experiment?
-- Re-capture the fragile absolute-xpath locators listed above against the current build before wiring them into new TS screens.
-- Confirm whether `appium:permissions` + `autoGrantPermissions` capabilities (RF's approach) can replace the current adb-loop permission-granting in `appium.fixture.ts` — would remove ~15 lines of shell-out code if it works.
+- `draw_gestures.py` usage - see Phase 6 notes above.
+- Re-capture the fragile absolute-xpath locators listed above against the current build before wiring them into new TS screens - blocked on device/APK access.
+- ~~Confirm whether `appium:permissions` + `autoGrantPermissions` capabilities (RF's approach) can replace the current adb-loop permission-granting in `appium.fixture.ts`~~ **Resolved (Phase 6)**: not changing it - `autoGrantPermissions` was already tried in this exact fixture and found unreliable for this app; see Phase 6 notes.
 - ~~`BaseScreen.swipeAndDelete`'s delete-icon xpath suffix is an unconfirmed placeholder~~ **Resolved**: confirmed against the untruncated `common_keywords.robot` source as `/android.widget.Button` - matches what was already in place.
