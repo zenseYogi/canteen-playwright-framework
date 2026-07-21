@@ -82,9 +82,8 @@ async searchAndSelect(searchFieldSelector: string, value: string, position?: num
 
 // Swipe-to-delete, mode 1: locator is already known (transfers.robot, truck_stock_route_inventory.robot).
 // Computes the delete-icon locator internally by appending a fixed xpath
-// suffix to rowSelector, matching RF's own keyword shape - but the exact
-// suffix was truncated in the source we received, so this is an unconfirmed
-// placeholder (see Phase 4 notes and Open items below).
+// suffix (/android.widget.Button) to rowSelector, matching RF's own keyword
+// shape exactly.
 async swipeAndDelete(rowSelector: string): Promise<void>
 
 // Swipe-to-delete, mode 2: resolve the row by matching an attribute against
@@ -162,7 +161,7 @@ Tag-based filtering (`run_tests.py`'s `--include`/`--exclude`) maps to Playwrigh
 
 ## Phase 4 notes
 
-- **Corrected `BaseScreen.swipeAndDelete`'s signature from Phase 1**: RF's real `Swipe Left and click on the delete button` keyword only takes the row locator + a value to substitute into it - it derives the delete-icon locator *internally* by appending a fixed xpath suffix to that same row locator, rather than taking the icon as a separate argument. Phase 1's two-argument version didn't match this; changed to one argument (`swipeAndDelete(rowSelector)`), matching RF's real shape. The suffix itself is still an unconfirmed placeholder - see Open items.
+- **Corrected `BaseScreen.swipeAndDelete`'s signature from Phase 1**: RF's real `Swipe Left and click on the delete button` keyword only takes the row locator + a value to substitute into it - it derives the delete-icon locator *internally* by appending a fixed xpath suffix (`/android.widget.Button`, confirmed from the untruncated source) to that same row locator, rather than taking the icon as a separate argument. Phase 1's two-argument version didn't match this; changed to one argument (`swipeAndDelete(rowSelector)`), matching RF's real shape exactly.
 - Hoisted three more genuinely-shared pieces to `BaseScreen` once a third consumer appeared: `lobTabSelector(lob)` (coffee/market/vending tab locators - now used by Truck Returns, Transfers, and Route Inventory), `navMenuTruckStockCollapsed` (Truck Returns, Route Inventory, Route Shopping all expand the same collapsible nav group), and `recordByHint(name)` (the `EditText[contains(@hint,...)]` template - identical across `transfers.yaml` and `truck_stock.yaml` under three different names).
 - **Two genuinely different user journeys, kept as two methods, not one parameterized flow**: Transfers' "Add a product" (creates a brand-new route/warehouse transfer via `add_product_button` + route selection, reading the target route's `content-desc` dynamically) and "Edit and Add a product" (adds to an already-existing route/warehouse by clicking its row directly, using a hardcoded route label) are different flows in the RF source, not a parameter difference - ported as `addProduct()` and `editAndAddProduct()`.
 - RF's single-add keywords targeted "Route 001" while its bulk-add keywords targeted "Route 002" for the exact same routeToRoute flow - preserved as a `routeNumber` parameter (default 1) on `TransfersScreen.addProduct()` rather than hardcoded, so the difference is a call-site choice, not two code paths.
@@ -174,4 +173,4 @@ Tag-based filtering (`run_tests.py`'s `--include`/`--exclude`) maps to Playwrigh
 - Does `draw_gestures.py`'s `draw_letter_a` actually get invoked anywhere, or is it an orphaned experiment?
 - Re-capture the fragile absolute-xpath locators listed above against the current build before wiring them into new TS screens.
 - Confirm whether `appium:permissions` + `autoGrantPermissions` capabilities (RF's approach) can replace the current adb-loop permission-granting in `appium.fixture.ts` — would remove ~15 lines of shell-out code if it works.
-- **`BaseScreen.swipeAndDelete`'s delete-icon xpath suffix is an unconfirmed placeholder** (`${rowSelector}/android.widget.Button`) - the real RF value was truncated in the source shared with us (cut off mid-string as `/androi...`). Every delete flow that uses `swipeAndDelete` (Transfers' `editAndDeleteProduct`/`deleteRoute`, Route Inventory's `deleteProduct`) needs this confirmed against the real app before it can be trusted. `swipeAndDeleteByLabel` (Truck Returns) is unaffected - it was built from complete, untruncated source.
+- ~~`BaseScreen.swipeAndDelete`'s delete-icon xpath suffix is an unconfirmed placeholder~~ **Resolved**: confirmed against the untruncated `common_keywords.robot` source as `/android.widget.Button` - matches what was already in place.

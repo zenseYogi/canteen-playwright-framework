@@ -303,11 +303,8 @@ export class BaseScreen {
    *
    * Ported from common_keywords.robot's "Swipe Left and click on the delete
    * button", which derives its delete-icon locator internally by appending a
-   * fixed xpath suffix to the same row locator, rather than taking it as a
-   * separate argument - matched here. NOTE: the exact suffix was truncated
-   * in the source we received (cut off mid-string as "/androi..."). This is
-   * a best-effort placeholder, NOT confirmed against the real app - verify
-   * before relying on any delete flow that calls this.
+   * fixed xpath suffix (`/android.widget.Button`) to the same row locator,
+   * rather than taking it as a separate argument - matched exactly here.
    */
   async swipeAndDelete(rowSelector: string): Promise<void> {
     const row = await this.driver.$(rowSelector);
