@@ -8,7 +8,7 @@ type MobileFixtures = {
 };
 
 export const test = base.extend<MobileFixtures>({
-  driver: async ({}, use) => {
+  driver: async ({}, use, testInfo) => {
     const appId = mobileConfig.capabilities['appium:appPackage'];
     const deviceName = mobileConfig.capabilities['appium:deviceName'];
 
@@ -110,6 +110,22 @@ export const test = base.extend<MobileFixtures>({
     }
 
     await use(driver);
+
+    // Ported equivalent of custom_listener.py's end_test hook (RF's
+    // AppiumLibrary capture_page_screenshot on FAIL, embedded in the HTML
+    // report). Playwright's own `screenshot`/`trace` config options only
+    // apply to a Playwright-launched browser `page`, which this project
+    // never creates - the driver here is a standalone WebdriverIO/Appium
+    // session, so the failure artifact has to be captured from it directly.
+    if (testInfo.status !== testInfo.expectedStatus) {
+      try {
+        const screenshotPath = testInfo.outputPath('failure.png');
+        await driver.saveScreenshot(screenshotPath);
+        await testInfo.attach('failure-screenshot', { path: screenshotPath, contentType: 'image/png' });
+      } catch (e) {
+        console.warn('Could not capture failure screenshot:', e);
+      }
+    }
 
     await driver.deleteSession();
   }

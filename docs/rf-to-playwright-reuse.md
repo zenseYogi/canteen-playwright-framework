@@ -10,6 +10,17 @@ Source: the existing "Mobile Automation" Robot Framework + AppiumLibrary suite
 driver as this Playwright framework — reuse is about carrying over locators
 and flow logic, not reinterpreting a different stack.
 
+## Progress tracker
+
+| # | Phase | Key deliverables | Status |
+|---|---|---|---|
+| 1 | Foundational helpers | `BaseScreen` additions (`navigateTo`, `searchAndSelect`, `selectAllCheckboxes`, `swipe`, `swipeAndDelete`, `swipeAndDeleteByLabel`, `capturePhoto`, `scrollDown`), `utils/position.ts`, failure-screenshot capture in `appium.fixture.ts` | Done |
+| 2 | Port RF's currently-active coverage | Dashboard-loaded check; Truck Returns open/add/delete for Coffee | Not started |
+| 3 | LOB service flows | `lob-service.screen.ts` base + `coffee.screen.ts` / `market.screen.ts` / `vending.screen.ts` | Not started |
+| 4 | Transfers + Route Inventory + Route Shopping | `transfers.screen.ts`, `truck-stock-route-inventory.screen.ts`, `truck-stock-route-shopping.screen.ts` | Not started |
+| 5 | Prep Tasks | `prep-tasks.screen.ts` | Not started |
+| 6 | Open items / cleanup | Resolve `draw_gestures.py` usage question; re-verify fragile xpaths; try `appium:permissions` capability swap | Not started |
+
 ## TL;DR
 
 - The RF suite is a mature **keyword library + locator repository**, not a
@@ -107,18 +118,13 @@ export function positionToIndex(position: 'first' | 'second' | 'third' | 'fourth
 | `test.robot`, `run_tests.py`, `custom_listener.py` | `tests/mobile/*.spec.ts` + `playwright.config.ts` `use` block | Port only the RF test cases that are actually active (see below); the rest are unproven and need fresh validation, not translation |
 | `draw_gestures.py` | **open question** — see below | Not obviously called by any active keyword; confirm before deciding whether to port |
 
-## Tooling parity — one small config change
+## Tooling parity — implemented in the fixture, not config
 
-`playwright.config.ts` currently has no `use` block. Add:
+**Correction from the original plan**: `playwright.config.ts`'s `screenshot`/`trace` options only apply to a Playwright-launched browser `page` — this project never creates one (`driver` is a standalone WebdriverIO/Appium session), so that config would have been a silent no-op. Verified via `grep` that no spec or fixture touches `page`.
 
-```ts
-use: {
-  screenshot: 'only-on-failure',
-  trace: 'retain-on-failure',
-}
-```
+The actual working equivalent of `custom_listener.py`'s `end_test` hook (capture + embed a screenshot on FAIL) now lives in [fixtures/appium.fixture.ts](fixtures/appium.fixture.ts): the `driver` fixture takes `testInfo` as its third argument, and after `use(driver)` resolves, checks `testInfo.status !== testInfo.expectedStatus` — if so, it calls `driver.saveScreenshot()` and `testInfo.attach()` so the image shows up in the HTML report, same as RF's listener did via AppiumLibrary's `capture_page_screenshot`.
 
-This directly supersedes `custom_listener.py`'s failure-screenshot behavior (and captures more — a full action timeline, not a single image). Tag-based filtering (`run_tests.py`'s `--include`/`--exclude`) maps to Playwright's `--grep`/`--grep-invert` — no code needed, just CLI usage.
+Tag-based filtering (`run_tests.py`'s `--include`/`--exclude`) maps to Playwright's `--grep`/`--grep-invert` — no code needed, just CLI usage.
 
 ## Suggested sequencing
 

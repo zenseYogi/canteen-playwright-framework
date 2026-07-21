@@ -5,6 +5,31 @@ import { mobileConfig } from '../config/mobile.config';
 export class BaseScreen {
   constructor(protected driver: Browser) {}
 
+  // Shared, app-wide locators ported from the Robot Framework suite's
+  // common.yaml / navigation_menu.yaml - identical across every screen there,
+  // so they belong here once rather than redeclared per screen.
+  protected readonly hamburgerIcon = '~Open navigation menu';
+  protected readonly doneButton = '~Done';
+  protected readonly continueButton = '~Continue';
+  protected readonly skipButton = '~Skip';
+  protected readonly saveButton = '~Save';
+  protected readonly deleteButton = '~Delete';
+  protected readonly yesButton = '~Yes';
+  protected readonly addProductButton = '~section_header_add_cta';
+  protected readonly takePhotoButton = '~Take photo';
+  protected readonly attachPhotoButton = '~Attach Photo';
+  // Generic EditText/ScrollView with no content-desc/resource-id of their own -
+  // must stay xpath, no accessibility-id shorthand available for these.
+  protected readonly searchField = '//android.widget.EditText';
+  protected readonly searchList = '//android.widget.ScrollView/android.view.View/android.view.View';
+  protected readonly cameraPermissionAllowButton =
+    '//android.widget.Button[@resource-id="com.android.permissioncontroller:id/permission_allow_foreground_only_button"]';
+  // FRAGILE: deeply nested structural path with no stable identifier, ported
+  // as-is from common.yaml. Re-verify against the current build before
+  // relying on it - see docs/rf-to-playwright-reuse.md.
+  protected readonly capturePhotoButton =
+    '//android.widget.FrameLayout[@resource-id="android:id/content"]/android.widget.FrameLayout/android.view.View/android.view.View/android.view.View/android.view.View/android.view.View';
+
   /**
    * Switches the session into the app's WebView context so that WebView-rendered
    * screens (e.g. the Login screen, which is an SSO page, not native Flutter) can
@@ -158,5 +183,156 @@ export class BaseScreen {
     // any space in the text must be escaped as %s.
     const escaped = String(text).replace(/ /g, '%s');
     execSync(`adb -s ${deviceName} shell input text "${escaped}"`);
+  }
+
+  /**
+   * Opens the hamburger nav menu, taps the given menu item, and waits for
+   * the destination screen's title to appear. Ported from the identical
+   * hamburger -> nav item -> wait-for-title preamble duplicated at the top
+   * of nearly every keyword in prep_task_keywords.robot, transfers.robot,
+   * and both truck_stock_*.robot files.
+   */
+  async navigateTo(menuItemSelector: string, expectedTitleSelector: string): Promise<void> {
+    await this.tap(this.hamburgerIcon);
+    await this.waitFor(menuItemSelector);
+    await this.tap(menuItemSelector);
+    await this.waitFor(expectedTitleSelector);
+  }
+
+  /**
+   * Types into the shared search field, resolves the option at `position`
+   * (0-based, so 0 = first result - matches nearly every RF call site) from
+   * the shared search results list, clicks it, and returns its display name
+   * (the content-desc up to the first "-", trimmed) the way RF's
+   * "Search for X and click on the Nth record" keyword did via
+   * Get Element Attribute + Split String + Strip String.
+   */
+  async searchAndSelect(value: string, position = 0): Promise<string> {
+    await this.tap(this.searchField);
+    const field = await this.driver.$(this.searchField);
+    await field.clearValue();
+    await this.driver.pause(1000);
+    await field.setValue(value);
+    await this.driver.pause(2000);
+    const options = await this.driver.$$(this.searchList);
+    const option = options[position];
+    await option.waitForDisplayed({ timeout: mobileConfig.timeouts.element });
+    const fullName = (await option.getAttribute('content-desc')) ?? '';
+    const name = fullName.split('-')[0].trim();
+    await option.click();
+    return name;
+  }
+
+  /** Selects every checkbox currently matched by `selector`. */
+  async selectAllCheckboxes(selector: string): Promise<void> {
+    const elements = await this.driver.$$(selector);
+    for (const el of elements) {
+      await el.click();
+    }
+  }
+
+  /** Straight-line swipe via the W3C pointer Actions API (same primitive `tapAt` uses, extended with a move). */
+  async swipe(startX: number, startY: number, endX: number, endY: number): Promise<void> {
+    await this.driver
+      .action('pointer', { parameters: { pointerType: 'touch' } })
+      .move({ x: startX, y: startY })
+      .down()
+      .pause(100)
+      .move({ duration: 300, x: endX, y: endY })
+      .up()
+      .perform();
+  }
+
+  /**
+   * Swipe-left-to-reveal-delete when the row's locator is already known
+   * (transfers.robot / truck_stock_route_inventory.robot). Computes the
+   * swipe path from the row's own location/size, same as RF's
+   * Get Element Location + Get Element Size + Swipe.
+   */
+  async swipeAndDelete(rowSelector: string, deleteIconSelector: string): Promise<void> {
+    const row = await this.driver.$(rowSelector);
+    await row.waitForExist({ timeout: mobileConfig.timeouts.element });
+    const loc = await row.getLocation();
+    const size = await row.getSize();
+    await this.swipe(loc.x + size.width - 10, loc.y + size.height / 2, loc.x + 10, loc.y + size.height / 2);
+    await this.tap(deleteIconSelector);
+    await this.tap(this.deleteButton);
+  }
+
+  /**
+   * Swipe-left-to-reveal-delete when the row must first be found by
+   * matching `label` against each element's `hint` attribute (ported from
+   * truck_stock_truck_returns.robot's "Truck Returns swipe Left and click on
+   * the delete button"). `deleteIconSelector` receives the matched index so
+   * callers can build the sibling delete-icon locator from it.
+   *
+   * NOTE: the RF source computed the match index correctly but then never
+   * used it - after the FOR ENUMERATE loop it built the delete-icon xpath
+   * from the loop variable's leftover value (the *last* index iterated),
+   * not the matched one. That only happened to work when the target was
+   * the last item in the list. This port uses the actual matched index.
+   */
+  async swipeAndDeleteByLabel(
+    listSelector: string,
+    label: string,
+    deleteIconSelector: (index: number) => string
+  ): Promise<void> {
+    const elements = await this.driver.$$(listSelector);
+    const count = await elements.length;
+    let matchIndex = -1;
+    for (let i = 0; i < count; i++) {
+      const hint = await elements[i].getAttribute('hint');
+      if (hint && label.includes(hint)) {
+        matchIndex = i;
+        break;
+      }
+    }
+    if (matchIndex === -1) {
+      throw new Error(`No element under "${listSelector}" with a hint matching "${label}"`);
+    }
+    const row = elements[matchIndex];
+    const loc = await row.getLocation();
+    const size = await row.getSize();
+    await this.swipe(loc.x + size.width - 10, loc.y + size.height / 2, loc.x + 10, loc.y + size.height / 2);
+    await this.tap(deleteIconSelector(matchIndex));
+    await this.tap(this.deleteButton);
+  }
+
+  /**
+   * Taps a before/after-photo trigger, handles the optional first-run camera
+   * permission dialog, then walks take -> capture -> attach. Ported from
+   * common_keywords.robot's "Take before photo" / "Take After photo", which
+   * used Run Keyword And Return Status to make the permission dialog
+   * optional (it only appears on a fresh app install).
+   */
+  async capturePhoto(triggerSelector: string): Promise<void> {
+    await this.tap(triggerSelector);
+    if (await this.isVisible(this.cameraPermissionAllowButton)) {
+      await this.tap(this.cameraPermissionAllowButton);
+    }
+    await this.tap(this.takePhotoButton);
+    await this.tap(this.capturePhotoButton);
+    await this.tap(this.attachPhotoButton);
+  }
+
+  /**
+   * Scrolls the screen down via Appium's `mobile: scrollGesture` extension -
+   * same call common_keywords.robot made through
+   * `Call Method ${driver} execute_script mobile: scrollGesture ${args}`.
+   * The RF source's `percent` value was cut off in the copy we received;
+   * defaulting to 1.0 (a full-strength scroll) until confirmed against the
+   * real device.
+   */
+  async scrollDown(opts: { left?: number; top?: number; width?: number; height?: number; percent?: number } = {}): Promise<void> {
+    await this.driver.executeScript('mobile: scrollGesture', [
+      {
+        left: opts.left ?? 100,
+        top: opts.top ?? 100,
+        width: opts.width ?? 300,
+        height: opts.height ?? 600,
+        direction: 'down',
+        percent: opts.percent ?? 1.0
+      }
+    ]);
   }
 }
