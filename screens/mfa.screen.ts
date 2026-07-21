@@ -11,13 +11,11 @@ import { BaseScreen } from './base.screen';
  * Rajesh) - at that point login should complete without ever reaching this screen.
  */
 export class MfaScreen extends BaseScreen {
-  private readonly homeScreenAnchor = '//*[@content-desc="Open navigation menu"]';
-
   /**
    * @param timeoutMs how long to wait for manual approval before failing. Default 2 minutes.
    */
   async waitForManualApproval(timeoutMs = 120_000): Promise<void> {
-    const el = await this.driver.$(this.homeScreenAnchor);
+    const el = await this.driver.$(this.hamburgerIcon);
     await el.waitForDisplayed({ timeout: timeoutMs, interval: 2000 });
   }
 }

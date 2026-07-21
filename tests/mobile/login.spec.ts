@@ -1,4 +1,4 @@
-import { test, expect } from '../../fixtures/appium.fixture';
+import { test } from '../../fixtures/appium.fixture';
 import { LoginScreen } from '../../screens/login.screen';
 import { PasswordScreen } from '../../screens/password.screen';
 import { MfaScreen } from '../../screens/mfa.screen';
@@ -29,8 +29,12 @@ test.describe('Login', () => {
       await mfaScreen.waitForManualApproval();
     });
 
-    await test.step('Verify Home screen is loaded', async () => {
-      expect(await homeScreen.isLoaded()).toBe(true);
+    // Ported from dashboard_keywords.robot's "Validate user is on the dashboard
+    // page" (test.robot's "Validate user is able to open the app") - RF ran this
+    // as its own test case against an already-authenticated session; here it's
+    // the natural final assertion of the one flow that actually reaches Dashboard.
+    await test.step('Verify dashboard is loaded', async () => {
+      await homeScreen.waitForDashboardLoaded();
     });
   });
 });

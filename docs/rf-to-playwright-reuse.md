@@ -15,7 +15,7 @@ and flow logic, not reinterpreting a different stack.
 | # | Phase | Key deliverables | Status |
 |---|---|---|---|
 | 1 | Foundational helpers | `BaseScreen` additions (`navigateTo`, `searchAndSelect`, `selectAllCheckboxes`, `swipe`, `swipeAndDelete`, `swipeAndDeleteByLabel`, `capturePhoto`, `scrollDown`), `utils/position.ts`, failure-screenshot capture in `appium.fixture.ts` | Done |
-| 2 | Port RF's currently-active coverage | Dashboard-loaded check; Truck Returns open/add/delete for Coffee | Not started |
+| 2 | Port RF's currently-active coverage | Dashboard-loaded check (folded into login.spec.ts); Truck Returns open/add/delete for Coffee (`truck-stock-truck-returns.spec.ts`) | Done |
 | 3 | LOB service flows | `lob-service.screen.ts` base + `coffee.screen.ts` / `market.screen.ts` / `vending.screen.ts` | Not started |
 | 4 | Transfers + Route Inventory + Route Shopping | `transfers.screen.ts`, `truck-stock-route-inventory.screen.ts`, `truck-stock-route-shopping.screen.ts` | Not started |
 | 5 | Prep Tasks | `prep-tasks.screen.ts` | Not started |
@@ -134,6 +134,14 @@ Tag-based filtering (`run_tests.py`'s `--include`/`--exclude`) maps to Playwrigh
 4. **Transfers + Route Inventory + Route Shopping** — the largest duplication payoff from parameterization; do these together since they share `searchAndSelect`/`swipeAndDelete` patterns most heavily.
 5. **Prep Tasks** — the multi-screen sequential flow, once the navigation/skip/complete helpers are solid.
 6. **Resolve the `draw_gestures.py` question** — confirm with whoever owns the RF suite whether it's wired into a live signature-capture step; if so, rebuild it on `BaseScreen.tapAt()`'s W3C pointer actions rather than porting the deprecated `TouchAction` API.
+
+## Phase 2 notes
+
+- **Architecture mismatch found**: RF's `test.robot` never automates Login at all — `Suite Setup` just launches the app and its dashboard-check test case assumes an already-authenticated session. This Playwright fixture instead does `pm clear` before every single test, so Dashboard/Truck Returns/etc. are only reachable after the full Login -> Password -> manual-MFA-approval flow. Rather than duplicate that flow in a new file just to re-assert something `login.spec.ts` already proves, the RF-faithful check (`HomeScreen.waitForDashboardLoaded()`, using `dashboard.yaml`'s `title_deliveries` locator) was folded into `login.spec.ts`'s existing final step.
+- Added `utils/login-flow.ts` (`loginAndWaitForMfa(driver)`) so every future phase's spec can reach an authenticated state without re-duplicating the 5-step preamble. `login.spec.ts` itself was left untouched otherwise (still has its own inline `test.step()`s) to avoid touching an already-working test.
+- RF's three active Truck Returns test cases (open / add / delete) were consolidated into one Playwright test with `test.step()`s per action, rather than three separate tests each repeating the login+MFA-wait preamble — MFA's manual-approval wait is expensive enough that 3x repetition per run isn't practical.
+- Deduped two more instances of the hamburger-icon locator that surfaced while implementing this phase: `HomeScreen`'s old `navMenuButton` and `MfaScreen`'s `homeScreenAnchor` were both identical to `BaseScreen.hamburgerIcon` - both now reuse the inherited constant.
+- RF's own add/delete keywords for Truck Returns > Coffee used different search terms ("co" vs "man") for what should be the same kind of lookup - an inconsistency in the source, not a real distinction. The port uses one consistent term.
 
 ## Open items to verify before trusting
 
