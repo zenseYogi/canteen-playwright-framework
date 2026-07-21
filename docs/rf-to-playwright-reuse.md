@@ -16,8 +16,8 @@ and flow logic, not reinterpreting a different stack.
 |---|---|---|---|
 | 1 | Foundational helpers | `BaseScreen` additions (`navigateTo`, `searchAndSelect`, `selectAllCheckboxes`, `swipe`, `swipeAndDelete`, `swipeAndDeleteByLabel`, `capturePhoto`, `scrollDown`), `utils/position.ts`, failure-screenshot capture in `appium.fixture.ts` | Done |
 | 2 | Port RF's currently-active coverage | Dashboard-loaded check (folded into login.spec.ts); Truck Returns open/add/delete for Coffee (`truck-stock-truck-returns.spec.ts`) | Done |
-| 3 | LOB service flows | `dashboard.screen.ts`, `coffee-service.screen.ts`, `market-service.screen.ts`, `vending-service.screen.ts` (no shared `lob-service.screen.ts` base - see Phase 3 notes) | Screen classes done; spec test pending a decision |
-| 4 | Transfers + Route Inventory + Route Shopping | `transfers.screen.ts`, `truck-stock-route-inventory.screen.ts`, `truck-stock-route-shopping.screen.ts` | Not started |
+| 3 | LOB service flows | `dashboard.screen.ts`, `coffee-service.screen.ts`, `market-service.screen.ts`, `vending-service.screen.ts` (no shared `lob-service.screen.ts` base - see Phase 3 notes) | Screen classes done; spec test deferred (see Phase 3 notes) |
+| 4 | Transfers + Route Inventory + Route Shopping | `transfers.screen.ts`, `truck-stock-route-inventory.screen.ts`, `truck-stock-route-shopping.screen.ts` | Screen classes done; spec test pending a decision |
 | 5 | Prep Tasks | `prep-tasks.screen.ts` | Not started |
 | 6 | Open items / cleanup | Resolve `draw_gestures.py` usage question; re-verify fragile xpaths; try `appium:permissions` capability swap | Not started |
 
@@ -53,8 +53,12 @@ and flow logic, not reinterpreting a different stack.
 
 **Duplicate/colliding names across RF variable files** — dedupe these into one shared source when porting:
 - `coffee_tab` / `market_tab` / `vending_tab` declared identically in both `transfers.yaml` and `truck_stock.yaml`.
-- `back_button` (`common.yaml`), `prep_task_sub_options_screen_back_button` (`prep_tasks.yaml`), `transfer_to_screen_back_button` (`transfers.yaml`) all resolve to the same generic frame-based back button.
+- `back_button` (`common.yaml`) and `prep_task_sub_options_screen_back_button` (`prep_tasks.yaml`) resolve to the same deep, fragile frame-based xpath.
+  **Correction (found during Phase 4)**: `transfer_to_screen_back_button` (`transfers.yaml`) is NOT the same locator despite the similar name/purpose - it's a bare, generic `//android.widget.Button` (matches the first Button on screen), not the fragile deep path. This doc originally lumped all three together; only the first two are actual duplicates.
 - `signing_order_title` is declared twice within `coffee.yaml` itself.
+- `route_to_click_on_to_modify` and `route_to_warehouse_to_delete` (`transfers.yaml`) are the exact same xpath under two names.
+- `record_to_delete_xpath` (`transfers.yaml`) and `route_inventory_record_to_delete_xpath` (`truck_stock.yaml`) are the exact same xpath under two names - collapsed into `BaseScreen.recordByHint()`.
+- `edit_record_added_product` (`truck_stock.yaml`) is that same xpath shape again, under a third name.
 
 **Fragile, structurally-absolute xpaths** — no semantic anchor, break on any layout change, several have commented-out prior versions in the YAML already (evidence they've broken and been recalibrated before). Re-verify against the current build before trusting; don't port on faith:
 - `capture_photo_button`, `back_button`/its aliases, `delivery_location_list`, `delivery_location`, `add_product_damaged_field`, `truck_returns_delete_product_icon`, `bag_code`/`market_replenishment_*`/`market_refund_textfield` (positional `EditText[n]` with no other anchor).
@@ -76,7 +80,11 @@ async navigateTo(menuItemSelector: string, expectedTitleSelector: string): Promi
 // truck_stock files identically ("Search for X and click on the Nth record").
 async searchAndSelect(searchFieldSelector: string, value: string, position?: number): Promise<string>
 
-// Swipe-to-delete, mode 1: locator is already known (transfers.robot, truck_stock_route_inventory.robot)
+// Swipe-to-delete, mode 1: locator is already known (transfers.robot, truck_stock_route_inventory.robot).
+// Computes the delete-icon locator internally by appending a fixed xpath
+// suffix to rowSelector, matching RF's own keyword shape - but the exact
+// suffix was truncated in the source we received, so this is an unconfirmed
+// placeholder (see Phase 4 notes and Open items below).
 async swipeAndDelete(rowSelector: string): Promise<void>
 
 // Swipe-to-delete, mode 2: resolve the row by matching an attribute against
@@ -107,7 +115,7 @@ export function positionToIndex(position: 'first' | 'second' | 'third' | 'fourth
 | `main_keywords.robot` | [fixtures/appium.fixture.ts](fixtures/appium.fixture.ts) + [config/mobile.config.ts](config/mobile.config.ts) — already exist | Consider adopting RF's `appium:permissions` capability instead of the current adb-loop workaround |
 | `common_keywords.robot` | `BaseScreen` additions above + `utils/position.ts` | Highest-leverage file — everything else depends on these |
 | `dashboard_keywords.robot` | new `screens/dashboard.screen.ts` | Location list + LOB click; complements existing `HomeScreen` |
-| `coffee_keywords.robot`, `market_keywords.robot`, `vending_keywords.robot` | new `screens/lob-service.screen.ts` (shared base: `clickServiceLocation`, `performMoneyOperations`, `performDelivery`, `performRemovalsAndReturns`, `performAudit`, `performEquipmentAudit`, `completeService`) + thin `coffee.screen.ts` / `market.screen.ts` / `vending.screen.ts` subclasses supplying only the differing locators | Nearly identical shape across all three RF files — one base class, not three copies |
+| `coffee_keywords.robot`, `market_keywords.robot`, `vending_keywords.robot` | `screens/coffee-service.screen.ts`, `screens/market-service.screen.ts`, `screens/vending-service.screen.ts` - three separate classes, **not** a shared base (see Phase 3 notes: the three flows diverge too much in shape) | `BaseScreen.selectServiceLocation()` covers the one piece that genuinely was identical (click the Nth service location under a LOB tab) |
 | `prep_task_keywords.robot` | new `screens/prep-tasks.screen.ts` | Skip/Complete are identical shape across Money Ops/Additional Prep/Checks sub-screens — one parameterized method, not six |
 | `transfers.robot` | new `screens/transfers.screen.ts` | `addProduct(lob, transferType, opts)`, `editAndDelete(...)`, `deleteRoute(...)` — collapses ~30 RF keywords into a handful of parameterized methods |
 | `truck_stock_route_inventory.robot` | new `screens/truck-stock-route-inventory.screen.ts` | Parameterize on `lob` × `'audit' \| 'cycle'` |
@@ -152,8 +160,18 @@ Tag-based filtering (`run_tests.py`'s `--include`/`--exclude`) maps to Playwrigh
 - Not reproduced: RF's `Perform Removals & Returns` keyword appended a stray literal `"zs"` to the theft-field value (`${theft value}zs`) - a paste-o, not intentional test data.
 - **No end-to-end spec test written yet for these three screens** - see below.
 
+## Phase 4 notes
+
+- **Corrected `BaseScreen.swipeAndDelete`'s signature from Phase 1**: RF's real `Swipe Left and click on the delete button` keyword only takes the row locator + a value to substitute into it - it derives the delete-icon locator *internally* by appending a fixed xpath suffix to that same row locator, rather than taking the icon as a separate argument. Phase 1's two-argument version didn't match this; changed to one argument (`swipeAndDelete(rowSelector)`), matching RF's real shape. The suffix itself is still an unconfirmed placeholder - see Open items.
+- Hoisted three more genuinely-shared pieces to `BaseScreen` once a third consumer appeared: `lobTabSelector(lob)` (coffee/market/vending tab locators - now used by Truck Returns, Transfers, and Route Inventory), `navMenuTruckStockCollapsed` (Truck Returns, Route Inventory, Route Shopping all expand the same collapsible nav group), and `recordByHint(name)` (the `EditText[contains(@hint,...)]` template - identical across `transfers.yaml` and `truck_stock.yaml` under three different names).
+- **Two genuinely different user journeys, kept as two methods, not one parameterized flow**: Transfers' "Add a product" (creates a brand-new route/warehouse transfer via `add_product_button` + route selection, reading the target route's `content-desc` dynamically) and "Edit and Add a product" (adds to an already-existing route/warehouse by clicking its row directly, using a hardcoded route label) are different flows in the RF source, not a parameter difference - ported as `addProduct()` and `editAndAddProduct()`.
+- RF's single-add keywords targeted "Route 001" while its bulk-add keywords targeted "Route 002" for the exact same routeToRoute flow - preserved as a `routeNumber` parameter (default 1) on `TransfersScreen.addProduct()` rather than hardcoded, so the difference is a call-site choice, not two code paths.
+- **Found another redundant-but-harmless RF pattern, not reproduced**: `truck_stock_route_inventory.robot`'s bulk-add keyword manually clicks/clears/types "can" into a scoped search field on every loop iteration, then immediately calls the shared search-and-select keyword which does the identical click/clear/type against what's very likely the same visible field. `TruckStockRouteInventoryScreen.addProduct()` just calls `searchAndSelect()` once per iteration.
+- **No end-to-end spec test written yet for Transfers/Route Inventory/Route Shopping** - unlike Phase 3, the underlying keyword logic here is internally consistent (no stub methods, no inconsistent partial drafts), it's specifically the `test.robot` wiring that's commented out for all of it. Held off pending the same kind of decision as Phase 3.
+
 ## Open items to verify before trusting
 
 - Does `draw_gestures.py`'s `draw_letter_a` actually get invoked anywhere, or is it an orphaned experiment?
 - Re-capture the fragile absolute-xpath locators listed above against the current build before wiring them into new TS screens.
 - Confirm whether `appium:permissions` + `autoGrantPermissions` capabilities (RF's approach) can replace the current adb-loop permission-granting in `appium.fixture.ts` — would remove ~15 lines of shell-out code if it works.
+- **`BaseScreen.swipeAndDelete`'s delete-icon xpath suffix is an unconfirmed placeholder** (`${rowSelector}/android.widget.Button`) - the real RF value was truncated in the source shared with us (cut off mid-string as `/androi...`). Every delete flow that uses `swipeAndDelete` (Transfers' `editAndDeleteProduct`/`deleteRoute`, Route Inventory's `deleteProduct`) needs this confirmed against the real app before it can be trusted. `swipeAndDeleteByLabel` (Truck Returns) is unaffected - it was built from complete, untruncated source.

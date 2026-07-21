@@ -1,7 +1,6 @@
 import { BaseScreen } from './base.screen';
 import { positionToIndex, type Position } from '../utils/position';
-
-export type Lob = 'coffee' | 'market' | 'vending';
+import type { Lob } from '../utils/lob';
 
 /**
  * Dashboard / location-selection screen. Ported from dashboard_keywords.robot.

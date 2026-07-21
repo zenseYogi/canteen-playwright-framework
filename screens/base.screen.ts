@@ -2,6 +2,7 @@ import { execSync } from 'child_process';
 import type { Browser } from 'webdriverio';
 import { mobileConfig } from '../config/mobile.config';
 import { positionToIndex, type Position } from '../utils/position';
+import type { Lob } from '../utils/lob';
 
 export class BaseScreen {
   constructor(protected driver: Browser) {}
@@ -41,6 +42,40 @@ export class BaseScreen {
   // common.yaml's "delivery" trigger - identical usage in both
   // coffee_keywords.robot and market_keywords.robot.
   protected readonly deliveryTrigger = '//android.view.View[starts-with(@content-desc,"Delivery")]';
+  // Declared identically in both transfers.yaml and truck_stock.yaml - used
+  // by TruckStockTruckReturnsScreen, TransfersScreen, and
+  // TruckStockRouteInventoryScreen alike.
+  protected readonly coffeeTab = '//android.view.View[@content-desc="Coffee"]';
+  protected readonly marketTab = '//android.view.View[@content-desc="Market"]';
+  protected readonly vendingTab = '//android.view.View[@content-desc="Vending"]';
+  // FRAGILE: deeply nested structural path with no stable identifier, ported
+  // as-is from common.yaml. Re-verify against the current build. NOTE: this
+  // is NOT the same locator as transfers.yaml's transfer_to_screen_back_button
+  // (a bare, generic //android.widget.Button) despite the similar name and
+  // purpose - the original port-plan doc's hygiene section incorrectly
+  // treated them as duplicates; corrected there.
+  protected readonly backButton =
+    '//android.widget.FrameLayout[@resource-id="android:id/content"]/android.widget.FrameLayout/android.view.View/android.view.View/android.view.View/android.view.View/android.widget.Button[1]';
+
+  protected lobTabSelector(lob: Lob): string {
+    return { coffee: this.coffeeTab, market: this.marketTab, vending: this.vendingTab }[lob];
+  }
+
+  // navigation_menu.yaml's collapsible "Truck stock" group toggle - needed
+  // by TruckStockTruckReturnsScreen, TruckStockRouteInventoryScreen, and
+  // TruckStockRouteShoppingScreen alike to expand the group before its first
+  // navigation in a fresh session (see TruckStockTruckReturnsScreen's open()
+  // for why every Playwright test needs this, unlike RF's suite-shared session).
+  protected readonly navMenuTruckStockCollapsed = '//android.view.View[@content-desc="Truck stock, Collapsed"]';
+
+  /**
+   * `record_to_delete_xpath` / `route_inventory_record_to_delete_xpath` -
+   * declared identically (down to the xpath itself) in both transfers.yaml
+   * and truck_stock.yaml.
+   */
+  protected recordByHint(name: string): string {
+    return `//android.widget.EditText[contains(@hint,"${name}")]`;
+  }
   // FRAGILE: deeply nested structural path with no stable identifier, ported
   // as-is from common.yaml. Re-verify against the current build before
   // relying on it - see docs/rf-to-playwright-reuse.md.
@@ -265,14 +300,22 @@ export class BaseScreen {
    * (transfers.robot / truck_stock_route_inventory.robot). Computes the
    * swipe path from the row's own location/size, same as RF's
    * Get Element Location + Get Element Size + Swipe.
+   *
+   * Ported from common_keywords.robot's "Swipe Left and click on the delete
+   * button", which derives its delete-icon locator internally by appending a
+   * fixed xpath suffix to the same row locator, rather than taking it as a
+   * separate argument - matched here. NOTE: the exact suffix was truncated
+   * in the source we received (cut off mid-string as "/androi..."). This is
+   * a best-effort placeholder, NOT confirmed against the real app - verify
+   * before relying on any delete flow that calls this.
    */
-  async swipeAndDelete(rowSelector: string, deleteIconSelector: string): Promise<void> {
+  async swipeAndDelete(rowSelector: string): Promise<void> {
     const row = await this.driver.$(rowSelector);
     await row.waitForExist({ timeout: mobileConfig.timeouts.element });
     const loc = await row.getLocation();
     const size = await row.getSize();
     await this.swipe(loc.x + size.width - 10, loc.y + size.height / 2, loc.x + 10, loc.y + size.height / 2);
-    await this.tap(deleteIconSelector);
+    await this.tap(`${rowSelector}/android.widget.Button`);
     await this.tap(this.deleteButton);
   }
 

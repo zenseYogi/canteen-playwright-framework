@@ -1,6 +1,5 @@
 import { BaseScreen } from './base.screen';
-
-type Lob = 'coffee' | 'market' | 'vending';
+import type { Lob } from '../utils/lob';
 
 /**
  * Truck Stock > Truck returns. Ported from truck_stock_truck_returns.robot.
@@ -15,7 +14,6 @@ type Lob = 'coffee' | 'market' | 'vending';
  * `open()` here always does the full expand-then-navigate sequence.
  */
 export class TruckStockTruckReturnsScreen extends BaseScreen {
-  private readonly navMenuTruckStockCollapsed = '//android.view.View[@content-desc="Truck stock, Collapsed"]';
   // Both the nav menu button and the screen title share the content-desc
   // "Truck returns" - kept as distinct widget-typed xpaths (Button vs View)
   // rather than one `~Truck returns` accessibility-id lookup, since that
@@ -23,10 +21,6 @@ export class TruckStockTruckReturnsScreen extends BaseScreen {
   // hierarchy at the same time (e.g. a nav drawer that stays mounted while closed).
   private readonly navMenuTruckReturns = '//android.widget.Button[@content-desc="Truck returns"]';
   private readonly truckReturnsTitle = '//android.view.View[@content-desc="Truck returns"]';
-
-  private readonly coffeeTab = '//android.view.View[@content-desc="Coffee"]';
-  private readonly marketTab = '//android.view.View[@content-desc="Market"]';
-  private readonly vendingTab = '//android.view.View[@content-desc="Vending"]';
 
   private readonly addProductTitle = '//android.view.View[@content-desc="Add product"]';
   private readonly addProductDamagedField =
@@ -36,10 +30,6 @@ export class TruckStockTruckReturnsScreen extends BaseScreen {
   // 0-based matched array index from swipeAndDeleteByLabel needs +1 here.
   private readonly deleteIconAt = (index: number) =>
     `//android.widget.FrameLayout[@resource-id="android:id/content"]/android.widget.FrameLayout/android.view.View/android.view.View/android.view.View/android.view.View[5]/android.view.View/android.view.View[${index + 1}]/android.widget.Button`;
-
-  private tabSelector(lob: Lob): string {
-    return { coffee: this.coffeeTab, market: this.marketTab, vending: this.vendingTab }[lob];
-  }
 
   async open(): Promise<void> {
     await this.tap(this.hamburgerIcon);
@@ -53,7 +43,7 @@ export class TruckStockTruckReturnsScreen extends BaseScreen {
   /** Adds a product under the given LOB tab and returns its resolved name (feed straight into deleteProduct). */
   async addProduct(lob: Lob, searchTerm: string): Promise<string> {
     await this.open();
-    await this.tap(this.tabSelector(lob));
+    await this.tap(this.lobTabSelector(lob));
     await this.tap(this.addProductButton);
     const productName = await this.searchAndSelect(searchTerm);
     await this.waitFor(this.addProductTitle);
@@ -65,7 +55,7 @@ export class TruckStockTruckReturnsScreen extends BaseScreen {
   /** Deletes a previously-added product by its resolved name, matching RF's swipe-then-match-by-hint delete. */
   async deleteProduct(lob: Lob, productName: string): Promise<void> {
     await this.open();
-    await this.tap(this.tabSelector(lob));
+    await this.tap(this.lobTabSelector(lob));
     await this.swipeAndDeleteByLabel(this.addedProducts, productName, this.deleteIconAt);
   }
 }
