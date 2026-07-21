@@ -16,7 +16,7 @@ and flow logic, not reinterpreting a different stack.
 |---|---|---|---|
 | 1 | Foundational helpers | `BaseScreen` additions (`navigateTo`, `searchAndSelect`, `selectAllCheckboxes`, `swipe`, `swipeAndDelete`, `swipeAndDeleteByLabel`, `capturePhoto`, `scrollDown`), `utils/position.ts`, failure-screenshot capture in `appium.fixture.ts` | Done |
 | 2 | Port RF's currently-active coverage | Dashboard-loaded check (folded into login.spec.ts); Truck Returns open/add/delete for Coffee (`truck-stock-truck-returns.spec.ts`) | Done |
-| 3 | LOB service flows | `lob-service.screen.ts` base + `coffee.screen.ts` / `market.screen.ts` / `vending.screen.ts` | Not started |
+| 3 | LOB service flows | `dashboard.screen.ts`, `coffee-service.screen.ts`, `market-service.screen.ts`, `vending-service.screen.ts` (no shared `lob-service.screen.ts` base - see Phase 3 notes) | Screen classes done; spec test pending a decision |
 | 4 | Transfers + Route Inventory + Route Shopping | `transfers.screen.ts`, `truck-stock-route-inventory.screen.ts`, `truck-stock-route-shopping.screen.ts` | Not started |
 | 5 | Prep Tasks | `prep-tasks.screen.ts` | Not started |
 | 6 | Open items / cleanup | Resolve `draw_gestures.py` usage question; re-verify fragile xpaths; try `appium:permissions` capability swap | Not started |
@@ -142,6 +142,15 @@ Tag-based filtering (`run_tests.py`'s `--include`/`--exclude`) maps to Playwrigh
 - RF's three active Truck Returns test cases (open / add / delete) were consolidated into one Playwright test with `test.step()`s per action, rather than three separate tests each repeating the login+MFA-wait preamble — MFA's manual-approval wait is expensive enough that 3x repetition per run isn't practical.
 - Deduped two more instances of the hamburger-icon locator that surfaced while implementing this phase: `HomeScreen`'s old `navMenuButton` and `MfaScreen`'s `homeScreenAnchor` were both identical to `BaseScreen.hamburgerIcon` - both now reuse the inherited constant.
 - RF's own add/delete keywords for Truck Returns > Coffee used different search terms ("co" vs "man") for what should be the same kind of lookup - an inconsistency in the source, not a real distinction. The port uses one consistent term.
+
+## Phase 3 notes
+
+- **Corrected the plan doc's own assumption**: `coffee_keywords.robot` / `market_keywords.robot` / `vending_keywords.robot` are NOT parallel in shape the way Transfers/Route-Inventory are. Coffee's delivery flow includes full document-signing/signature capture; Market's "delivery" is just a wait-and-continue; Vending has no delivery step at all. Built three separate screen classes (`CoffeeServiceScreen`, `MarketServiceScreen`, `VendingServiceScreen`) instead of forcing a shared `lob-service.screen.ts` base. The one piece that genuinely was identical across all three LOB files - "click the Nth service location under a LOB tab" - became `BaseScreen.selectServiceLocation(lobIconSelector, position)`.
+- **Found RF's variable scoping is effectively suite-global, not per-file**: `market_keywords.robot`'s "Market Perform Money operations" keyword uses `${bag_code}`, `${market_replenishment_amount_coins_textfield}`, etc., none of which are declared in any yaml file `market_keywords.robot` itself imports - they live in `coffee.yaml`. This only works in RF because `test.robot` also loads `coffee_keywords.robot` in the same suite, making its variables globally visible by accident. Possibly this means Money Operations is a genuinely shared, LOB-agnostic screen in the real app - worth confirming - but `performMoneyOperations()` stayed on `MarketServiceScreen` for now, matching where RF's own keyword lived.
+- **Found a likely-broken RF keyword, never caught because it's unreferenced by any active test**: `vending_keywords.robot`'s "Perform Vending Money Operations" references `${money_operations_continue_button}`, a variable that doesn't appear to be declared anywhere in the yaml files reviewed. `VendingServiceScreen.performMoneyOperations()` substitutes the shared Continue button as the most plausible stand-in - flagged in code, needs confirming against the real app.
+- **Found a stub keyword whose name overpromises**: Vending's "Perform Vending fills by searching for X and clicking on the Nth record..." takes search-term/position arguments but its body never uses them - it just opens Fills and continues, no search happens. Ported as `openFillsAndContinue()`, named for what it actually does; a real search-driven fills flow doesn't exist yet in the RF source to port.
+- Not reproduced: RF's `Perform Removals & Returns` keyword appended a stray literal `"zs"` to the theft-field value (`${theft value}zs`) - a paste-o, not intentional test data.
+- **No end-to-end spec test written yet for these three screens** - see below.
 
 ## Open items to verify before trusting
 

@@ -1,6 +1,7 @@
 import { execSync } from 'child_process';
 import type { Browser } from 'webdriverio';
 import { mobileConfig } from '../config/mobile.config';
+import { positionToIndex, type Position } from '../utils/position';
 
 export class BaseScreen {
   constructor(protected driver: Browser) {}
@@ -24,6 +25,22 @@ export class BaseScreen {
   protected readonly searchList = '//android.widget.ScrollView/android.view.View/android.view.View';
   protected readonly cameraPermissionAllowButton =
     '//android.widget.Button[@resource-id="com.android.permissioncontroller:id/permission_allow_foreground_only_button"]';
+  // Scrollable service-location list under a LOB tab (dashboard.yaml's
+  // service_locations) - identical across coffee/market/vending_keywords.robot.
+  protected readonly serviceLocations = "//android.view.View[@scrollable='true']";
+  // common.yaml's Removals & Returns trigger + its four input fields - a true
+  // common_keywords.robot keyword, shared by every LOB.
+  protected readonly removalsAndReturns = '//android.view.View[starts-with(@content-desc,"Removals & Returns")]';
+  protected readonly documentProductTitle = '~Document product';
+  protected readonly removalsSpoiledField = '//android.widget.EditText[1]';
+  protected readonly removalsDamagedField = '//android.widget.EditText[2]';
+  protected readonly removalsTheftField = '//android.widget.EditText[3]';
+  protected readonly removalsTruckReturnsField = '//android.widget.EditText[4]';
+  protected readonly removalsSaveButton = '~Save';
+  protected readonly removalsDoneButton = '~Done';
+  // common.yaml's "delivery" trigger - identical usage in both
+  // coffee_keywords.robot and market_keywords.robot.
+  protected readonly deliveryTrigger = '//android.view.View[starts-with(@content-desc,"Delivery")]';
   // FRAGILE: deeply nested structural path with no stable identifier, ported
   // as-is from common.yaml. Re-verify against the current build before
   // relying on it - see docs/rf-to-playwright-reuse.md.
@@ -334,5 +351,55 @@ export class BaseScreen {
         percent: opts.percent ?? 1.0
       }
     ]);
+  }
+
+  /**
+   * Clicks the Nth service location under a given LOB tab. Ported from the
+   * identical "Click on the ${position} service location under X" keyword
+   * duplicated once per LOB file (coffee_keywords.robot, market_keywords.robot,
+   * vending_keywords.robot) - only the LOB icon selector differed between
+   * them, so callers pass their own. Uses XPath's 1-based positional
+   * predicate, matching RF's "set index based on position" (base 1) variant
+   * that this specific keyword called - see utils/position.ts.
+   */
+  async selectServiceLocation(lobIconSelector: string, position: Position): Promise<void> {
+    await this.waitFor(lobIconSelector);
+    const index = positionToIndex(position, 1);
+    await this.tap(`${this.serviceLocations}[${index}]`);
+  }
+
+  /** Android `Press Keycode` (e.g. 66 = Enter, to dismiss an IME/confirm a field) - AppiumLibrary's native command, not the ADB-shell workarounds used for the undebuggable WebView screens. */
+  async pressKeyCode(keyCode: number): Promise<void> {
+    await this.driver.pressKeyCode(keyCode);
+  }
+
+  /**
+   * Ported from common_keywords.robot's "Perform Removals & Returns by
+   * searching for X and clicking on the Nth record in the search list" -
+   * search, open Document product, fill spoiled/damaged/theft/truck-returns,
+   * save.
+   *
+   * NOTE: the RF source appended a stray literal "zs" to the theft value
+   * (`Input Text ... ${theft value}zs`) - almost certainly a paste-o, not
+   * intentional test data. Not reproduced here.
+   */
+  async performRemovalsAndReturns(
+    searchTerm: string,
+    values: { spoiled?: string; damaged?: string; theft?: string; truckReturns?: string } = {}
+  ): Promise<void> {
+    await this.tap(this.removalsAndReturns);
+    await this.searchAndSelect(searchTerm);
+    await this.waitFor(this.documentProductTitle);
+    await this.type(this.removalsSpoiledField, values.spoiled ?? '0');
+    await this.pressKeyCode(66);
+    await this.type(this.removalsDamagedField, values.damaged ?? '0');
+    await this.pressKeyCode(66);
+    await this.type(this.removalsTheftField, values.theft ?? '0');
+    await this.pressKeyCode(66);
+    await this.type(this.removalsTruckReturnsField, values.truckReturns ?? '0');
+    await this.pressKeyCode(66);
+    await this.tap(this.removalsSaveButton);
+    await this.waitFor(this.removalsDoneButton);
+    await this.tap(this.removalsDoneButton);
   }
 }

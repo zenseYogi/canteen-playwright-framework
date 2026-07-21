@@ -57,9 +57,7 @@ export class TruckStockTruckReturnsScreen extends BaseScreen {
     await this.tap(this.addProductButton);
     const productName = await this.searchAndSelect(searchTerm);
     await this.waitFor(this.addProductTitle);
-    await this.tap(this.addProductDamagedField);
-    const field = await this.driver.$(this.addProductDamagedField);
-    await field.setValue('1');
+    await this.type(this.addProductDamagedField, '1');
     await this.tap(this.doneButton);
     return productName;
   }
