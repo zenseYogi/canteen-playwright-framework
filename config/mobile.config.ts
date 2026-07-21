@@ -13,7 +13,8 @@ export const mobileConfig = {
     'appium:deviceName': process.env.DEVICE_NAME || 'emulator-5554',
     'appium:appPackage': process.env.APP_PACKAGE || 'com.canteen.nexus',
     'appium:appActivity': process.env.APP_ACTIVITY || '.MainActivity',
-    'appium:noReset': true,
+    'appium:noReset': false,
+    'appium:fullReset': true,
     'appium:newCommandTimeout': 240
   },
   timeouts: {

@@ -1,0 +1,136 @@
+# Robot Framework → Playwright/TS Port Plan
+
+Source: the existing "Mobile Automation" Robot Framework + AppiumLibrary suite
+(`main_keywords.robot`, `common_keywords.robot`, `dashboard_keywords.robot`,
+`coffee_keywords.robot`, `market_keywords.robot`, `vending_keywords.robot`,
+`prep_task_keywords.robot`, `transfers.robot`, `truck_stock_route_inventory.robot`,
+`truck_stock_route_shopping.robot`, `truck_stock_truck_returns.robot`,
+`yaml/*.yaml`, `test.robot`, `run_tests.py`, `custom_listener.py`,
+`draw_gestures.py`). Same app (`com.canteen.nexus`), same Appium/UiAutomator2
+driver as this Playwright framework — reuse is about carrying over locators
+and flow logic, not reinterpreting a different stack.
+
+## TL;DR
+
+- The RF suite is a mature **keyword library + locator repository**, not a
+  proven, currently-green regression suite — most of `test.robot` is
+  commented out. Treat every ported flow as needing fresh verification
+  against the real app, not just a syntax translation.
+- RF's biggest structural weakness is duplication forced by its lack of
+  first-class parameterization (one keyword per LOB × sub-flow combination).
+  **Don't port that duplication** — collapse it into parameterized TS
+  methods.
+- Locators are overwhelmingly `content-desc`-based, which is the most
+  portable strategy there is. Several fragile, structurally-absolute xpaths
+  need re-verification, not blind trust.
+- RF's custom report/screenshot tooling (`run_tests.py`,
+  `custom_listener.py`) is functionality Playwright already has natively —
+  nothing to port there except turning on a config flag.
+
+## What transfers directly vs. what needs rework
+
+| Reuse as-is | Rework before reuse |
+|---|---|
+| `content-desc` locator values (the semantic identity, e.g. `"Continue"`, `"Route Inventory"`) | The RF *xpath wrapper* around them — prefer WebdriverIO's accessibility-id shorthand (`~Continue`) over `//android.widget.Button[@content-desc="Continue"]`. [deliveries-home.screen.ts](screens/deliveries-home.screen.ts) already does this (`~Start day`, `~Edit schedule`) — follow that existing convention. |
+| Placeholder-templated locators (`route_to_click_on_to_modify`, `record_to_delete_xpath`) | RF's two-step "declare template, then `Replace String`" → a single TS arrow-function locator, exactly the pattern already used in `deliveries-home.screen.ts`'s `scheduleItem = (name) => ...` |
+| The overall flow/sequence of taps per screen | The one-keyword-per-LOB-per-subflow duplication in `transfers.robot` / `truck_stock_route_inventory.robot` / `truck_stock_truck_returns.robot` → one parameterized method taking `lob`/`transferType`/`count` args |
+| `main_keywords.robot`'s capability list as a reference | Its literal shape — `appium.fixture.ts` already grants permissions via `adb pm grant` in a loop; RF instead relies on `appium:autoGrantPermissions=True` + explicit `appium:permissions={"android.permission.CAMERA":"grant"}` capabilities. Worth trying that capability-driven approach as a simplification, since it's proven to work in RF's session. |
+| `custom_listener.py`'s intent (screenshot + artifact on failure) | Not its mechanism — Playwright's `use: { screenshot: 'only-on-failure', trace: 'retain-on-failure' }` (see Tooling section) replaces it outright and captures strictly more (full action timeline, not one static image). |
+| `Set Global Variable` state-passing (`truck_stock_route_shopping.robot`) | Not portable as-is and shouldn't be — becomes a plain return value passed explicitly to the next call. |
+
+## Locator hygiene findings (from the `yaml/*.yaml` files)
+
+**Duplicate/colliding names across RF variable files** — dedupe these into one shared source when porting:
+- `coffee_tab` / `market_tab` / `vending_tab` declared identically in both `transfers.yaml` and `truck_stock.yaml`.
+- `back_button` (`common.yaml`), `prep_task_sub_options_screen_back_button` (`prep_tasks.yaml`), `transfer_to_screen_back_button` (`transfers.yaml`) all resolve to the same generic frame-based back button.
+- `signing_order_title` is declared twice within `coffee.yaml` itself.
+
+**Fragile, structurally-absolute xpaths** — no semantic anchor, break on any layout change, several have commented-out prior versions in the YAML already (evidence they've broken and been recalibrated before). Re-verify against the current build before trusting; don't port on faith:
+- `capture_photo_button`, `back_button`/its aliases, `delivery_location_list`, `delivery_location`, `add_product_damaged_field`, `truck_returns_delete_product_icon`, `bag_code`/`market_replenishment_*`/`market_refund_textfield` (positional `EditText[n]` with no other anchor).
+
+**Case-sensitive data to preserve exactly, not "fix"**: `market_LOB` matches `contains(@content-desc,"Market")` (capitalized) while `coffee_LOB`/`vending_LOB` match lowercase `"coffee"`/`"vending"` — presumably a real inconsistency in the app's own accessibility labels. Copy verbatim; don't normalize casing without checking the actual app.
+
+**Position → index conversion has a real off-by-one to watch.** RF has two separate "position to index" keywords: one 0-based (used for direct array indexing, `${array}[i]`), one 1-based (used to build an XPath positional predicate `[i]`, which is 1-indexed). If the TS port standardizes on `$$(selector)[index]` (0-based array access) everywhere, only one conversion function is needed — but if any code still builds an xpath position string, mixing the two conventions would silently select the wrong list item rather than fail loudly. Write one `positionToIndex()` util and audit every call site for which convention it expects.
+
+## Shared `BaseScreen` additions needed
+
+These come up in nearly every RF keyword file and should be added once to [base.screen.ts](screens/base.screen.ts) rather than reimplemented per screen:
+
+```ts
+// Navigation — replaces the hamburger→menu-item→wait-for-title preamble
+// duplicated at the top of ~90% of prep_task/transfers/truck_stock keywords.
+async navigateTo(menuItemSelector: string, expectedTitleSelector: string): Promise<void>
+
+// Generic search-and-select — used by prep_task, transfers, and both
+// truck_stock files identically ("Search for X and click on the Nth record").
+async searchAndSelect(searchFieldSelector: string, value: string, position?: number): Promise<string>
+
+// Swipe-to-delete, mode 1: locator is already known (transfers.robot, truck_stock_route_inventory.robot)
+async swipeAndDelete(rowSelector: string): Promise<void>
+
+// Swipe-to-delete, mode 2: resolve the row by matching an attribute against
+// a label first, then swipe by computed index (truck_stock_truck_returns.robot's
+// "Truck Returns swipe Left and click on the delete button").
+async swipeAndDeleteByLabel(listSelector: string, label: string): Promise<void>
+
+// Before/After photo capture, including the "may or may not show a camera
+// permission prompt" conditional from common_keywords.robot.
+async capturePhoto(triggerSelector: string): Promise<void>
+
+// mobile: scrollGesture — same Appium extension RF calls via execute_script;
+// WebdriverIO exposes it identically via driver.executeScript(...).
+async scrollDown(opts?: { left?: number; top?: number; width?: number; height?: number; percent?: number }): Promise<void>
+```
+
+Plus a standalone pure-logic util (no driver dependency, so it doesn't belong on `BaseScreen`):
+
+```ts
+// utils/position.ts
+export function positionToIndex(position: 'first' | 'second' | 'third' | 'fourth', base: 0 | 1 = 0): number
+```
+
+## File-by-file port mapping
+
+| RF source | Planned TS equivalent | Notes |
+|---|---|---|
+| `main_keywords.robot` | [fixtures/appium.fixture.ts](fixtures/appium.fixture.ts) + [config/mobile.config.ts](config/mobile.config.ts) — already exist | Consider adopting RF's `appium:permissions` capability instead of the current adb-loop workaround |
+| `common_keywords.robot` | `BaseScreen` additions above + `utils/position.ts` | Highest-leverage file — everything else depends on these |
+| `dashboard_keywords.robot` | new `screens/dashboard.screen.ts` | Location list + LOB click; complements existing `HomeScreen` |
+| `coffee_keywords.robot`, `market_keywords.robot`, `vending_keywords.robot` | new `screens/lob-service.screen.ts` (shared base: `clickServiceLocation`, `performMoneyOperations`, `performDelivery`, `performRemovalsAndReturns`, `performAudit`, `performEquipmentAudit`, `completeService`) + thin `coffee.screen.ts` / `market.screen.ts` / `vending.screen.ts` subclasses supplying only the differing locators | Nearly identical shape across all three RF files — one base class, not three copies |
+| `prep_task_keywords.robot` | new `screens/prep-tasks.screen.ts` | Skip/Complete are identical shape across Money Ops/Additional Prep/Checks sub-screens — one parameterized method, not six |
+| `transfers.robot` | new `screens/transfers.screen.ts` | `addProduct(lob, transferType, opts)`, `editAndDelete(...)`, `deleteRoute(...)` — collapses ~30 RF keywords into a handful of parameterized methods |
+| `truck_stock_route_inventory.robot` | new `screens/truck-stock-route-inventory.screen.ts` | Parameterize on `lob` × `'audit' \| 'cycle'` |
+| `truck_stock_route_shopping.robot` | new `screens/truck-stock-route-shopping.screen.ts` | `addProduct()` returns the product name directly instead of RF's `Set Global Variable` |
+| `truck_stock_truck_returns.robot` | new `screens/truck-stock-truck-returns.screen.ts` | Uses `swipeAndDeleteByLabel` (the enumerate-and-match variant) |
+| `all_keywords_yaml.robot` | — | Pure resource aggregator; TS's normal import graph replaces this, nothing to port |
+| `yaml/*.yaml` | inline `private readonly` locator fields per Screen class (matches existing convention in `home.screen.ts`/`deliveries-home.screen.ts`) | Dedupe repeated constants (`back_button` family, `*_tab` family) into one shared definition each |
+| `test.robot`, `run_tests.py`, `custom_listener.py` | `tests/mobile/*.spec.ts` + `playwright.config.ts` `use` block | Port only the RF test cases that are actually active (see below); the rest are unproven and need fresh validation, not translation |
+| `draw_gestures.py` | **open question** — see below | Not obviously called by any active keyword; confirm before deciding whether to port |
+
+## Tooling parity — one small config change
+
+`playwright.config.ts` currently has no `use` block. Add:
+
+```ts
+use: {
+  screenshot: 'only-on-failure',
+  trace: 'retain-on-failure',
+}
+```
+
+This directly supersedes `custom_listener.py`'s failure-screenshot behavior (and captures more — a full action timeline, not a single image). Tag-based filtering (`run_tests.py`'s `--include`/`--exclude`) maps to Playwright's `--grep`/`--grep-invert` — no code needed, just CLI usage.
+
+## Suggested sequencing
+
+1. **Foundational helpers** — `BaseScreen` additions + `utils/position.ts` + the `playwright.config.ts` tooling tweak. Everything downstream depends on these; low risk, no app-flow logic yet.
+2. **Port what's actually active in `test.robot` today** — dashboard-loaded check, Truck Returns open/add/delete for Coffee. This is RF's only currently-exercised coverage, so it's the lowest-risk, highest-confidence starting point.
+3. **LOB service flows** (Coffee/Market/Vending dashboard → service) — these exist in `test.robot` but are commented out, meaning they're written but not currently verified. Port the shared `lob-service.screen.ts` base first, then the three thin subclasses; expect to re-verify locators live rather than trust them.
+4. **Transfers + Route Inventory + Route Shopping** — the largest duplication payoff from parameterization; do these together since they share `searchAndSelect`/`swipeAndDelete` patterns most heavily.
+5. **Prep Tasks** — the multi-screen sequential flow, once the navigation/skip/complete helpers are solid.
+6. **Resolve the `draw_gestures.py` question** — confirm with whoever owns the RF suite whether it's wired into a live signature-capture step; if so, rebuild it on `BaseScreen.tapAt()`'s W3C pointer actions rather than porting the deprecated `TouchAction` API.
+
+## Open items to verify before trusting
+
+- Does `draw_gestures.py`'s `draw_letter_a` actually get invoked anywhere, or is it an orphaned experiment?
+- Re-capture the fragile absolute-xpath locators listed above against the current build before wiring them into new TS screens.
+- Confirm whether `appium:permissions` + `autoGrantPermissions` capabilities (RF's approach) can replace the current adb-loop permission-granting in `appium.fixture.ts` — would remove ~15 lines of shell-out code if it works.
