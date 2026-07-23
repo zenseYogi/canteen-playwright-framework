@@ -39,6 +39,31 @@ export class DashboardScreen extends BaseScreen {
     return `//android.view.View[contains(@content-desc,"${lob}")]`;
   }
 
+  // CORRECTED (live-verified against build 0.1.76, a Vending-only route with
+  // multiple machines per stop): firstServiceStationUnder()'s
+  // contains(@content-desc,"vending") assumption breaks down here - the LOB
+  // card's own header is an android.widget.ImageView with content-desc
+  // "vending\n3 Service stations " (which the View-only xpath correctly
+  // skips), but each actual machine row (e.g. "61241 - Lg Snacks\nBreakroom")
+  // is arbitrary per-machine data with NO "vending" substring at all - so
+  // the old xpath matches nothing once a LOB has more than one station.
+  // This position-based alternative walks from the card header (which DOES
+  // reliably start with the lob name) to its Nth following View sibling
+  // instead of relying on the row's own text.
+  private nthServiceStationUnder(lob: Lob, position: Position): string {
+    // +1: the card header's immediate first View sibling is a non-clickable
+    // numeric badge (content-desc "0", live-verified) - not a service
+    // station row at all. Actual station rows start at the second sibling.
+    const index = positionToIndex(position, 1) + 1;
+    return `//android.widget.ImageView[starts-with(@content-desc,"${lob}")]/following-sibling::android.view.View[${index}]`;
+  }
+
+  /** Like openFirstServiceStation, but for LOBs with more than one service station per stop (confirmed needed for Vending). */
+  async openNthServiceStation(lob: Lob, position: Position): Promise<void> {
+    await this.clickLob(lob);
+    await this.tap(this.nthServiceStationUnder(lob, position));
+  }
+
   /**
    * From a location's detail screen (after clickLocationByPosition), expands
    * the given LOB's card and taps its first service station row. New method,

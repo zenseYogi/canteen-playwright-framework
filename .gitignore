@@ -5,3 +5,9 @@ test-results/
 *.log
 .env
 recordings/
+nexus-app-0.1.73/nexus-app-0.1.73.apk
+nexus-app-0.1.73/nexus-app-qa-debug-220726.apk
+Optimized_TCs_V_2.0.xlsx
+docs/session-log-2026-07-21.md
+.DS_Store
+.claude/settings.json

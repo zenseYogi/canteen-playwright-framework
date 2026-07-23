@@ -26,6 +26,16 @@ export class BaseScreen {
   protected readonly searchList = '//android.widget.ScrollView/android.view.View/android.view.View';
   protected readonly cameraPermissionAllowButton =
     '//android.widget.Button[@resource-id="com.android.permissioncontroller:id/permission_allow_foreground_only_button"]';
+  // Product-list header controls (Sort/Filter/Planogram) - live-verified on
+  // Vending's Product fills screen; same content-desc IDs were already
+  // spotted (but never used) during Market's live verification, so these
+  // are a genuinely shared, LOB-agnostic component, not Vending-specific.
+  // Both Sort and Filter render as an android.widget.Switch whose `checked`
+  // attribute flips to true once a selection is applied - the real signal
+  // for "is a sort/filter currently active", not just visibility.
+  protected readonly sortCta = '~section_header_sort_cta';
+  protected readonly filterCta = '~section_header_filter_cta';
+  protected readonly planogramCta = '~section_header_planogram_cta';
   // Scrollable service-location list under a LOB tab (dashboard.yaml's
   // service_locations) - identical across coffee/market/vending_keywords.robot.
   protected readonly serviceLocations = "//android.view.View[@scrollable='true']";
@@ -149,6 +159,51 @@ export class BaseScreen {
   async waitFor(selector: string): Promise<void> {
     const el = await this.driver.$(selector);
     await el.waitForDisplayed({ timeout: mobileConfig.timeouts.element });
+  }
+
+  /**
+   * Whether a checkable element (the Sort/Filter header Switches, live-
+   * verified) is in its "active/applied" state - the real `checked`
+   * attribute, not just visibility (both Switches are always visible;
+   * `checked` is what actually flips on selection).
+   */
+  async isChecked(selector: string): Promise<boolean> {
+    const el = await this.driver.$(selector);
+    return (await el.getAttribute('checked').catch(() => 'false')) === 'true';
+  }
+
+  /**
+   * Opens the shared Sort-by sheet (Product fills header's sort_cta),
+   * taps the named option (e.g. "A to Z"), and returns once the sheet
+   * closes. Live-verified on Vending: selecting an option both re-orders
+   * the list and flips section_header_sort_cta's `checked` to true.
+   */
+  async selectSortOption(optionLabel: string): Promise<void> {
+    await this.tap(this.sortCta);
+    await this.tap(`~${optionLabel}`);
+  }
+
+  async isSortActive(): Promise<boolean> {
+    return this.isChecked(this.sortCta);
+  }
+
+  /**
+   * Opens the shared Filter sheet, taps the named category chip(s), then
+   * Apply filters. Live-verified on Vending: selecting a chip enables both
+   * Clear filters and Apply filters (disabled with zero chips selected),
+   * and applying flips section_header_filter_cta's `checked` to true and
+   * adds a removable "<name> x" chip above the list.
+   */
+  async selectFilterCategories(categoryLabels: string[]): Promise<void> {
+    await this.tap(this.filterCta);
+    for (const label of categoryLabels) {
+      await this.tap(`~${label}`);
+    }
+    await this.tap('~Apply filters');
+  }
+
+  async isFilterActive(): Promise<boolean> {
+    return this.isChecked(this.filterCta);
   }
 
   /**
