@@ -131,15 +131,31 @@ export class PrepTasksScreen extends BaseScreen {
   }
 
   /**
-   * Ported from "Perform Complete on the product collection screen" - after
-   * Complete, the camera apparently auto-opens (RF just waits for the
-   * shutter button, no trigger tap or Take Photo step), so this doesn't
-   * reuse BaseScreen.capturePhoto() - that helper's shape (tap trigger ->
-   * optional permission -> Take photo -> capture -> attach) doesn't match
-   * what this keyword actually does.
+   * BA-confirmed (and live-reproduced - see docs/evidence/product-collection-
+   * no-photo-step-*.png) real app behavior: when the product list is empty,
+   * completing Product Collection returns straight to the Prep Tasks list
+   * with the tile already marked complete - the camera never opens at all.
+   * When the list is non-empty, the camera auto-opens after Complete/Continue
+   * and this walks shutter -> Attach Photo, same as before. So this is
+   * genuinely conditional on list content, not a timing issue.
+   *
+   * CORRECTED: this can't be detected by probing capturePhotoButton's own
+   * visibility - that locator is a deeply-nested, attribute-less structural
+   * xpath (no content-desc/resource-id of its own, see its declaration in
+   * BaseScreen), and live-verified to false-positive-match some unrelated
+   * node already present on the Prep Tasks list itself, making "is it
+   * displayed" true even when the camera never opened - which then hangs the
+   * subsequent Attach Photo tap for its full 30s timeout. titleStartDay
+   * (a specific, unambiguous "Start day, ..." content-desc) is the real
+   * signal for "we're already back on the list, no photo step occurred".
    */
-  async completeProductCollection(): Promise<void> {
-    await this.completeSubScreen(this.productCollection);
+  private async capturePhotoIfPresent(): Promise<void> {
+    const backOnList = await this.driver
+      .waitUntil(async () => this.isVisible(this.titleStartDay), { timeout: 8_000, interval: 500 })
+      .catch(() => false);
+    if (backOnList) {
+      return;
+    }
     await this.waitFor(this.capturePhotoButton);
     await this.tap(this.capturePhotoButton);
     // Live-verified flaky: the emulator's virtual camera capture + review
@@ -148,6 +164,19 @@ export class PrepTasksScreen extends BaseScreen {
     // itself already succeeded - a longer, dedicated wait here avoids a
     // false-negative failure on an otherwise-working step.
     await this.tap(this.attachPhotoButton, 30_000);
+  }
+
+  /**
+   * Ported from "Perform Complete on the product collection screen" - after
+   * Complete, the camera auto-opens only when the product list is non-empty
+   * (see capturePhotoIfPresent), so this doesn't reuse BaseScreen.capturePhoto()
+   * - that helper's shape (tap trigger -> optional permission -> Take photo ->
+   * capture -> attach) doesn't match what this keyword actually does, and
+   * assumes the step is mandatory, which it is not.
+   */
+  async completeProductCollection(): Promise<void> {
+    await this.completeSubScreen(this.productCollection);
+    await this.capturePhotoIfPresent();
   }
 
   async addProductToCollection(searchTerm = 'can'): Promise<void> {
@@ -181,14 +210,7 @@ export class PrepTasksScreen extends BaseScreen {
     await this.tap(this.productCollection);
     await this.waitFor(this.productCollectionTitle);
     await this.tap(this.continueButton);
-    await this.waitFor(this.capturePhotoButton);
-    await this.tap(this.capturePhotoButton);
-    // Live-verified flaky: the emulator's virtual camera capture + review
-    // screen render can take noticeably longer than the default 15s element
-    // timeout to produce the "Attach Photo" button, even though the capture
-    // itself already succeeded - a longer, dedicated wait here avoids a
-    // false-negative failure on an otherwise-working step.
-    await this.tap(this.attachPhotoButton, 30_000);
+    await this.capturePhotoIfPresent();
 
     await this.waitFor(this.moneyOperations);
     await this.tap(this.moneyOperations);
