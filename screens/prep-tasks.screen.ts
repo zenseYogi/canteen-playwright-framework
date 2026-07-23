@@ -142,7 +142,12 @@ export class PrepTasksScreen extends BaseScreen {
     await this.completeSubScreen(this.productCollection);
     await this.waitFor(this.capturePhotoButton);
     await this.tap(this.capturePhotoButton);
-    await this.tap(this.attachPhotoButton);
+    // Live-verified flaky: the emulator's virtual camera capture + review
+    // screen render can take noticeably longer than the default 15s element
+    // timeout to produce the "Attach Photo" button, even though the capture
+    // itself already succeeded - a longer, dedicated wait here avoids a
+    // false-negative failure on an otherwise-working step.
+    await this.tap(this.attachPhotoButton, 30_000);
   }
 
   async addProductToCollection(searchTerm = 'can'): Promise<void> {
@@ -163,7 +168,7 @@ export class PrepTasksScreen extends BaseScreen {
    *
    * Two sub-steps were commented out in the RF source and are deliberately
    * NOT reproduced - noting them here in case they're meant to be re-enabled
-   * rather than intentionally dropped:
+   * rather than intentionally dropped: 
    * - Product Collection: "Select All Checkboxes" was commented out, while
    *   Money Operations and Additional Prep both DO select all checkboxes -
    *   looks like a deliberate omission rather than an oversight, but unconfirmed.
@@ -178,7 +183,12 @@ export class PrepTasksScreen extends BaseScreen {
     await this.tap(this.continueButton);
     await this.waitFor(this.capturePhotoButton);
     await this.tap(this.capturePhotoButton);
-    await this.tap(this.attachPhotoButton);
+    // Live-verified flaky: the emulator's virtual camera capture + review
+    // screen render can take noticeably longer than the default 15s element
+    // timeout to produce the "Attach Photo" button, even though the capture
+    // itself already succeeded - a longer, dedicated wait here avoids a
+    // false-negative failure on an otherwise-working step.
+    await this.tap(this.attachPhotoButton, 30_000);
 
     await this.waitFor(this.moneyOperations);
     await this.tap(this.moneyOperations);

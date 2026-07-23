@@ -1,21 +1,39 @@
 import type { Browser } from 'webdriverio';
 import { LoginScreen } from '../screens/login.screen';
 import { PasswordScreen } from '../screens/password.screen';
-import { MfaScreen, type PostAuthScreen } from '../screens/mfa.screen';
+import { MfaScreen } from '../screens/mfa.screen';
+import { RouteSetupScreen } from '../screens/route-setup.screen';
+import { mobileConfig } from '../config/mobile.config';
+
+// The route/day every spec expects to find real seeded data on - now
+// parameterized via config/mobile.config.ts's defaultRoute (env-overridable:
+// ROUTE_OPERATION_SEARCH/ROUTE_OPERATION_LABEL/ROUTE_SEARCH/ROUTE_LABEL/
+// ROUTE_DAY) instead of hardcoded here, so switching the route in future is a
+// config/env change, not a code change. Currently Miami, FL / Route 010 /
+// Today (BA-seeded Coffee data confirmed live - see docs/rf-to-playwright-reuse.md).
+const DEFAULT_ROUTE = mobileConfig.defaultRoute;
 
 /**
- * Runs the full Login -> Password -> interim MFA wait flow. Every RF keyword
- * we're porting assumes an already-authenticated session (RF's Suite Setup
- * just launches the app and lands straight on Dashboard); this Playwright
- * fixture instead clears app data before every single test (see
- * appium.fixture.ts), so every screen beyond Login needs this preamble run
- * first. Pulled out here so later phases don't each re-duplicate it.
+ * Runs the full Login -> Password -> interim MFA wait flow, then guarantees
+ * the caller lands on Dashboard - transparently completing Route Setup
+ * first if that gate appears instead.
  *
- * Returns which screen the app actually landed on post-MFA - a fresh account
- * (no route assigned yet) lands on the Route Setup gate instead of Dashboard.
- * Callers that need Dashboard must check this rather than assume it.
+ * Every RF keyword we're porting assumes an already-authenticated session
+ * (RF's Suite Setup just launches the app and lands straight on Dashboard);
+ * this Playwright fixture instead clears app data before every single test
+ * (see appium.fixture.ts), so every screen beyond Login needs this preamble
+ * run first. Pulled out here so later phases don't each re-duplicate it.
+ *
+ * A fresh/reset account (no route assigned yet, or one whose local app data
+ * was just cleared) lands on the Route Setup gate post-MFA instead of
+ * Dashboard, with no hamburger menu accessible until it's completed - this
+ * was previously left for each spec to check and branch on individually
+ * (see MfaScreen.waitForManualApproval's PostAuthScreen return), which is
+ * exactly the failure mode reported when vending-service.spec.ts was run
+ * without route-setup.spec.ts run first. Handling it once here means every
+ * spec that calls this function can assume Dashboard unconditionally.
  */
-export async function loginAndWaitForMfa(driver: Browser): Promise<PostAuthScreen> {
+export async function loginAndWaitForMfa(driver: Browser): Promise<void> {
   const loginScreen = new LoginScreen(driver);
   const passwordScreen = new PasswordScreen(driver);
   const mfaScreen = new MfaScreen(driver);
@@ -26,5 +44,11 @@ export async function loginAndWaitForMfa(driver: Browser): Promise<PostAuthScree
   await passwordScreen.tapSignIn();
   // Interim: MFA (Authenticator push + number match + fingerprint) requires
   // manual approval on a separate physical device - see MfaScreen.
-  return mfaScreen.waitForManualApproval();
+  const postAuthScreen = await mfaScreen.waitForManualApproval();
+
+  if (postAuthScreen === 'route-setup') {
+    const routeSetup = new RouteSetupScreen(driver);
+    // Already on the gate screen - no navigation via Settings needed.
+    await routeSetup.changeRouteAndSelectDay(DEFAULT_ROUTE);
+  }
 }

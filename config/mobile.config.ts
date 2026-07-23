@@ -19,5 +19,16 @@ export const mobileConfig = {
   },
   timeouts: {
     element: parseInt(process.env.ELEMENT_TIMEOUT || '15000')
+  },
+  // The route/day every spec expects to find real seeded data on - centralized
+  // here (rather than hardcoded in utils/login-flow.ts) so switching routes in
+  // future only means changing these values or the matching env vars, no code
+  // changes needed.
+  defaultRoute: {
+    operationSearch: process.env.ROUTE_OPERATION_SEARCH || 'Miami',
+    operationLabel: process.env.ROUTE_OPERATION_LABEL || 'Miami, FL',
+    routeSearch: process.env.ROUTE_SEARCH || 'Route 010',
+    routeLabel: process.env.ROUTE_LABEL || 'Route 010',
+    day: (process.env.ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'TODAY'
   }
 };

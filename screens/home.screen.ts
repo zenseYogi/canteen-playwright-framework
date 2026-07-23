@@ -5,8 +5,11 @@ import { BaseScreen } from './base.screen';
  */
 export class HomeScreen extends BaseScreen {
   // Ported from dashboard.yaml's title_deliveries - the specific element RF's
-  // "Validate user is on the dashboard page" keyword waits on.
-  private readonly deliveriesTitle = '//android.view.View[contains(@content-desc, "Deliveries")]';
+  // "Validate user is on the dashboard page" keyword waits on. Matches the
+  // "Deliver" stem rather than "Deliveries" - live-verified the dashboard
+  // shows singular "1 Delivery" (not "1 Deliveries") when only one stop is
+  // scheduled, and "Deliveries" is not a substring of "Delivery".
+  private readonly deliveriesTitle = '//android.view.View[contains(@content-desc, "Deliver")]';
 
   async isLoaded(): Promise<boolean> {
     return this.isVisible(this.hamburgerIcon);

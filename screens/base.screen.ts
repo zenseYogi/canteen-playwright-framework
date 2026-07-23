@@ -127,9 +127,9 @@ export class BaseScreen {
     await this.driver.switchContext('NATIVE_APP');
   }
 
-  async tap(selector: string): Promise<void> {
+  async tap(selector: string, timeoutMs = mobileConfig.timeouts.element): Promise<void> {
     const el = await this.driver.$(selector);
-    await el.waitForDisplayed({ timeout: mobileConfig.timeouts.element });
+    await el.waitForDisplayed({ timeout: timeoutMs });
     await el.click();
   }
 
