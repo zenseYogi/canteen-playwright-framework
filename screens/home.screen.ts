@@ -1,4 +1,5 @@
 import { BaseScreen } from './base.screen';
+import type { Lob } from '../utils/lob';
 
 /**
  * Home / dashboard screen - lands here after successful login + MFA.
@@ -11,6 +12,27 @@ export class HomeScreen extends BaseScreen {
   // scheduled, and "Deliveries" is not a substring of "Delivery".
   private readonly deliveriesTitle = '//android.view.View[contains(@content-desc, "Deliver")]';
 
+  // PBI 622025 "Home Page: Dynamic data with functionality" - live-verified
+  // against build 0.1.76 (Miami/010). The day badge's content-desc is the
+  // whole string (e.g. "Yesterday, Thu 23 Jul") - matched by its one of
+  // three fixed prefixes, since the day/date portion changes daily.
+  private readonly currentDateBadge =
+    '//android.view.View[starts-with(@content-desc,"Today") or starts-with(@content-desc,"Yesterday") or starts-with(@content-desc,"Tomorrow")]';
+  private readonly routeBadge = '//android.view.View[starts-with(@content-desc,"Route")]';
+  // Live-verified: each LOB's "X/Y" count badge and its name label are
+  // siblings in two separate groups under the same parent (all counts
+  // first, then all labels), in the SAME per-LOB order - e.g. Market's
+  // count and Coffee's count both precede both labels. Confirmed only
+  // "X/Y"-shaped counts contain "/" on this screen, so lobCountBadge is
+  // safe without also scoping to a specific container.
+  private readonly lobCountBadge = '//android.view.View[contains(@content-desc,"/")]';
+  private readonly lobLabels = '//android.view.View[@content-desc="Market" or @content-desc="Coffee" or @content-desc="Vending"]';
+  // TC036 "view Edit schedule order screen" / TC018/TC020 "navigate to Edit
+  // schedule order screen" (PBI 611763/630328) - live-verified: opens a
+  // sheet titled "Edit Schedule Order" listing every stop's name+address.
+  private readonly editScheduleButton = '~Edit schedule';
+  private readonly editScheduleTitle = '~Edit Schedule Order';
+
   async isLoaded(): Promise<boolean> {
     return this.isVisible(this.hamburgerIcon);
   }
@@ -22,6 +44,75 @@ export class HomeScreen extends BaseScreen {
 
   async tapStartDay(): Promise<void> {
     await this.tap(this.startDayButton);
+  }
+
+  /** TC007 "view the System Date" - the day/date badge in the navigation bar (e.g. "Yesterday, Thu 23 Jul"). */
+  async getCurrentDateText(): Promise<string> {
+    const el = await this.driver.$(this.currentDateBadge);
+    return (await el.getAttribute('content-desc')) ?? '';
+  }
+
+  /** TC012 "view route badge" - e.g. "Route 103". */
+  async getRouteBadgeText(): Promise<string> {
+    const el = await this.driver.$(this.routeBadge);
+    return (await el.getAttribute('content-desc')) ?? '';
+  }
+
+  /** TC013 "view Deliveries" / TC014 "view remaining deliveries" (PBI 622025) - parsed from the shared "N Delivery/Deliveries" text. */
+  async getDeliveriesCount(): Promise<number> {
+    const el = await this.driver.$(this.deliveriesTitle);
+    const desc = (await el.getAttribute('content-desc')) ?? '';
+    return Number(/(\d+)/.exec(desc)?.[1]);
+  }
+
+  /**
+   * TC015 "view Vending counter" (and the equivalent Market/Coffee counts,
+   * part of PBI 622025's "dynamic" claim) - returns whichever LOBs actually
+   * have a card rendered today (this screen only shows a LOB's badge when it
+   * has scheduled stops - e.g. Miami/010 shows Market+Coffee, never Vending).
+   */
+  async getLobCounts(): Promise<Partial<Record<Lob, string>>> {
+    const labelEls = await this.driver.$$(this.lobLabels);
+    const countEls = await this.driver.$$(this.lobCountBadge);
+    const result: Partial<Record<Lob, string>> = {};
+    const labelCount = await labelEls.length;
+    for (let i = 0; i < labelCount; i++) {
+      const label = ((await labelEls[i].getAttribute('content-desc')) ?? '').toLowerCase() as Lob;
+      const count = countEls[i] ? await countEls[i].getAttribute('content-desc') : null;
+      if (count) {
+        result[label] = count;
+      }
+    }
+    return result;
+  }
+
+  async openEditSchedule(): Promise<void> {
+    await this.tap(this.editScheduleButton);
+    await this.waitFor(this.editScheduleTitle);
+  }
+
+  async isEditScheduleVisible(): Promise<boolean> {
+    return this.isVisible(this.editScheduleTitle);
+  }
+
+  /**
+   * TC036 "view Edit schedule order screen... with icon and list of stops
+   * with names and addresses" - each stop row's content-desc is
+   * "{address}\n{Name}" (live-verified, e.g. "19000 SW 192nd St Miami
+   * Florida 33187-1908\nCureLeaf"), so this returns just the trailing name
+   * line from every multi-line View on the (assumed already open) sheet.
+   */
+  async getEditScheduleStopNames(): Promise<string[]> {
+    const els = await this.driver.$$('//android.view.View');
+    const names: string[] = [];
+    for (const el of els) {
+      const desc = (await el.getAttribute('content-desc')) ?? '';
+      if (desc.includes('\n')) {
+        const parts = desc.split('\n');
+        names.push(parts[parts.length - 1]);
+      }
+    }
+    return names;
   }
 
   // Live-verified 2026-07-24: pressing BACK from a screen with unsaved
