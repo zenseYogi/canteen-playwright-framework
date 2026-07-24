@@ -35,16 +35,20 @@ import { MarketServiceScreen } from '../../screens/market-service.screen';
 // e.g. TC091/097/098/105/115/120/132 all separately exist under Vending,
 // Coffee, Menu, and Start of Day too, with unrelated content).
 //
-// CORRECTED: the Par/Ordered/Picked/Theft/Damaged/Returned/Spoiled review
-// section (test 1 below) is NOT part of PBI 611013 at all - its Market rows
-// (TC091/097/098/105) are tagged to PBI 619783 / 735739 under the plain
-// "Delivery" sub-area, distinct from 611013's "Delivery - Filters/Add
-// Product/Sort" sub-areas. Only test 2 (category filter) is genuinely
-// PBI 611013 (TC115/TC132, "Delivery - Filters"). TC120 ("select one category
-// chip... highlighted with tick icon") is deliberately NOT tagged - this spec
-// taps the chip and asserts the header filter icon's active state, but never
-// asserts the chip's OWN selected/ticked state, so citing it would overclaim.
-test.describe('Market - Fill Screen (PBI 611013 + PBI 619783/735739)', () => {
+// CORRECTED: TC091/097/098/105 (test 1 below - Par/Ordered/Picked review,
+// Theft/Damaged/Returned/Spoiled/Delivery entry) were previously found in
+// the Excel mapped to PBI 619783 / 735739 - but those PBIs' actual ACs are
+// Home Screen map/stop navigation and the "About this location" popup,
+// neither of which mentions any of these fields. Cross-checking against
+// 611013's own Process Steps instead shows a direct match (step 1 "Tap
+// Fills" = TC091, step 3's Par/Ordered/Picked + Theft/Damaged/Returned/
+// Spoiled/Delivered = TC097/TC098/TC105), so the Excel's PBI ID column for
+// these 4 rows was a data error - corrected to 611013. TC120 ("select one
+// category chip... highlighted with tick icon") is deliberately NOT tagged
+// on test 2 - this spec taps the chip and asserts the header filter icon's
+// active state, but never asserts the chip's OWN selected/ticked state, so
+// citing it would overclaim.
+test.describe('Market - Fill Screen (PBI 611013)', () => {
   test(
     'review Par/Ordered/Picked and enter Theft/Damaged/Returned/Spoiled/Delivered quantities',
     { tag: ['@TC091', '@TC097', '@TC098', '@TC105'] },
