@@ -38,5 +38,19 @@ export const mobileConfig = {
     routeSearch: process.env.ROUTE_SEARCH || 'Route 010',
     routeLabel: process.env.ROUTE_LABEL || 'Route 010',
     day: (process.env.ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'YESTERDAY'
+  },
+  // Vending confirmed (2026-07-24) to live on a separate route from
+  // Market/Coffee - Charlotte, NC / Route 103, not the Miami/010 default
+  // above. Kept as its own config (not folded into defaultRoute) since the
+  // two LOBs' data genuinely lives on different routes; specs needing this
+  // route call utils/login-flow.ts's switchRoute() explicitly after login,
+  // rather than relying on the post-MFA gate auto-handling (which only
+  // fires for a fresh/reset account and always uses defaultRoute).
+  vendingRoute: {
+    operationSearch: process.env.VENDING_OPERATION_SEARCH || 'Charlotte',
+    operationLabel: process.env.VENDING_OPERATION_LABEL || 'Charlotte, NC',
+    routeSearch: process.env.VENDING_ROUTE_SEARCH || 'Route 103',
+    routeLabel: process.env.VENDING_ROUTE_LABEL || 'Route 103',
+    day: (process.env.VENDING_ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'YESTERDAY'
   }
 };

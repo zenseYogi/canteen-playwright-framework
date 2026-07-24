@@ -1,8 +1,9 @@
 import { test, expect } from '../../fixtures/appium.fixture';
-import { loginAndWaitForMfa } from '../../utils/login-flow';
+import { loginAndWaitForMfa, switchRoute } from '../../utils/login-flow';
 import { PrepTasksScreen } from '../../screens/prep-tasks.screen';
 import { DashboardScreen } from '../../screens/dashboard.screen';
 import { VendingServiceScreen } from '../../screens/vending-service.screen';
+import { mobileConfig } from '../../config/mobile.config';
 
 // Traceability to Optimized_TCs_V_2.0.xlsx: TC numbers cited per assertion
 // below are from the "Vending" area's Money ops / delivery - Product delivery
@@ -16,12 +17,12 @@ import { VendingServiceScreen } from '../../screens/vending-service.screen';
 // re-ordering effect - not full validation behavior (invalid quantity
 // entry, decimal handling etc.) - that hasn't been tested live yet.
 //
-// Data note: assumes the seeded route for this account is Route 103
-// (Vending-only, 47 stops incl. "Aaron's" as the first) - unlike Market's
-// spec, this is NOT the account's default route; it requires the one-time
-// Settings > Route setup > Miami, FL > Route 010 change documented in
-// docs/rf-to-playwright-reuse.md (Route 010 is displayed as "Route 103" on
-// this account's schedule - a real route/operation naming quirk, not a typo).
+// Data note (CONFIRMED 2026-07-24): Vending's data lives on Charlotte, NC /
+// Route 103 - a genuinely different route from Market/Coffee's Miami/010
+// (config/mobile.config.ts's defaultRoute). loginAndWaitForMfa() alone only
+// guarantees Miami/010 (via defaultRoute, for the fresh-account gate case),
+// so every test here explicitly calls switchRoute() with
+// mobileConfig.vendingRoute right after logging in.
 test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
   test(
     'reach the first Vending machine and verify Product fills, Sort, and Filter',
@@ -33,6 +34,10 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
 
       await test.step('Log in', async () => {
         await loginAndWaitForMfa(driver);
+      });
+
+      await test.step('Switch to Vending route (Charlotte, NC / Route 103)', async () => {
+        await switchRoute(driver, mobileConfig.vendingRoute);
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -88,6 +93,10 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
 
       await test.step('Log in', async () => {
         await loginAndWaitForMfa(driver);
+      });
+
+      await test.step('Switch to Vending route (Charlotte, NC / Route 103)', async () => {
+        await switchRoute(driver, mobileConfig.vendingRoute);
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {

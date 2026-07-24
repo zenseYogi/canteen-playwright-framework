@@ -2,7 +2,7 @@ import type { Browser } from 'webdriverio';
 import { LoginScreen } from '../screens/login.screen';
 import { PasswordScreen } from '../screens/password.screen';
 import { MfaScreen } from '../screens/mfa.screen';
-import { RouteSetupScreen } from '../screens/route-setup.screen';
+import { RouteSetupScreen, type DaySelection } from '../screens/route-setup.screen';
 import { mobileConfig } from '../config/mobile.config';
 
 // The route/day every spec expects to find real seeded data on - now
@@ -51,4 +51,27 @@ export async function loginAndWaitForMfa(driver: Browser): Promise<void> {
     // Already on the gate screen - no navigation via Settings needed.
     await routeSetup.changeRouteAndSelectDay(DEFAULT_ROUTE);
   }
+}
+
+/**
+ * Explicitly switches to a different route than the account's current one -
+ * needed by specs whose LOB doesn't live on defaultRoute (confirmed
+ * 2026-07-24: Vending's data is on Charlotte/103, not Miami/010, which
+ * Market/Coffee use). Unlike loginAndWaitForMfa's post-MFA gate handling
+ * (which only fires for a fresh/reset account and always applies
+ * defaultRoute), this always navigates via Settings > Route setup and
+ * always switches - correctness over speed, since an already-configured
+ * account logging in lands straight on Dashboard on whatever route it was
+ * last left on, with no reliable way to detect that route from the
+ * Dashboard badge alone (not yet confirmed live). Call after
+ * loginAndWaitForMfa(), which must run first to reach Dashboard/hamburger
+ * menu access at all.
+ */
+export async function switchRoute(
+  driver: Browser,
+  route: { operationSearch: string; operationLabel: string; routeSearch: string; routeLabel: string; day: DaySelection }
+): Promise<void> {
+  const routeSetup = new RouteSetupScreen(driver);
+  await routeSetup.openFromHamburgerMenu();
+  await routeSetup.changeRouteAndSelectDay(route);
 }
