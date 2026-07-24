@@ -205,6 +205,26 @@ export class PrepTasksScreen extends BaseScreen {
    *   popup button were commented out - only the Safety check checkbox is
    *   actually clicked here.
    */
+  /**
+   * Same as completeFullDayPrep(), but tolerates Start Day already being
+   * complete - confirmed live 2026-07-24 that completion is server-tracked,
+   * not tied to the local app session, so a previous test (in a shared
+   * session, e.g. vending-service.spec.ts) or a previous run entirely can
+   * leave it already done. When that's the case, Prep Tasks shows no
+   * category tiles at all - just a bare "Start day" button - so this checks
+   * for productCollection's tile first and taps Start day directly instead
+   * of repeating a flow that has nothing left to do. Assumes Prep Tasks is
+   * already open, same as completeFullDayPrep().
+   */
+  async ensureFullDayPrepComplete(): Promise<void> {
+    const alreadyDone = !(await this.isVisible(this.productCollection));
+    if (alreadyDone) {
+      await this.tap(this.startDayButton);
+      return;
+    }
+    await this.completeFullDayPrep();
+  }
+
   async completeFullDayPrep(): Promise<void> {
     await this.waitFor(this.productCollection);
     await this.tap(this.productCollection);
