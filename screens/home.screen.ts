@@ -115,6 +115,48 @@ export class HomeScreen extends BaseScreen {
     return names;
   }
 
+  // PBI 850155 "Ad-hoc Scheduling" (TC025/027/028/029).
+  //
+  // TC027 "navigate to Ad-hoc delivery creation screen" - live-verified
+  // 2026-07-24: the "+" icon next to the Schedule pane header has NO
+  // content-desc/resource-id of its own (confirmed via dump - an unlabeled
+  // clickable View), so it's targeted structurally as the immediate
+  // following-sibling of the "Schedule" text. Confirmed reachable
+  // regardless of whether the current day is empty or not (tested against
+  // a day with 4 real deliveries) - opens an "Add Delivery" screen with a
+  // Customer search field and Add Delivery / "+ Add Another Delivery"
+  // buttons.
+  private readonly addAdhocDeliveryButton = '//android.view.View[@content-desc="Schedule"]/following-sibling::android.view.View[1]';
+
+  // TC025 "No deliveries available" message - UNVERIFIED locators below.
+  // Live-confirmed the SHAPE of this empty state earlier the same day
+  // (2026-07-24) on a genuinely zero-delivery day ("0 Delivery", "You do
+  // not have an active deliveries for Fri 24 Jul. To add an ad-hoc
+  // delivery, click the plus (+) icon", Start day shown disabled) - but
+  // BA has since seeded data across every day on both known routes
+  // (Miami/010 and Charlotte/103), so no zero-delivery day remains to
+  // confirm the EXACT locator/content-desc for that message text right
+  // now. Matched via the Excel's literal wording ("do not have"), tolerant
+  // of the varying day/date suffix - needs re-verification once a
+  // zero-delivery day exists again (tracked, not guessed away).
+  private readonly noDeliveriesMessage = '//android.view.View[contains(@content-desc,"do not have")]';
+
+  /** TC025 - true only when Deliveries is genuinely 0 AND the no-deliveries message is showing (see noDeliveriesMessage's caveat above). */
+  async isDeliveriesEmptyStateVisible(): Promise<boolean> {
+    const count = await this.getDeliveriesCount();
+    return count === 0 && (await this.isVisible(this.noDeliveriesMessage));
+  }
+
+  /** TC025 "Start day button should be display as inactive" when there are no deliveries. */
+  async isStartDayDisabled(): Promise<boolean> {
+    return !(await this.isEnabled(this.startDayButton));
+  }
+
+  /** TC027/TC028 - opens the Ad-hoc delivery creation screen via the "+" icon. */
+  async openAdhocDeliveryCreation(): Promise<void> {
+    await this.tap(this.addAdhocDeliveryButton);
+  }
+
   // Live-verified 2026-07-24: pressing BACK from a screen with unsaved
   // Sort/Filter selections (e.g. Vending's Product Fills) triggers a "Save
   // Changes! Your changes have not saved yet, Do you want to save?" dialog
