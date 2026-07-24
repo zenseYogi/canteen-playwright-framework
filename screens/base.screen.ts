@@ -207,6 +207,18 @@ export class BaseScreen {
   }
 
   /**
+   * Same as selectFilterCategories, but matches a chip by its label PREFIX
+   * (e.g. "CANDY") rather than the full content-desc - the chip's real label
+   * includes a live product count suffix (e.g. "CANDY (1)") that changes with
+   * the catalog, so an exact match would break as soon as that count shifts.
+   */
+  async selectFilterCategoryByPrefix(labelPrefix: string): Promise<void> {
+    await this.tap(this.filterCta);
+    await this.tap(`//android.widget.Button[starts-with(@content-desc,"${labelPrefix}")]`);
+    await this.tap('~Apply filters');
+  }
+
+  /**
    * Polls the device directly for whether the on-screen keyboard/IME is
    * actually showing, instead of a fixed pause. The manual test that
    * confirmed tapViaAdb + typeViaAdb works had a natural multi-second gap

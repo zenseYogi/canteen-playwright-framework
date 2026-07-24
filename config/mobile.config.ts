@@ -24,11 +24,19 @@ export const mobileConfig = {
   // here (rather than hardcoded in utils/login-flow.ts) so switching routes in
   // future only means changing these values or the matching env vars, no code
   // changes needed.
+  //
+  // day='YESTERDAY' (not 'TODAY'): live-verified 2026-07-24 that BA's seeded
+  // Market/Coffee data on Miami/010 is anchored to the fixed calendar date
+  // Jul 23, not a rolling "today" - real "today" already advanced past it,
+  // leaving 'TODAY' pointed at an empty schedule ("0 Delivery"). This is a
+  // stopgap: once real time passes Jul 24, 'YESTERDAY' will also go stale
+  // (it'll resolve to Jul 24, itself empty) - needs BA to either re-seed on
+  // a rolling date or confirm a fixed reference date to standardize on.
   defaultRoute: {
     operationSearch: process.env.ROUTE_OPERATION_SEARCH || 'Miami',
     operationLabel: process.env.ROUTE_OPERATION_LABEL || 'Miami, FL',
     routeSearch: process.env.ROUTE_SEARCH || 'Route 010',
     routeLabel: process.env.ROUTE_LABEL || 'Route 010',
-    day: (process.env.ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'TODAY'
+    day: (process.env.ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'YESTERDAY'
   }
 };

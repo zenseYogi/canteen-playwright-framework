@@ -1,5 +1,5 @@
 import { BaseScreen } from './base.screen';
-import type { Position } from '../utils/position';
+import { positionToIndex, type Position } from '../utils/position';
 
 /**
  * Market LOB - servicing a delivery location. Ported from market_keywords.robot.
@@ -40,6 +40,27 @@ export class MarketServiceScreen extends BaseScreen {
   private readonly addProductCancelButton = '~Cancel';
   private readonly addProductAddButton = '~Add';
 
+  // PBI 611013 "Fill Screen" - live-verified against build 0.1.76 (Miami/010,
+  // CureLeaf/FedEx). Each Product fills row's content-desc concatenates
+  // "{Name}\nMore info\nPkg: N" - after tapping the row's own expand icon (its
+  // only clickable child besides the Delivery quantity field, no content-desc
+  // of its own), it appends "\nPar X\nOrdered Y\nPicked Z" to the SAME
+  // content-desc rather than exposing them as separate elements - so the
+  // review counts are read by parsing that string, not via their own locators.
+  // The expand icon itself has no stable attribute of its own either; it's
+  // targeted structurally as the row's first child (the second child is
+  // always the Delivery EditText, confirmed live).
+  private readonly fillProductRow = '//android.view.View[contains(@content-desc,"More info")]';
+  private fillProductRowAt(position: Position): string {
+    return `(${this.fillProductRow})[${positionToIndex(position, 1)}]`;
+  }
+  private fillExpandIcon(position: Position): string {
+    return `${this.fillProductRowAt(position)}/android.view.View[1]`;
+  }
+  private fillFieldByHint(position: Position, hint: string): string {
+    return `${this.fillProductRowAt(position)}//android.widget.EditText[@hint="${hint}"]`;
+  }
+
   async clickServiceLocation(position: Position): Promise<void> {
     await this.selectServiceLocation(this.marketLob, position);
   }
@@ -76,6 +97,60 @@ export class MarketServiceScreen extends BaseScreen {
   private async openProductFills(): Promise<void> {
     await this.tap(this.deliveryTrigger);
     await this.waitFor(this.fillsTitle);
+  }
+
+  /** Public alias for PBI 611013's "Tap 'Fills' to open the refill details page" - same screen as openProductFills(), just the PBI's own vocabulary (the live tile is labeled "Delivery", not "Fills"). */
+  async openFills(): Promise<void> {
+    await this.openProductFills();
+  }
+
+  /** PBI 611013 step 3: expand a product row to reveal Par Stock/Ordered/Picked plus the Theft/Damaged/Returned/Spoiled/Delivery entry fields. */
+  async expandProductFill(position: Position = 'first'): Promise<void> {
+    await this.tap(this.fillExpandIcon(position));
+  }
+
+  /**
+   * Reads Par Stock Count / Ordered Quantity / Picked Quantity - live-verified
+   * these are NOT separate elements, just appended text in the row's own
+   * content-desc after expansion (see fillProductRow above), so they're read
+   * by parsing that string rather than three distinct locators.
+   */
+  async getProductFillReview(position: Position = 'first'): Promise<{ par: number; ordered: number; picked: number }> {
+    const row = await this.driver.$(this.fillProductRowAt(position));
+    const desc = (await row.getAttribute('content-desc')) ?? '';
+    const par = Number(/Par (\d+)/.exec(desc)?.[1]);
+    const ordered = Number(/Ordered (\d+)/.exec(desc)?.[1]);
+    const picked = Number(/Picked (\d+)/.exec(desc)?.[1]);
+    return { par, ordered, picked };
+  }
+
+  /** Whether the Theft/Damaged/Returned/Spoiled/Delivery entry fields are visible - only true after expandProductFill() has been called for the same position. */
+  async isFillEntryVisible(position: Position = 'first'): Promise<{
+    theft: boolean;
+    damaged: boolean;
+    returned: boolean;
+    spoiled: boolean;
+    delivered: boolean;
+  }> {
+    return {
+      theft: await this.isVisible(this.fillFieldByHint(position, 'Theft')),
+      damaged: await this.isVisible(this.fillFieldByHint(position, 'Damaged')),
+      returned: await this.isVisible(this.fillFieldByHint(position, 'Returned')),
+      spoiled: await this.isVisible(this.fillFieldByHint(position, 'Spoiled')),
+      delivered: await this.isVisible(this.fillFieldByHint(position, 'Delivery'))
+    };
+  }
+
+  /** PBI 611013 step 3: enter Theft/Damaged/Returned/Spoiled quantities, then the Delivered quantity - assumes expandProductFill() was already called for this position. */
+  async enterFillQuantities(
+    position: Position = 'first',
+    values: { theft?: string; damaged?: string; returned?: string; spoiled?: string; delivered?: string } = {}
+  ): Promise<void> {
+    if (values.theft !== undefined) await this.type(this.fillFieldByHint(position, 'Theft'), values.theft);
+    if (values.damaged !== undefined) await this.type(this.fillFieldByHint(position, 'Damaged'), values.damaged);
+    if (values.returned !== undefined) await this.type(this.fillFieldByHint(position, 'Returned'), values.returned);
+    if (values.spoiled !== undefined) await this.type(this.fillFieldByHint(position, 'Spoiled'), values.spoiled);
+    if (values.delivered !== undefined) await this.type(this.fillFieldByHint(position, 'Delivery'), values.delivered);
   }
 
   /**
