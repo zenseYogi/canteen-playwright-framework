@@ -32,8 +32,8 @@ import { mobileConfig } from '../../config/mobile.config';
 // every day.
 test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
   test(
-    'TC027/TC019: navigate to the Ad-hoc delivery creation screen',
-    { tag: ['@TC027', '@TC019'] },
+    'TC027/TC019/TC052: navigate to the Ad-hoc delivery creation screen',
+    { tag: ['@TC027', '@TC019', '@TC052'] },
     async ({ driver }) => {
       const home = new HomeScreen(driver);
       const adhoc = new AdhocDeliveryScreen(driver);
@@ -42,7 +42,17 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
       // 611763/630328) is the exact same assertion as TC027 under a
       // different PBI - "click the plus(+) icon" -> "navigate to Add
       // delivery screen" - so this one test satisfies both rather than
-      // duplicating it.
+      // duplicating it. TC052 (Area: Start of The Day, Sub Area: Add stop,
+      // PBI 611757) is "view 'Add delivery' title" - also the exact same
+      // isTitleVisible() assertion below, a third PBI covered by this test.
+      //
+      // NOT asserted: TC059 (bundled in TC052's own row, same PBI 611757)
+      // claims "Add delivery button disabled when mandatory fields are
+      // empty" - directly tested live 2026-07-27 and found FALSE. The Add
+      // Delivery button's enabled attribute is "true" with the Customer
+      // field completely empty and nothing else filled in. Same class of
+      // confirmed Excel-vs-app discrepancy as TC077/TC173 (see
+      // prep-tasks.spec.ts) - not an assumption.
       await test.step('Log in, then switch to Charlotte/103 (Miami/010 needs BA data prep)', async () => {
         await loginAndWaitForMfa(driver);
         await switchRoute(driver, mobileConfig.vendingRoute);
@@ -52,7 +62,7 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
       // current day is empty or has real deliveries, and regardless of
       // which route/LOB is active (also confirmed on Charlotte/103, a
       // Vending-only route).
-      await test.step('TC027/TC019: tap "+" and verify the Add Delivery screen opens', async () => {
+      await test.step('TC027/TC019/TC052: tap "+" and verify the Add Delivery screen opens', async () => {
         await home.openAdhocDeliveryCreation();
         expect(await adhoc.isTitleVisible()).toBe(true);
         expect(await adhoc.isCustomerFieldVisible()).toBe(true);
