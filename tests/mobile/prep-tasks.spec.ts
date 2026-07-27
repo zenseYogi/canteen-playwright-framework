@@ -120,4 +120,31 @@ test.describe('Prep Tasks / Start of Day', () => {
       });
     }
   );
+
+  // PBI 729543, Sub Area "Prep Tasks-Product collection". TC130-TC138 are a
+  // sequential flow: Continue (non-empty checklist) -> camera opens -> tap
+  // "Skip photo" -> confirmation modal ("Can't take a photo?") -> tap Skip
+  // photo again -> TC134's own bottom sheet (Reason to skip photo field,
+  // disabled submit button) -> TC135 keypad focus -> TC136 reason enables
+  // Skip -> TC137 blank reason stays disabled -> TC138 submits and skips.
+  //
+  // BLOCKED (2026-07-27): live-verified on Route 10/TODAY (build 0.1.76)
+  // with a genuinely non-empty, fully-checked Product Collection checklist
+  // (OCS Creamer/Sugar-20, Paper/Cups/Stir-20, Candy-10, LG Snacks-20) -
+  // tapping Continue completes the Product Collection tile instantly and
+  // returns straight to the Prep Tasks list. The camera never opens, so
+  // none of TC130-138 are reachable. `adb shell dumpsys media.camera`
+  // confirms the app's camera hasn't been connected to since 2026-07-24 -
+  // the same date docs/rf-to-playwright-reuse.md's Phase 7 notes cite as
+  // the last time completeProductCollection()'s photo-capture branch was
+  // confirmed end-to-end. This looks like an app-side regression or
+  // intentional behavior change since that date, not a test bug - not an
+  // assumption, a directly reproduced blocker. Held per explicit direction
+  // pending BA/dev confirmation - do not re-attempt without new information
+  // on whether the photo step still exists.
+  test.fixme(
+    'TC134: proceed to the Skip photo reason bottom sheet',
+    { tag: ['@TC130', '@TC131', '@TC132', '@TC133', '@TC134', '@TC135', '@TC136', '@TC137', '@TC138'] },
+    async () => {}
+  );
 });
