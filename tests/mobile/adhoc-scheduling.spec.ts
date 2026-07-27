@@ -1,7 +1,8 @@
 import { test, expect } from '../../fixtures/appium.fixture';
-import { loginAndWaitForMfa } from '../../utils/login-flow';
+import { loginAndWaitForMfa, switchRoute } from '../../utils/login-flow';
 import { HomeScreen } from '../../screens/home.screen';
 import { AdhocDeliveryScreen } from '../../screens/adhoc-delivery.screen';
+import { mobileConfig } from '../../config/mobile.config';
 
 // PBI 850155 "Ad-hoc Scheduling" (Start of The Day area). Four TCs:
 //   TC025 - "No deliveries available" empty state (0 Delivery, message,
@@ -12,16 +13,14 @@ import { AdhocDeliveryScreen } from '../../screens/adhoc-delivery.screen';
 //   TC029 - Empty state should NOT show, delivery list should display,
 //           when deliveries exist.
 //
-// Data note (2026-07-24): BA has seeded delivery data across every day
-// (Yesterday/Today/Tomorrow) on both routes this framework knows about
-// (Miami/010, Charlotte/103) - a zero-delivery day existed on Miami/010
-// earlier the same day (confirmed live: "0 Delivery", the empty-state
-// message, Start day shown disabled) but no longer does on either route as
-// of writing. TC029 (data exists) is fully verified below. TC027 turned out
-// NOT to require an empty day at all - live-verified reachable from a day
-// with 4 real deliveries. TC025/TC028 genuinely need a zero-delivery day and
-// are written as test.fixme() (ready to enable, not guessed at) pending BA
-// confirming/creating one.
+// Data note (2026-07-27): TC025/TC028 need a genuinely zero-delivery day,
+// which neither defaultRoute (Miami/010) nor vendingRoute (Charlotte/103)
+// have anymore - both got real data seeded across every day. Tried
+// Charlotte/103/Tomorrow first (per a specific request) - still 153
+// Deliveries, not zero. Miami, FL / Route 001 (config/mobile.config.ts's
+// emptyRoute) confirmed live to be empty across Yesterday/Today/Tomorrow -
+// a dedicated test route, distinct from the two real business routes above.
+// Both TCs are now live-verified and passing.
 test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
   test(
     'TC027: navigate to the Ad-hoc delivery creation screen',
@@ -64,18 +63,16 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
     }
   );
 
-  // Pending a zero-delivery day being available again on a known route (see
-  // the Data note above) - written now per explicit instruction ("automate
-  // it for now, re-verify when zero-delivery data is available"), not
-  // guessed-and-claimed-passing. Flip to test() once BA confirms/creates one.
-  test.fixme(
+  test(
     'TC025: view the "No deliveries available" empty state',
     { tag: ['@TC025'] },
     async ({ driver }) => {
       const home = new HomeScreen(driver);
+      const adhoc = new AdhocDeliveryScreen(driver);
 
-      await test.step('Log in (on a zero-delivery day)', async () => {
+      await test.step('Log in, then switch to the dedicated empty test route (Miami / Route 001)', async () => {
         await loginAndWaitForMfa(driver);
+        await switchRoute(driver, { ...mobileConfig.emptyRoute, day: 'TODAY' });
       });
 
       await test.step('TC025: verify 0 Delivery, the empty-state message, and Start day disabled', async () => {
@@ -85,14 +82,13 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
       });
 
       await test.step('TC025/TC027: the "+" icon is still available on the empty state', async () => {
-        const adhoc = new AdhocDeliveryScreen(driver);
         await home.openAdhocDeliveryCreation();
         expect(await adhoc.isTitleVisible()).toBe(true);
       });
     }
   );
 
-  test.fixme(
+  test(
     'TC028: Ad-hoc scheduling is available across multiple zero-delivery days',
     { tag: ['@TC028'] },
     async ({ driver }) => {
@@ -102,14 +98,23 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
         await loginAndWaitForMfa(driver);
       });
 
-      // Requires switchRoute-ing through Yesterday/Today/Tomorrow (or
-      // further via Route Setup) to find/confirm multiple zero-delivery
-      // days in sequence, verifying the empty state + "+" availability on
-      // each - not written in full until at least one such day is
-      // confirmed live, to avoid guessing at multi-day navigation timing.
-      await test.step('TC028: verify Ad-hoc scheduling is offered on every zero-delivery day tried', async () => {
-        expect(await home.isDeliveriesEmptyStateVisible()).toBe(true);
-      });
+      // Live-verified: Miami / Route 001 is empty on all three days the
+      // in-app day picker offers (past/current/future relative to today).
+      for (const day of ['YESTERDAY', 'TODAY', 'TOMORROW'] as const) {
+        await test.step(`TC028: switch to ${day} and verify the empty state + Ad-hoc option`, async () => {
+          await switchRoute(driver, { ...mobileConfig.emptyRoute, day });
+          expect(await home.getDeliveriesCount()).toBe(0);
+          expect(await home.isDeliveriesEmptyStateVisible()).toBe(true);
+          expect(await home.isStartDayDisabled()).toBe(true);
+
+          const adhoc = new AdhocDeliveryScreen(driver);
+          await home.openAdhocDeliveryCreation();
+          expect(await adhoc.isTitleVisible()).toBe(true);
+          // Return to a hamburger-accessible screen so the next iteration's
+          // switchRoute() (which navigates via Settings) can reach it.
+          await home.returnToHome();
+        });
+      }
     }
   );
 });

@@ -52,5 +52,18 @@ export const mobileConfig = {
     routeSearch: process.env.VENDING_ROUTE_SEARCH || 'Route 103',
     routeLabel: process.env.VENDING_ROUTE_LABEL || 'Route 103',
     day: (process.env.VENDING_ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'YESTERDAY'
+  },
+  // PBI 850155 (Ad-hoc Scheduling, TC025/TC028) needs a genuinely zero-delivery
+  // day to test the empty-state UI - defaultRoute/vendingRoute both had real
+  // seeded data on every day by the time this was needed. Miami, FL / Route 001
+  // confirmed live (2026-07-27) to be empty across Yesterday/Today/Tomorrow -
+  // a dedicated test route, not a real business route like the other two.
+  // Day is passed per-call (not fixed here) since TC028 specifically needs to
+  // exercise all three.
+  emptyRoute: {
+    operationSearch: process.env.EMPTY_ROUTE_OPERATION_SEARCH || 'Miami',
+    operationLabel: process.env.EMPTY_ROUTE_OPERATION_LABEL || 'Miami, FL',
+    routeSearch: process.env.EMPTY_ROUTE_SEARCH || 'Route 001',
+    routeLabel: process.env.EMPTY_ROUTE_LABEL || 'Route 001'
   }
 };
