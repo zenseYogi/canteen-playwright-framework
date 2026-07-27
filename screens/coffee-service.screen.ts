@@ -21,6 +21,10 @@ export class CoffeeServiceScreen extends BaseScreen {
     '//android.widget.FrameLayout[@resource-id="android:id/content"]/android.widget.FrameLayout/android.view.View/android.view.View/android.view.View/android.view.View/android.view.View[5]';
   private readonly signOffButton = '~Sign off';
   private readonly equipmentAudit = '//android.view.View[starts-with(@content-desc, "Equipment audit")]';
+  // Live-verified 2026-07-27 on a Coffee service stop (Route 10/TODAY,
+  // "Alan B. Levan |NSU Broward Center of Innovation"'s checklist) -
+  // Before Photos is the first tile, dashed border until completed/skipped.
+  private readonly beforePhotos = '//android.view.View[starts-with(@content-desc,"Before Photos")]';
 
   async clickServiceLocation(position: Position): Promise<void> {
     await this.selectServiceLocation(this.coffeeLob, position);
@@ -46,5 +50,10 @@ export class CoffeeServiceScreen extends BaseScreen {
     await this.tap(this.equipmentAudit);
     await this.tap(this.doneButton);
     await this.tap(this.yesButton);
+  }
+
+  /** Opens the Before Photos step's "Add supporting photo" modal - see BaseScreen's openPhotoTrigger/isPhotoModalVisible/openSkipPhotoReasonSheet for the shared skip-photo flow beyond this. */
+  async openBeforePhotos(): Promise<void> {
+    await this.openPhotoTrigger(this.beforePhotos);
   }
 }

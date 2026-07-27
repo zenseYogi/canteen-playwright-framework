@@ -20,6 +20,24 @@ export class BaseScreen {
   protected readonly addProductButton = '~section_header_add_cta';
   protected readonly takePhotoButton = '~Take photo';
   protected readonly attachPhotoButton = '~Attach Photo';
+  // Before/After Photos' "skip photo" sub-flow - live-verified 2026-07-27 on
+  // a Coffee LOB service stop (Route 10/TODAY), reached via the service
+  // stop checklist's "Before Photos" tile. Genuinely shared across LOBs -
+  // the Excel documents the identical pattern separately for Market's
+  // "Before Photo"/"After Photo" and Coffee's "After Photo"/"Completing an
+  // equipment audit" sub-areas, all with the same wording - so this lives
+  // here rather than duplicated per LOB screen (same reasoning as
+  // removalsAndReturns below).
+  //
+  // CORRECTED: the reason-sheet's submit control shares its content-desc
+  // ("Skip photo") with a plain, always-enabled android.view.View that's
+  // just the sheet's own title text - a bare `~Skip photo` accessibility-id
+  // selector resolves to whichever matches first and can silently grab the
+  // title instead of the button, making an actually-disabled submit button
+  // read as enabled. Scoped to the Button class specifically to avoid that.
+  protected readonly skipPhotoModalTitle = '~Add supporting photo';
+  protected readonly skipPhotoButton = '//android.widget.Button[@content-desc="Skip photo"]';
+  protected readonly skipPhotoReasonField = '//android.widget.EditText[@hint="Reason to skip photo"]';
   // Generic EditText/ScrollView with no content-desc/resource-id of their own -
   // must stay xpath, no accessibility-id shorthand available for these.
   protected readonly searchField = '//android.widget.EditText';
@@ -448,6 +466,107 @@ export class BaseScreen {
     await this.tap(this.takePhotoButton);
     await this.tap(this.capturePhotoButton);
     await this.tap(this.attachPhotoButton);
+  }
+
+  /**
+   * Taps a Before/After Photos trigger and waits for the "Add supporting
+   * photo" modal (Take photo / Skip photo). Live-verified (2026-07-27):
+   * on this build/emulator the modal appears directly - no separate live
+   * camera-preview screen beforehand, unlike the Excel's TC017/TC130-style
+   * wording ("camera interface opens with live preview"). Not asserting
+   * that a live preview exists first; this is the real, reproducible entry
+   * point.
+   */
+  async openPhotoTrigger(triggerSelector: string): Promise<void> {
+    await this.tap(triggerSelector);
+    await this.waitFor(this.skipPhotoModalTitle);
+  }
+
+  async isPhotoModalVisible(): Promise<{ takePhoto: boolean; skipPhoto: boolean }> {
+    return {
+      takePhoto: await this.isVisible(this.takePhotoButton),
+      skipPhoto: await this.isVisible(this.skipPhotoButton)
+    };
+  }
+
+  /**
+   * Taps Skip photo on the "Add supporting photo" modal and waits for the
+   * Skip photo reason bottom sheet (Excel TC134/TC021/TC106's "Skip photo
+   * bottom sheet ... Reason to skip photo text field and disabled submit
+   * button"). Live-verified: a single tap reaches the reason sheet
+   * directly - the Excel's separate "Can't take a photo?" confirmation
+   * modal (TC131/TC018/TC103) with its own Cancel/Skip photo pair was NOT
+   * observed as a distinct intermediate step on this build; not asserted.
+   */
+  async openSkipPhotoReasonSheet(): Promise<void> {
+    await this.tap(this.skipPhotoButton);
+    await this.waitFor(this.skipPhotoReasonField);
+  }
+
+  async isSkipPhotoReasonSheetVisible(): Promise<boolean> {
+    return this.isVisible(this.skipPhotoReasonField);
+  }
+
+  async isSkipPhotoSubmitEnabled(): Promise<boolean> {
+    return this.isEnabled(this.skipPhotoButton);
+  }
+
+  /**
+   * Live-verified: the Skip photo button's enabled attribute lags behind
+   * setValue() resolving by a variable amount (a fixed 500ms pause after
+   * typing was NOT reliably enough across repeated runs) - polls instead of
+   * guessing a fixed delay.
+   */
+  async waitForSkipPhotoSubmitEnabled(expected: boolean, timeoutMs = 5_000): Promise<void> {
+    await this.driver.waitUntil(async () => (await this.isSkipPhotoSubmitEnabled()) === expected, {
+      timeout: timeoutMs,
+      interval: 200
+    });
+  }
+
+  /**
+   * TC136/TC024/TC108: enters the skip reason - does NOT submit. Field
+   * accepts input directly (no keyboard-visibility polling needed,
+   * confirmed live). Needs an explicit tap/focus before setValue() - a
+   * plain setValue() with no prior tap left the field showing the right
+   * text but the Skip photo button's enabled state never updated
+   * (live-verified) - so this taps first for the app's own dirty-state
+   * tracking to fire.
+   *
+   * Retries the element lookup once: live-verified this UiAutomator2 build
+   * intermittently reports a genuinely-on-screen element as "not found"
+   * (same class of transient instrumentation flakiness hit throughout this
+   * session, not the field actually disappearing) - a screenshot taken at
+   * the moment of one such failure confirmed the sheet and field were both
+   * still visibly present.
+   */
+  async enterSkipPhotoReason(reason: string): Promise<void> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const field = await this.driver.$(this.skipPhotoReasonField);
+        await field.waitForDisplayed({ timeout: mobileConfig.timeouts.element });
+        await field.click();
+        await field.setValue(reason);
+        return;
+      } catch (err) {
+        lastError = err;
+        await this.driver.pause(1000);
+      }
+    }
+    throw lastError;
+  }
+
+  /**
+   * TC138/TC025/TC113: submits the skip reason. Dismisses the keyboard via
+   * BACK first - live-verified the on-screen keyboard covers the submit
+   * button's real position, same reasoning as hideKeyboardViaAdb's other
+   * call sites, and this build's soft keyboard does close on BACK without
+   * navigating the underlying sheet away (a keyboard was showing).
+   */
+  async confirmSkipPhoto(): Promise<void> {
+    await this.pressKeyCode(4);
+    await this.tap(this.skipPhotoButton);
   }
 
   /**

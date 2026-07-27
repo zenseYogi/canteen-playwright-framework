@@ -87,12 +87,21 @@ export class PrepTasksScreen extends BaseScreen {
     return skip && complete;
   }
 
+  /**
+   * CORRECTED (2026-07-27): used to also wait for the Product Collection
+   * tile here, but that tile never renders once Start Day is already
+   * server-tracked complete (only a bare "Start day" button + title show) -
+   * live-verified this hangs the full 15s timeout in that state. prepTasksTitle
+   * alone is the real "we've arrived" signal; completeFullDayPrep() already
+   * does its own wait for productCollection right before using it, and
+   * ensureFullDayPrepComplete() checks its visibility without waiting - so
+   * nothing downstream loses coverage by dropping the wait here.
+   */
   async openFromHamburgerMenu(): Promise<void> {
     await this.tap(this.hamburgerIcon);
     await this.waitFor(this.navMenuPrepTask);
     await this.tap(this.navMenuPrepTask);
     await this.waitFor(this.prepTasksTitle);
-    await this.waitFor(this.productCollection);
   }
 
   /** Confirms Prep Tasks loaded via the Dashboard's Start day button - see HomeScreen.tapStartDay(), which RF's "...from dashboard" keyword calls before this wait. */
