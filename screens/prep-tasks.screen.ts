@@ -41,6 +41,17 @@ export class PrepTasksScreen extends BaseScreen {
   private readonly addProductTitle = '~Add product';
   private readonly addButton = '~Add';
 
+  // TC169's "date and route in the header" - live-verified 2026-07-27: the
+  // date renders as a bare absolute-date string ("27 Jul 2026", not
+  // "Today"/"Yesterday" like the Dashboard's own badge - see HomeScreen's
+  // currentDateBadge, which wouldn't match here), immediately followed by
+  // the route pill ("Route 10"). Located relative to the route pill (which
+  // has a stable starts-with match) since the date string itself has no
+  // fixed prefix to anchor on.
+  private readonly moneyOperationsTitle = '~Money operations';
+  private readonly headerRouteBadge = '//android.view.View[starts-with(@content-desc,"Route")]';
+  private readonly headerDateBadge = `${this.headerRouteBadge}/preceding-sibling::android.view.View[1]`;
+
   /**
    * Public access to the four sub-screen trigger locators, for passing into
    * skipSubScreen()/completeSubScreen()/openBackPressPopup() from spec code -
@@ -206,6 +217,21 @@ export class PrepTasksScreen extends BaseScreen {
   /** Excel TC075 "view Add product (+) icon" - assumes Product Collection is already open (openProductCollection()). */
   async isAddProductButtonVisible(): Promise<boolean> {
     return this.isVisible(this.addProductButton);
+  }
+
+  /** Opens Money Operations without completing/skipping it - lets callers assert the header (TC169) before committing to anything. */
+  async openMoneyOperationsOnly(): Promise<void> {
+    await this.openSubScreen(this.moneyOperations);
+    await this.waitFor(this.moneyOperationsTitle);
+  }
+
+  /** Excel TC169 "view date and route in the header" - assumes Money Operations is already open (openMoneyOperationsOnly()). */
+  async isMoneyOperationsHeaderVisible(): Promise<{ title: boolean; date: boolean; route: boolean }> {
+    return {
+      title: await this.isVisible(this.moneyOperationsTitle),
+      date: await this.isVisible(this.headerDateBadge),
+      route: await this.isVisible(this.headerRouteBadge)
+    };
   }
 
   /** Excel TC080/TC089 "open Add product screen" - taps the "+" and waits for the shared "Add product" title (same string as MarketServiceScreen's - not hoisted, see that screen's own note on why LOB screens stay separate). */

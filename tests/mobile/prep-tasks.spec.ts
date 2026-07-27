@@ -121,6 +121,33 @@ test.describe('Prep Tasks / Start of Day', () => {
     }
   );
 
+  // PBI 630328, Sub Area "Prep Tasks-Money Operations". Uses Route 10/TODAY
+  // explicitly (Miami/010 data has been restored per 2026-07-27 update, but
+  // defaultRoute's own day='YESTERDAY' default is still anchored to a fixed
+  // seed date - see mobile.config.ts's note - so TODAY is the one confirmed
+  // live to have a fresh, not-yet-completed Start Day this day).
+  test(
+    'TC169: view the date and route in the Money operations header',
+    { tag: ['@TC169'] },
+    async ({ driver }) => {
+      const prepTasks = new PrepTasksScreen(driver);
+
+      await test.step('Log in, then switch to Route 10/TODAY', async () => {
+        await loginAndWaitForMfa(driver);
+        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      });
+
+      await test.step('TC169: open Money operations and verify the header (date + route) is visible', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.openMoneyOperationsOnly();
+        const header = await prepTasks.isMoneyOperationsHeaderVisible();
+        expect(header.title).toBe(true);
+        expect(header.date).toBe(true);
+        expect(header.route).toBe(true);
+      });
+    }
+  );
+
   // CORRECTED (2026-07-27, per BA): TC130-TC138's "Skip photo" flow is NOT
   // part of Prep Tasks/Product Collection's Continue button at all - that
   // was this Excel row's own Area/Sub Area mislabeling. The real feature is
