@@ -51,6 +51,9 @@ export class PrepTasksScreen extends BaseScreen {
   private readonly moneyOperationsTitle = '~Money operations';
   private readonly headerRouteBadge = '//android.view.View[starts-with(@content-desc,"Route")]';
   private readonly headerDateBadge = `${this.headerRouteBadge}/preceding-sibling::android.view.View[1]`;
+  // TC171's checklist items - live-verified 2026-07-27 exact content-desc matches.
+  private readonly replacementMoneyBagsItem = '~Replacement money bag(s)';
+  private readonly changerBagItem = '~Changer bag';
 
   /**
    * Public access to the four sub-screen trigger locators, for passing into
@@ -232,6 +235,28 @@ export class PrepTasksScreen extends BaseScreen {
       date: await this.isVisible(this.headerDateBadge),
       route: await this.isVisible(this.headerRouteBadge)
     };
+  }
+
+  /** Excel TC171 "view available checklist items" - assumes Money Operations is already open. */
+  async isMoneyOperationsChecklistVisible(): Promise<{ replacementMoneyBags: boolean; changerBag: boolean }> {
+    return {
+      replacementMoneyBags: await this.isVisible(this.replacementMoneyBagsItem),
+      changerBag: await this.isVisible(this.changerBagItem)
+    };
+  }
+
+  async isMoneyOperationsTitleVisible(): Promise<boolean> {
+    return this.isVisible(this.moneyOperationsTitle);
+  }
+
+  /** Excel TC179/TC182 "click back arrow in the Money operations screen" - assumes Money Operations is already open (no re-navigation, unlike openBackPressPopup()). */
+  async tapBackArrow(): Promise<void> {
+    await this.tap(this.backButton);
+  }
+
+  /** Excel TC183's "navigate to the Prep task screen" - the list view's own heading (e.g. "Start day, Route 10"), same signal waitForOpenedFromDashboard() waits on. */
+  async isPrepTasksListVisible(): Promise<boolean> {
+    return this.isVisible(this.titleStartDay);
   }
 
   /** Excel TC080/TC089 "open Add product screen" - taps the "+" and waits for the shared "Add product" title (same string as MarketServiceScreen's - not hoisted, see that screen's own note on why LOB screens stay separate). */

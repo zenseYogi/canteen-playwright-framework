@@ -148,6 +148,78 @@ test.describe('Prep Tasks / Start of Day', () => {
     }
   );
 
+  // PBI 630328, same Sub Area as TC169. TC171-TC183 is a sequential flow on
+  // the Money operations checklist, but Excel actually describes TWO
+  // separate endings from the same starting point (view checklist -> select
+  // items -> either tap Continue directly (TC178), OR tap the back arrow to
+  // get a Skip/Complete confirmation popup (TC179-183)) - not one single
+  // continuous path, since completing the screen via either path ends the
+  // scenario. Only one fresh (not-yet-completed) day was available live
+  // (Route 10/TODAY), so this automates the richer back-arrow/Skip/Complete
+  // path (TC179-183, 5 TCs) rather than TC178's Continue-button path - not
+  // independently exercised this run, noted rather than assumed.
+  //
+  // NOT asserted (live-verified FALSE, 2026-07-27): TC172 ("items show
+  // counts 10x/3x") - no count badge renders at all, just the plain labels.
+  // TC173/174/175/176/177 (Continue disabled with 0 selected, enabled with
+  // 1+, etc.) - Continue's `enabled` attribute is "true" regardless of
+  // whether 0, 1, or 2 items are checked, tested through the full
+  // check/uncheck sequence. Same class of confirmed discrepancy as the
+  // Product Collection TC077/TC173 note earlier in this file.
+  test(
+    'TC171/TC179-TC183: Money operations checklist items and the back-arrow Skip/Complete confirmation',
+    { tag: ['@TC171', '@TC179', '@TC180', '@TC181', '@TC182', '@TC183'] },
+    async ({ driver }) => {
+      const prepTasks = new PrepTasksScreen(driver);
+
+      await test.step('Log in, then switch to Route 10/TODAY', async () => {
+        await loginAndWaitForMfa(driver);
+        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      });
+
+      // TC171 "view available checklist items"
+      await test.step('TC171: open Money operations and verify both checklist items are visible', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.openMoneyOperationsOnly();
+        const items = await prepTasks.isMoneyOperationsChecklistVisible();
+        expect(items.replacementMoneyBags).toBe(true);
+        expect(items.changerBag).toBe(true);
+      });
+
+      // TC179 "click back arrow" -> TC180 "view Skip and Complete buttons"
+      await test.step('TC179/TC180: tap the back arrow and verify the Skip/Complete confirmation popup', async () => {
+        await prepTasks.tapBackArrow();
+        expect(await prepTasks.isBackPressPopupVisible()).toBe(true);
+      });
+
+      // TC181 "click Skip" - Excel claims "no changes reflected, still on
+      // Money operations". Live-verified FALSE (2026-07-27): Skip actually
+      // navigates all the way back to the Prep Tasks list, same as a plain
+      // unconfirmed back-press would - not a no-op. The tile itself is
+      // NOT marked complete (still reachable, no tick), so nothing is lost,
+      // but the screen does change. Asserting the real observed behavior.
+      await test.step('TC181: tap Skip and verify it navigates back to the Prep Tasks list', async () => {
+        await prepTasks.confirmSkip();
+        expect(await prepTasks.isPrepTasksListVisible()).toBe(true);
+      });
+
+      // TC182 "click back arrow again" - since Skip already left Money
+      // operations (see TC181's note), this re-enters it fresh rather than
+      // literally tapping back a second time on the same still-open screen.
+      await test.step('TC182: reopen Money operations, tap back, and verify the popup reappears', async () => {
+        await prepTasks.openMoneyOperationsOnly();
+        await prepTasks.tapBackArrow();
+        expect(await prepTasks.isBackPressPopupVisible()).toBe(true);
+      });
+
+      // TC183 "click Complete" - navigates back to the Prep Tasks list
+      await test.step('TC183: tap Complete and verify navigation back to the Prep Tasks list', async () => {
+        await prepTasks.confirmComplete();
+        expect(await prepTasks.isPrepTasksListVisible()).toBe(true);
+      });
+    }
+  );
+
   // CORRECTED (2026-07-27, per BA): TC130-TC138's "Skip photo" flow is NOT
   // part of Prep Tasks/Product Collection's Continue button at all - that
   // was this Excel row's own Area/Sub Area mislabeling. The real feature is
