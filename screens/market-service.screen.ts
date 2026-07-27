@@ -11,6 +11,14 @@ export class MarketServiceScreen extends BaseScreen {
   private readonly marketLob = '//android.widget.ImageView[contains(@content-desc,"market")]';
   private readonly fillsTitle = '~Product fills';
   private readonly audit = '//android.view.View[starts-with(@content-desc,"Audit")]';
+  // Excel TC010 "view the delivery header" - the account/location name
+  // (e.g. "CuraLeaf") shown as the bold header on the service stop's
+  // checklist screen (Before Photos, Removals & Returns, Delivery, Audit,
+  // After Photos, Market Transfers). Live-verified 2026-07-27: it's a plain
+  // View with no fixed prefix (varies per location) - located structurally,
+  // immediately preceding the Before Photos tile.
+  private readonly serviceStopLocationHeader =
+    '//android.view.View[starts-with(@content-desc,"Before Photos")]/preceding-sibling::android.view.View[1]';
 
   // Money-operations fields: RF declared these in coffee.yaml (there is no
   // market.yaml) and market_keywords.robot never imports coffee.yaml
@@ -63,6 +71,16 @@ export class MarketServiceScreen extends BaseScreen {
 
   async clickServiceLocation(position: Position): Promise<void> {
     await this.selectServiceLocation(this.marketLob, position);
+  }
+
+  /** Excel TC010 "view the delivery header" - assumes the service stop's checklist screen is already open. */
+  async isServiceStopLocationHeaderVisible(): Promise<boolean> {
+    return this.isVisible(this.serviceStopLocationHeader);
+  }
+
+  async getServiceStopLocationHeaderText(): Promise<string> {
+    const el = await this.driver.$(this.serviceStopLocationHeader);
+    return (await el.getAttribute('content-desc')) ?? '';
   }
 
   async isProductFillsTitleVisible(): Promise<boolean> {

@@ -1,8 +1,9 @@
 import { test, expect } from '../../fixtures/appium.fixture';
-import { loginAndWaitForMfa } from '../../utils/login-flow';
+import { loginAndWaitForMfa, switchRoute } from '../../utils/login-flow';
 import { PrepTasksScreen } from '../../screens/prep-tasks.screen';
 import { DashboardScreen } from '../../screens/dashboard.screen';
 import { MarketServiceScreen } from '../../screens/market-service.screen';
+import { mobileConfig } from '../../config/mobile.config';
 
 // Traceability to Optimized_TCs_V_2.0.xlsx: TC numbers cited per assertion
 // below are from the "Market" area's Delivery / Delivery-Add Product /
@@ -98,6 +99,57 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
         const buttons = await market.addProductButtonStates();
         expect(buttons.cancelEnabled).toBe(true);
         expect(buttons.addEnabled).toBe(false);
+      });
+    }
+  );
+
+  // Sub Area "Header". Uses Route 10/TODAY + position 'first' explicitly -
+  // live-verified 2026-07-27 that on this day the Market stop ("CuraLeaf")
+  // is the FIRST dashboard location, not the second (Coffee's "Nova
+  // Innovation" is second) - the reverse of the assumption the tests above
+  // were built on (which also predate today and use the still-stale
+  // defaultRoute/YESTERDAY day, unrelated to this test). Location ordering
+  // is seed-data-dependent, not a fixed contract - don't assume position
+  // 'second' is always Market.
+  test(
+    'TC010: view the account location name as the delivery header',
+    { tag: ['@TC010'] },
+    async ({ driver }) => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in, switch to Route 10/TODAY', async () => {
+        await loginAndWaitForMfa(driver);
+        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      });
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      // TC010 "view the delivery header" - Excel's Test Data references a
+      // different account name ("Goodwill / Rutherford") than what's
+      // actually seeded here ("CuraLeaf") - expected, seed data varies by
+      // environment; the claim being tested is that SOME account name
+      // renders as the bold header, not a specific literal string.
+      //
+      // NOT asserted: TC011 ("account location name displayed instead of
+      // POS/equipment ID on the Market product recording screen") and
+      // TC012 ("the same account location name persists across Market
+      // delivery and product screens") - both live-verified FALSE. Opening
+      // Delivery (Product fills) replaces the header entirely with the
+      // feature name "Product fills" - the account name ("CuraLeaf")
+      // doesn't appear anywhere on that screen at all, so it neither
+      // "persists" (TC012) nor "displays instead of POS/equipment ID"
+      // (TC011, which also doesn't show a POS/equipment ID to be replacing).
+      await test.step("TC010: open a Market location's service stop and verify the account name is the bold header", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openFirstServiceStation('market');
+        expect(await market.isServiceStopLocationHeaderVisible()).toBe(true);
+        const headerText = await market.getServiceStopLocationHeaderText();
+        expect(headerText.length).toBeGreaterThan(0);
       });
     }
   );
