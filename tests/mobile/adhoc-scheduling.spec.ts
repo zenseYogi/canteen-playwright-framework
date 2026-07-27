@@ -21,21 +21,38 @@ import { mobileConfig } from '../../config/mobile.config';
 // emptyRoute) confirmed live to be empty across Yesterday/Today/Tomorrow -
 // a dedicated test route, distinct from the two real business routes above.
 // Both TCs are now live-verified and passing.
+//
+// CORRECTED (2026-07-27): TC027 and TC029 both silently relied on
+// loginAndWaitForMfa()'s implicit defaultRoute (Miami/010) rather than
+// switching explicitly - which broke TC029 the moment Miami/010's
+// Yesterday went stale (same fixed-date-seed issue flagged in
+// mobile.config.ts, now recurring as real time passed Jul 24). Miami/010
+// needs BA data prep before it's usable again, so both now explicitly
+// switch to Charlotte/103 (vendingRoute) instead, which has real data on
+// every day.
 test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
   test(
-    'TC027: navigate to the Ad-hoc delivery creation screen',
-    { tag: ['@TC027'] },
+    'TC027/TC019: navigate to the Ad-hoc delivery creation screen',
+    { tag: ['@TC027', '@TC019'] },
     async ({ driver }) => {
       const home = new HomeScreen(driver);
       const adhoc = new AdhocDeliveryScreen(driver);
 
-      await test.step('Log in', async () => {
+      // TC019 (Area: Start of The Day, Sub Area: Home-Schedule, PBI
+      // 611763/630328) is the exact same assertion as TC027 under a
+      // different PBI - "click the plus(+) icon" -> "navigate to Add
+      // delivery screen" - so this one test satisfies both rather than
+      // duplicating it.
+      await test.step('Log in, then switch to Charlotte/103 (Miami/010 needs BA data prep)', async () => {
         await loginAndWaitForMfa(driver);
+        await switchRoute(driver, mobileConfig.vendingRoute);
       });
 
       // Live-verified: this "+" icon is reachable regardless of whether the
-      // current day is empty or has real deliveries.
-      await test.step('TC027: tap "+" and verify the Add Delivery screen opens', async () => {
+      // current day is empty or has real deliveries, and regardless of
+      // which route/LOB is active (also confirmed on Charlotte/103, a
+      // Vending-only route).
+      await test.step('TC027/TC019: tap "+" and verify the Add Delivery screen opens', async () => {
         await home.openAdhocDeliveryCreation();
         expect(await adhoc.isTitleVisible()).toBe(true);
         expect(await adhoc.isCustomerFieldVisible()).toBe(true);
@@ -51,8 +68,9 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
     async ({ driver }) => {
       const home = new HomeScreen(driver);
 
-      await test.step('Log in', async () => {
+      await test.step('Log in, then switch to Charlotte/103 (Miami/010 needs BA data prep)', async () => {
         await loginAndWaitForMfa(driver);
+        await switchRoute(driver, mobileConfig.vendingRoute);
       });
 
       await test.step('TC029: verify a real delivery count and no empty-state message', async () => {
