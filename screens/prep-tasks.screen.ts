@@ -29,7 +29,16 @@ export class PrepTasksScreen extends BaseScreen {
   // actually invoked from this screen in the source reviewed, so kept local
   // rather than hoisted to BaseScreen (same reasoning as equipment_audit/fills).
   private readonly multipleCheckboxes = '//android.view.View/android.widget.ImageView[@clickable="true"]';
-  private readonly quantityField = (productName: string) => `//android.widget.EditText[contains(@hint,"${productName}")]`;
+  // CORRECTED (live-verified 2026-07-27): the quantity field's hint is NOT
+  // the product's display name - it's a separately abbreviated/truncated
+  // string (e.g. "Cof-MteSnickersCrm50ct..." for "Coffee Mate Snickers
+  // Creamer (.38oz, Box of 50)"), so contains(@hint, productName) never
+  // matches for products whose hint gets truncated. Only one quantity field
+  // exists on this screen at a time regardless of product, so matching on
+  // the shared "Qty" suffix every hint ends with is both simpler and
+  // actually correct.
+  private readonly quantityFieldByHint = '//android.widget.EditText[contains(@hint,"Qty")]';
+  private readonly addProductTitle = '~Add product';
   private readonly addButton = '~Add';
 
   /**
@@ -179,13 +188,69 @@ export class PrepTasksScreen extends BaseScreen {
     await this.capturePhotoIfPresent();
   }
 
-  async addProductToCollection(searchTerm = 'can'): Promise<void> {
+  /** Opens Product Collection without completing/skipping it - lets callers assert on the way in (e.g. TC075's Add product icon) before committing to anything. */
+  async openProductCollection(): Promise<void> {
     await this.openSubScreen(this.productCollection);
     await this.waitFor(this.productCollectionTitle);
+  }
+
+  /** Excel TC075 "view Add product (+) icon" - assumes Product Collection is already open (openProductCollection()). */
+  async isAddProductButtonVisible(): Promise<boolean> {
+    return this.isVisible(this.addProductButton);
+  }
+
+  /** Excel TC080/TC089 "open Add product screen" - taps the "+" and waits for the shared "Add product" title (same string as MarketServiceScreen's - not hoisted, see that screen's own note on why LOB screens stay separate). */
+  async openAddProductForm(): Promise<void> {
     await this.tap(this.addProductButton);
-    const productName = await this.searchAndSelect(searchTerm);
-    await this.type(this.quantityField(productName), '1');
+    await this.waitFor(this.addProductTitle);
+  }
+
+  async isAddProductScreenVisible(): Promise<boolean> {
+    return this.isVisible(this.addProductTitle);
+  }
+
+  /**
+   * Searches, selects the first match, enters qty, and submits - assumes
+   * openAddProductForm() already ran. Split out of addProductToCollection()
+   * so TC075/TC080's checkpoints can run in between.
+   *
+   * CORRECTED: waits for productCollectionTitle to reappear after tapping
+   * Add - live-verified tapping Add doesn't return to the list instantly,
+   * and a caller checking the list's content (e.g. TC110's summary line)
+   * immediately after this returns can catch the screen mid-transition and
+   * see stale/empty content.
+   */
+  async fillAndSubmitAddProduct(searchTerm: string, qty: string): Promise<void> {
+    await this.searchAndSelect(searchTerm);
+    await this.type(this.quantityFieldByHint, qty);
     await this.tap(this.addButton);
+    await this.waitFor(this.productCollectionTitle);
+  }
+
+  /**
+   * TC110 "add the product and update count" - live-verified the returned
+   * Product Collection list shows a per-category summary row (e.g. "OCS
+   * Creamer/Sugar\n5"), not the individual product name, so this returns
+   * every multi-line row's raw content-desc for the caller to search
+   * (matches HomeScreen.getEditScheduleStopNames's approach to the same
+   * kind of "\n"-joined summary text).
+   */
+  async getProductCollectionSummaryLines(): Promise<string[]> {
+    const els = await this.driver.$$('//android.view.View');
+    const lines: string[] = [];
+    for (const el of els) {
+      const desc = (await el.getAttribute('content-desc')) ?? '';
+      if (desc.includes('\n')) {
+        lines.push(desc);
+      }
+    }
+    return lines;
+  }
+
+  async addProductToCollection(searchTerm = 'can', qty = '1'): Promise<void> {
+    await this.openProductCollection();
+    await this.openAddProductForm();
+    await this.fillAndSubmitAddProduct(searchTerm, qty);
   }
 
   /**

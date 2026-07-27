@@ -1,6 +1,7 @@
 import { test, expect } from '../../fixtures/appium.fixture';
-import { loginAndWaitForMfa } from '../../utils/login-flow';
+import { loginAndWaitForMfa, switchRoute } from '../../utils/login-flow';
 import { PrepTasksScreen } from '../../screens/prep-tasks.screen';
+import { mobileConfig } from '../../config/mobile.config';
 
 // Traceability to Optimized_TCs_V_2.0.xlsx: TC numbers cited per assertion
 // below are from the "Start of The Day" area's four Prep Tasks sub-areas
@@ -71,6 +72,51 @@ test.describe('Prep Tasks / Start of Day', () => {
       // TC199 "click Skip on the confirmation"
       await test.step('TC199: Skip it', async () => {
         await prepTasks.confirmSkip();
+      });
+    }
+  );
+
+  // PBI 729543, Sub Area "Prep Tasks-Product collection" - Excel's TC075
+  // row bundles TC080/TC083/TC089/TC110 together (same Action/Outcome
+  // pattern repeated for re-opening the flow a second time - TC083/TC089
+  // are literal duplicates of TC075/TC080, not separately addressable).
+  // Uses Charlotte/103 explicitly (not the plain defaultRoute login) since
+  // Miami/010 needs BA data prep - consistent with adhoc-scheduling.spec.ts.
+  test(
+    'view the Add product (+) icon, open Add product, and add a product with a quantity',
+    { tag: ['@TC075', '@TC080', '@TC110'] },
+    async ({ driver }) => {
+      const prepTasks = new PrepTasksScreen(driver);
+
+      await test.step('Log in, then switch to Charlotte/103 (Miami/010 needs BA data prep)', async () => {
+        await loginAndWaitForMfa(driver);
+        await switchRoute(driver, mobileConfig.vendingRoute);
+      });
+
+      // TC075 "view Add product (+) icon"
+      await test.step('TC075: open Product Collection and verify the Add product (+) icon is visible', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.openProductCollection();
+        expect(await prepTasks.isAddProductButtonVisible()).toBe(true);
+      });
+
+      // TC080 "open Add product screen"
+      await test.step('TC080: tap the icon and verify the Add product screen opens', async () => {
+        await prepTasks.openAddProductForm();
+        expect(await prepTasks.isAddProductScreenVisible()).toBe(true);
+      });
+
+      // TC110 "add the product and update count" - Excel's own Test Data
+      // ("Snickers - Qty 5"). Live-verified: the search field's results are
+      // NOT limited to an exact "Snickers" product - multiple SKUs/package
+      // sizes match (including a "Coffee Mate Snickers Creamer" variant),
+      // so this asserts on the qty actually entered (5) appearing in the
+      // returned list's per-category summary, not on which exact product
+      // got selected by position.
+      await test.step('TC110: search "Snickers", enter qty 5, submit, and verify the count updates', async () => {
+        await prepTasks.fillAndSubmitAddProduct('Snickers', '5');
+        const summaryLines = await prepTasks.getProductCollectionSummaryLines();
+        expect(summaryLines.some((line) => line.endsWith('\n5'))).toBe(true);
       });
     }
   );
