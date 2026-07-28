@@ -1,5 +1,7 @@
+import { execSync } from 'child_process';
 import { BaseScreen } from './base.screen';
 import { positionToIndex, type Position } from '../utils/position';
+import { mobileConfig } from '../config/mobile.config';
 
 /**
  * Market LOB - servicing a delivery location. Ported from market_keywords.robot.
@@ -48,12 +50,44 @@ export class MarketServiceScreen extends BaseScreen {
   private readonly moneyCollectionTitle = '~Money Collection';
 
   // "Add product" screen, reached from Product fills' add_cta button.
-  // Live-verified: search field visible but has NO content-desc/hint of its
-  // own (see docs/rf-to-playwright-reuse.md) - only the screen-level
-  // elements below have real anchors.
   private readonly addProductTitle = '~Add product';
   private readonly addProductCancelButton = '~Cancel';
   private readonly addProductAddButton = '~Add';
+
+  // Excel TC150-TC173/TC178-TC179 (Market "Delivery - Add Product" sub-area,
+  // PBI 611013) - live-verified 2026-07-28 (build 0.1.76, Route 10/YESTERDAY,
+  // first Market stop):
+  //
+  //   1. The "Add product" screen's own inline search field (hint =
+  //      "Product\nScan or search brand, name, sku" - label and helper text
+  //      packed together, joined by \n, same hint-encoding pattern already
+  //      seen on skipPhotoReasonField) has a decorative search icon on its
+  //      left and a clickable scanner icon on its right.
+  //   2. Tapping that field navigates to a SEPARATE "Search product" screen
+  //      with its own EditText (hint="Search", does NOT mutate) and its own
+  //      scanner icon - typing there filters a live results list, each row's
+  //      content-desc formatted "{Name} ({size}) - pkg: {N}\nSKU: {sku}".
+  //   3. Selecting a result row returns to "Add product" with a NEW Qty
+  //      EditText rendered below the search field, defaulting to "1" and
+  //      already focused - its `hint` packs the selected product's name,
+  //      SKU, and Pkg together with the "Qty" label (e.g. "Snickers
+  //      1.86oz\nSKU: 19515\nPkg: 1\nQty"), reusing the SAME custom numeric
+  //      keypad as the Fill screen's Theft/Damaged/.../Delivery fields (see
+  //      numericKeypadDigit/tapKeypadDecrement above) - confirmed the "+"
+  //      stepper increments and "-" decrements/floor-clamps at 0 exactly
+  //      like that keypad, and Add itself becomes DISABLED at Qty=0 (a real
+  //      validation this sub-flow has that the Fill screen's Continue does
+  //      NOT - don't assume the two screens' button-enablement rules match).
+  //   4. Live-verified max entry length is 3 digits (typing "1" six times in
+  //      a row landed as "111", not more) - Excel's TC170 guessed "e.g. 4".
+  private readonly productSearchField = '//android.widget.EditText[starts-with(@hint,"Product")]';
+  private readonly searchProductTitle = '~Search product';
+  private readonly searchProductField = '//android.widget.EditText[@hint="Search"]';
+  private readonly noSearchResultsMessage = '~No search results found';
+  private readonly addProductQtyField = '//android.widget.EditText[contains(@hint,"Qty")]';
+  private searchResultRow(labelPrefix: string): string {
+    return `//android.view.View[starts-with(@content-desc,"${labelPrefix}")]`;
+  }
 
   // PBI 611013 "Fill Screen" - live-verified against build 0.1.76 (Miami/010,
   // CureLeaf/FedEx). Each Product fills row's content-desc concatenates
@@ -316,6 +350,16 @@ export class MarketServiceScreen extends BaseScreen {
    */
   async openAddProductFromFills(): Promise<void> {
     await this.openProductFills();
+    await this.openAddProduct();
+  }
+
+  /**
+   * Same as openAddProductFromFills() minus the initial navigation to
+   * Product fills - for callers already ON that screen (e.g. right after
+   * cancelAddProduct()/confirmAddProduct(), both of which return there
+   * directly rather than back out to the outer checklist).
+   */
+  async openAddProduct(): Promise<void> {
     await this.tap(this.addProductButton);
     await this.waitFor(this.addProductTitle);
   }
@@ -330,6 +374,117 @@ export class MarketServiceScreen extends BaseScreen {
       cancelEnabled: await this.isEnabled(this.addProductCancelButton),
       addEnabled: await this.isEnabled(this.addProductAddButton)
     };
+  }
+
+  /**
+   * Excel TC150/TC151 - the "Product" field's label and helper text are
+   * both packed into its own `hint`, joined by \n - but live-verified
+   * 2026-07-28: the helper-text half only appears once the field is
+   * actually FOCUSED (a tap that does NOT yet navigate to Search product -
+   * that only happens once typing starts). Before focus, the hint is just
+   * "Product" alone. Callers must tap the field first (see openSearchProduct
+   * below, which does this same tap before waiting for the navigation).
+   */
+  async getProductSearchFieldLabelAndHelper(): Promise<{ label: string; helper: string }> {
+    await this.tap(this.productSearchField);
+    const el = await this.driver.$(this.productSearchField);
+    const hint = (await el.getAttribute('hint')) ?? '';
+    const [label, helper] = hint.split('\n');
+    return { label: label ?? '', helper: helper ?? '' };
+  }
+
+  /** Excel TC152 - the scanner icon on the "Add product" screen's own inline field (right-hand sibling ImageView of the field itself). */
+  async isAddProductScannerIconVisible(): Promise<boolean> {
+    return this.isVisible(`${this.productSearchField}/following-sibling::android.widget.ImageView[2]`);
+  }
+
+  async isSearchProductScreenVisible(): Promise<boolean> {
+    return this.isVisible(this.searchProductTitle);
+  }
+
+  /** Excel TC155 - the Search product screen's own scanner icon. */
+  async isSearchScannerIconVisible(): Promise<boolean> {
+    return this.isVisible(`${this.searchProductField}/following-sibling::android.widget.ImageView[2]`);
+  }
+
+  /**
+   * Excel TC154/TC156-TC161 - tapping the "Product" field alone does NOT
+   * yet navigate anywhere (live-verified 2026-07-28: a tap with no typing
+   * leaves the "Add product" screen's own title in place) - the separate
+   * "Search product" screen only appears once actual typing starts, so
+   * TC154's "open Search product screen" and TC156's "type characters" are
+   * really the same live action, not two sequential ones. Types character
+   * by character via adb, with a pause between each - a single `adb shell
+   * input text` call drops/truncates characters here (live-verified:
+   * "Snickers" landed as just "S", "Dark" as "Drk"), since this field
+   * re-renders its results list on every keystroke and a fast multi-char
+   * burst races that re-render. Same class of issue as setValue()'s
+   * unreliability on the custom numeric keypad elsewhere in this suite,
+   * different mechanism.
+   */
+  async searchProduct(text: string): Promise<void> {
+    // Matches whichever field is currently on screen - the "Add product"
+    // screen's own field (first call, not yet navigated) or the "Search
+    // product" screen's field (every call after, already navigated).
+    // Clears any previous search text on the SAME resolved element handle
+    // (not a fresh lookup right after) - re-querying immediately after a
+    // clear races this field's re-render and intermittently finds nothing.
+    const field = await this.driver.$('//android.widget.EditText[starts-with(@hint,"Product") or @hint="Search"]');
+    await field.click();
+    await field.clearValue().catch(() => {});
+    await this.driver.pause(300);
+    const deviceName = mobileConfig.capabilities['appium:deviceName'];
+    for (const ch of text) {
+      execSync(`adb -s ${deviceName} shell input text "${ch === ' ' ? '%s' : ch}"`);
+      await this.driver.pause(220);
+    }
+    await this.waitFor(this.searchProductTitle);
+  }
+
+  /** Excel TC161 "view empty results" - live-verified exact text is "No search results found" (Excel's own wording, "No results found", is close but not exact). */
+  async isNoSearchResultsVisible(): Promise<boolean> {
+    return this.isVisible(this.noSearchResultsMessage);
+  }
+
+  /** Excel TC162 - selects a result row by its label PREFIX (name+size, e.g. "Snickers (1.86oz) - pkg: 1") - content-desc also carries a live SKU suffix after a newline. */
+  async selectSearchResult(labelPrefix: string): Promise<void> {
+    await this.tap(this.searchResultRow(labelPrefix));
+    await this.waitFor(this.addProductQtyField);
+  }
+
+  /** Excel TC163 - the Add product details Qty field's `hint` packs the selected product's name/SKU/Pkg together with the "Qty" label (e.g. "Snickers 1.86oz\nSKU: 19515\nPkg: 1\nQty"). */
+  async getAddProductSummary(): Promise<{ name: string; sku: string; pkg: string }> {
+    const el = await this.driver.$(this.addProductQtyField);
+    const hint = (await el.getAttribute('hint')) ?? '';
+    const [name, sku, pkg] = hint.split('\n');
+    return { name: name ?? '', sku: sku ?? '', pkg: pkg ?? '' };
+  }
+
+  /** Excel TC164/TC165 - the Add product details' own Qty entry, reusing the Fill screen's custom numeric keypad. */
+  async isAddProductQtyKeypadVisible(): Promise<boolean> {
+    return this.isNumericKeypadVisible();
+  }
+
+  async getAddProductQtyValue(): Promise<string> {
+    const el = await this.driver.$(this.addProductQtyField);
+    return (await el.getAttribute('text')) ?? '';
+  }
+
+  /** Excel TC165's "+" side of the stepper pair - see tapKeypadDecrement's own note; increments and has no verified ceiling clamp (unlike the floor-clamped decrement). */
+  async tapKeypadIncrement(): Promise<void> {
+    await this.tap(this.numericKeypadDigit('+'));
+  }
+
+  /** Excel TC173 - Cancel returns to Product fills without adding anything. */
+  async cancelAddProduct(): Promise<void> {
+    await this.tap(this.addProductCancelButton);
+    await this.waitFor(this.fillsTitle);
+  }
+
+  /** Excel TC178 - Add returns to Product fills with the new row visible. */
+  async confirmAddProduct(): Promise<void> {
+    await this.tap(this.addProductAddButton);
+    await this.waitFor(this.fillsTitle);
   }
 
   /** Opens Money Operations without filling/submitting anything - lets callers assert field presence before performMoneyOperations() commits values. */

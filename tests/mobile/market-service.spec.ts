@@ -227,4 +227,208 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       });
     }
   );
+
+  // TC150-TC173/TC178-TC179 (Market "Delivery - Add Product" sub-area, PBI
+  // 611013) - the Add Product search/select/quantity/submit flow reached
+  // from Product fills' add_cta. Live-verified 2026-07-28 (build 0.1.76,
+  // Route 10/YESTERDAY, first Market stop) - see MarketServiceScreen's own
+  // note above the locators for the full structural walkthrough (Add
+  // product's inline field -> separate Search product screen -> selecting a
+  // result renders a Qty field reusing the Fill screen's numeric keypad).
+  //
+  // NOT independently asserted (documented instead):
+  // - TC157 ("first related item highlighted with color") - no accessible
+  //   signal: every result row's `selected` attribute stays "false"
+  //   regardless of position, so there's nothing in the a11y tree to assert
+  //   against - visual-only, same class of gap as the completed Delivery
+  //   tile's tick mark documented elsewhere in this suite.
+  // - TC160 ("scan to find product") - not reproducible: no real barcode to
+  //   scan against in this environment, and the scanner icon's tap target
+  //   is already covered structurally by TC152/TC155.
+  // - TC166/TC168/TC169 ("reject alphabetic/decimal/special-character qty")
+  //   - structurally impossible through the real UI, same reasoning as
+  //   TC109/TC110 on the Fill screen's identical keypad: no letter keys, no
+  //   decimal point, no literal minus-sign entry.
+  // - TC171/TC172 ("Add disabled with no valid qty" / "Cancel+Add enabled
+  //   after valid input") - already covered directly: TC167's qty=0 case
+  //   proves Add disables, and TC162's post-selection default (qty=1, both
+  //   buttons enabled) proves the enabled case - re-tagging duplicates
+  //   nothing new.
+  test(
+    'TC150-TC173/TC178-TC179: Add Product search, select, quantity entry, and submit',
+    {
+      tag: [
+        '@TC150',
+        '@TC151',
+        '@TC152',
+        '@TC154',
+        '@TC155',
+        '@TC156',
+        '@TC158',
+        '@TC159',
+        '@TC161',
+        '@TC162',
+        '@TC163',
+        '@TC164',
+        '@TC165',
+        '@TC167',
+        '@TC170',
+        '@TC173',
+        '@TC178',
+        '@TC179'
+      ]
+    },
+    async ({ driver }, testInfo) => {
+      testInfo.setTimeout(240_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
+        await loginAndWaitForMfa(driver);
+        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      });
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      let unfilteredCount = 0;
+      await test.step("Open a Market location's service station, Product fills, then Add Product", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openFirstServiceStation('market');
+        await market.openFills();
+        unfilteredCount = await market.getFillProductRowCount();
+        await market.openAddProduct();
+      });
+
+      // TC150/TC151/TC152 - the "Add product" screen's own inline field
+      // packs its label and helper text into one `hint`, and has a
+      // clickable scanner icon.
+      await test.step('TC150/TC151/TC152: Product field label, helper text, and scanner icon', async () => {
+        const { label, helper } = await market.getProductSearchFieldLabelAndHelper();
+        expect(label).toBe('Product');
+        expect(helper).toBe('Scan or search brand, name, sku');
+        expect(await market.isAddProductScannerIconVisible()).toBe(true);
+      });
+
+      // TC154/TC155/TC156/TC158 - typing in the Product field (live-
+      // verified: a tap alone does NOT navigate anywhere - see searchProduct's
+      // own note) opens the separate "Search product" screen, which has its
+      // own scanner icon, and filters the results list down to that
+      // product's own rows (each SKU appears once per Pkg size).
+      await test.step('TC154/TC155/TC156/TC158: typing opens Search product and filters by name', async () => {
+        await market.searchProduct('Snickers');
+        expect(await market.isSearchProductScreenVisible()).toBe(true);
+        expect(await market.isSearchScannerIconVisible()).toBe(true);
+        const row = await driver.$('//android.view.View[starts-with(@content-desc,"Snickers (1.86oz) - pkg: 1")]');
+        expect(await row.isDisplayed()).toBe(true);
+      });
+
+      // TC159 - searching by SKU surfaces that exact-SKU product among the
+      // results (live-verified: this build's results aren't STRICTLY
+      // limited to the searched SKU - an unrelated row can also surface -
+      // so this asserts the exact-SKU row is present, not that it's the
+      // only one).
+      await test.step('TC159: searching by SKU surfaces the exact-SKU product', async () => {
+        await market.searchProduct('19515');
+        const row = await driver.$('//android.view.View[contains(@content-desc,"SKU: 19515")]');
+        expect(await row.isDisplayed()).toBe(true);
+      });
+
+      // TC161 "view empty results" - live-verified exact text below.
+      await test.step('TC161: a non-matching search shows the empty-results message', async () => {
+        await market.searchProduct('ZZZNOTFOUND');
+        expect(await market.isNoSearchResultsVisible()).toBe(true);
+
+        await market.searchProduct('Snickers');
+      });
+
+      // TC162/TC163 - selecting a result returns to Add product with a Qty
+      // field whose own hint packs the selected product's name/SKU/Pkg.
+      await test.step('TC162/TC163: selecting a result shows the product summary', async () => {
+        await market.selectSearchResult('Snickers (1.86oz) - pkg: 1');
+        const summary = await market.getAddProductSummary();
+        expect(summary.name).toBe('Snickers 1.86oz');
+        expect(summary.sku).toBe('SKU: 19515');
+        expect(summary.pkg).toBe('Pkg: 1');
+      });
+
+      // TC164/TC165 - the Qty field defaults to "1", reuses the custom
+      // numeric keypad, and accepts further digit taps.
+      await test.step('TC164/TC165: numeric keypad visible, Qty defaults to 1, and accepts digit entry', async () => {
+        expect(await market.isAddProductQtyKeypadVisible()).toBe(true);
+        expect(await market.getAddProductQtyValue()).toBe('1');
+
+        await market.tapKeypadIncrement();
+        await market.tapKeypadIncrement();
+        await market.tapKeypadIncrement();
+        await market.tapKeypadIncrement();
+        expect(await market.getAddProductQtyValue()).toBe('5');
+      });
+
+      // TC167 "reject negative quantity" - the "-" stepper floor-clamps at
+      // 0 (never produces a literal negative), and Add itself becomes
+      // disabled at Qty=0 - a real validation this screen has that the Fill
+      // screen's Continue button does NOT (don't assume the two match).
+      await test.step('TC167: the decrement stepper floor-clamps at 0 and disables Add', async () => {
+        for (let i = 0; i < 5; i++) {
+          await market.tapKeypadDecrement();
+        }
+        expect(await market.getAddProductQtyValue()).toBe('0');
+        expect(await market.addProductButtonStates().then((b) => b.addEnabled)).toBe(false);
+
+        await market.tapKeypadIncrement();
+        await market.tapKeypadIncrement();
+        await market.tapKeypadIncrement();
+        await market.tapKeypadIncrement();
+        await market.tapKeypadIncrement();
+        expect(await market.getAddProductQtyValue()).toBe('5');
+      });
+
+      // TC170 "verify maximum length for qty" - live-verified actual max
+      // length is 3 digits, not the Excel's guessed "e.g. 4".
+      await test.step('TC170: Qty entry is capped at 3 digits', async () => {
+        for (let i = 0; i < 6; i++) {
+          await market.tapKeypadDigit('1');
+        }
+        const value = await market.getAddProductQtyValue();
+        expect(value.length).toBeLessThanOrEqual(3);
+      });
+
+      // TC173 "cancel without saving" - returns to Product fills with the
+      // row count unchanged (no product added).
+      await test.step('TC173: Cancel returns to Product fills without adding anything', async () => {
+        await market.cancelAddProduct();
+        expect(await market.isProductFillsTitleVisible()).toBe(true);
+        expect(await market.getFillProductRowCount()).toBe(unfilteredCount);
+      });
+
+      // TC178/TC179 - re-run the same search+select+qty flow and this time
+      // Add it: returns to Product fills with a new row visible, and
+      // expanding it shows the saved Qty in its own Delivery field.
+      await test.step('TC178/TC179: Add returns to Product fills with the new product row saved', async () => {
+        // Already on Product fills (TC173's Cancel returned here, not out
+        // to the outer checklist) - openAddProduct() alone, not the
+        // from-checklist variant.
+        await market.openAddProduct();
+        await market.searchProduct('Snickers');
+        await market.selectSearchResult('Snickers (1.86oz) - pkg: 1');
+        await market.tapKeypadIncrement();
+        await market.tapKeypadIncrement();
+        await market.tapKeypadIncrement();
+        await market.tapKeypadIncrement();
+        expect(await market.getAddProductQtyValue()).toBe('5');
+
+        await market.confirmAddProduct();
+        expect(await market.isProductFillsTitleVisible()).toBe(true);
+        expect(await market.getFillProductRowCount()).toBe(unfilteredCount + 1);
+
+        await market.expandProductFill('first');
+        const deliveryField = await driver.$('//android.widget.EditText[@hint="Delivery"]');
+        expect(await deliveryField.getAttribute('text')).toBe('5');
+      });
+    }
+  );
 });
