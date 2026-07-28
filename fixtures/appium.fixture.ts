@@ -37,10 +37,21 @@ export async function createMobileSession(): Promise<Browser> {
   // manually via the Privacy Policy link, independent of pm clear
   // entirely. That's a real app-level WebView cert-trust bug, unrelated
   // to this reset step. Restored.)
-  try {
-    execSync(`adb -s ${deviceName} shell pm clear ${appId}`);
-  } catch (e) {
-    console.warn(`Could not clear app data for ${appId} before session start:`, e);
+  // KEEP_APP_SESSION=true opts out of the clear above, so a valid login +
+  // MFA-approved session survives across test runs within the same
+  // emulator boot - loginAndWaitForMfa() then detects that (hamburger icon
+  // already visible) and skips Login/Password/MFA entirely. This is what
+  // the comment above warned had been tried and reverted before ("silently
+  // skips Login due to a persisted session from a prior run") - kept
+  // opt-in rather than the default specifically so existing specs keep
+  // today's proven clean-slate behavior unless a caller deliberately asks
+  // for session reuse.
+  if (process.env.KEEP_APP_SESSION !== 'true') {
+    try {
+      execSync(`adb -s ${deviceName} shell pm clear ${appId}`);
+    } catch (e) {
+      console.warn(`Could not clear app data for ${appId} before session start:`, e);
+    }
   }
 
   // appium:autoGrantPermissions doesn't reliably suppress this app's runtime
@@ -106,13 +117,19 @@ export async function createMobileSession(): Promise<Browser> {
   // Locator uses content-desc, not text - confirmed via an actual page
   // source dump that this button (like the rest of this Flutter app) has
   // text="" and exposes its accessible label only via content-desc.
-  try {
-    const signOffButton = await driver.$('//*[@content-desc="Sign off"]');
-    if (await signOffButton.isDisplayed().catch(() => false)) {
-      await signOffButton.click();
+  // Skipped under KEEP_APP_SESSION - tapping Sign off here would defeat the
+  // whole point of keeping the session (it explicitly signs the restored
+  // session out), so the only two outcomes to expect with that flag on are
+  // landing straight on Dashboard, or this dialog simply never appearing.
+  if (process.env.KEEP_APP_SESSION !== 'true') {
+    try {
+      const signOffButton = await driver.$('//*[@content-desc="Sign off"]');
+      if (await signOffButton.isDisplayed().catch(() => false)) {
+        await signOffButton.click();
+      }
+    } catch (e) {
+      // Dialog wasn't present - nothing to do.
     }
-  } catch (e) {
-    // Dialog wasn't present - nothing to do.
   }
 
   return driver;

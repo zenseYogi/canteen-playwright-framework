@@ -38,6 +38,26 @@ export async function loginAndWaitForMfa(driver: Browser): Promise<void> {
   const passwordScreen = new PasswordScreen(driver);
   const mfaScreen = new MfaScreen(driver);
 
+  // KEEP_APP_SESSION mode (see appium.fixture.ts): the app may already have
+  // launched straight into a still-valid, previously-MFA-approved session -
+  // possibly resuming mid-flow on whatever screen the previous test run
+  // left it on (live-verified 2026-07-28: it can resume on Product Fills
+  // with the numeric keypad still open), not necessarily Dashboard. A
+  // hamburger-icon check is NOT reliable here - plenty of native screens
+  // (like that keypad-open state) don't show it. Login/Password are the
+  // only WebView-rendered screens in this app (everything past them is
+  // native Flutter - see BaseScreen.switchToWebView's own note), so the
+  // presence or absence of a WEBVIEW context is a clean, universal signal:
+  // no WebView context at all means we've already skipped past Login
+  // entirely, regardless of which native screen we've landed on.
+  if (process.env.KEEP_APP_SESSION === 'true') {
+    const contexts = await driver.getContexts();
+    const onLoginWebview = contexts.some((c) => String(c).startsWith('WEBVIEW'));
+    if (!onLoginWebview) {
+      return;
+    }
+  }
+
   await loginScreen.enterLoginId(process.env.TEST_LOGIN_ID ?? 'MPY01');
   await loginScreen.tapContinue();
   await passwordScreen.enterPassword(process.env.TEST_PASSWORD ?? '');
