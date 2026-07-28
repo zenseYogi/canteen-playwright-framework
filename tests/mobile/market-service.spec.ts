@@ -566,4 +566,51 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       });
     }
   );
+
+  // TC301/TC302 (Market to Market Transfer, PBI 739293) - live-verified
+  // 2026-07-28 (build 0.1.76, Route 10/YESTERDAY, first Market/"CuraLeaf"
+  // stop): this route never has more than one market, so the checklist's
+  // "Market Transfers" tile consistently shows an info popup instead of the
+  // real Transfers screen - its wording matches the Excel's own TC302 Test
+  // Data almost verbatim.
+  //
+  // NOT reachable in this environment (documented, not asserted):
+  // - TC303-TC307 (the real Transfers screen's own Expand All/Collapse All,
+  //   manual/scan product add, delete) - all require a second nearby
+  //   market to exist, which this route never has (same category as
+  //   TC134's earlier blocked-not-a-test-bug finding).
+  // - TC308-TC327 (Money Operation - Multiple POS) - this stop has no
+  //   "Money Operations" checklist tile at all (unlike the account this
+  //   file's very first test exercises, which does have one - a plain
+  //   single bag-code/coins/bills/refund form, not a POS list). No stop
+  //   reachable this session ever showed a genuine multi-POS list, so this
+  //   whole sub-area remains unverified pending an account/route that
+  //   actually has one.
+  test('TC301/TC302: Market Transfers shows the only-one-market info popup', { tag: ['@TC301', '@TC302'] }, async ({ driver }) => {
+    const prepTasks = new PrepTasksScreen(driver);
+    const dashboard = new DashboardScreen(driver);
+    const market = new MarketServiceScreen(driver);
+
+    await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
+      await loginAndWaitForMfa(driver);
+      await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+    });
+
+    await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+      await prepTasks.openFromHamburgerMenu();
+      await prepTasks.ensureFullDayPrepComplete();
+    });
+
+    await test.step("Open a Market location's service station", async () => {
+      await dashboard.clickLocationByPosition('first');
+      await dashboard.openFirstServiceStation('market');
+    });
+
+    await test.step('TC301/TC302: tapping Market Transfers shows the only-one-market message, OK returns to the checklist', async () => {
+      await market.openMarketTransfers();
+      expect(await market.isOnlyOneMarketMessageVisible()).toBe(true);
+      await market.dismissOnlyOneMarketMessage();
+      expect(await market.isServiceStopLocationHeaderVisible()).toBe(true);
+    });
+  });
 });

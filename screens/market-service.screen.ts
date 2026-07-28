@@ -29,6 +29,22 @@ export class MarketServiceScreen extends BaseScreen {
   // is LOB-specific.
   private readonly beforePhotos = '//android.view.View[starts-with(@content-desc,"Before Photos")]';
 
+  // Excel TC301/TC302 (Market to Market Transfer, PBI 739293) - live-
+  // verified 2026-07-28: the "Market Transfers\n{N} Transfers" checklist
+  // tile is always present, but with only one market on this route/day
+  // (Route 10/YESTERDAY), tapping it shows an info popup instead of the
+  // actual Transfers screen: "Market Transfers can not be created because
+  // only one market is available." + a two-paragraph explanation ("Today"/
+  // "Future") + OK - confirmed exact wording matches the Excel's own TC302
+  // Test Data almost verbatim. TC303-TC307 (the real Transfers screen's own
+  // Expand All/Collapse All, manual/scan product add, delete) are NOT
+  // reachable in this environment - this route never has more than one
+  // market - so they're documented as blocked, not asserted (same category
+  // as TC134's earlier blocked-not-a-test-bug finding).
+  private readonly marketTransfersTile = '//android.view.View[starts-with(@content-desc,"Market Transfers")]';
+  private readonly onlyOneMarketMessage = '~Market Transfers can not be created because only one market is available.';
+  private readonly onlyOneMarketOkButton = '~OK';
+
   // Money-operations fields: RF declared these in coffee.yaml (there is no
   // market.yaml) and market_keywords.robot never imports coffee.yaml
   // directly - they're only reachable there because Robot Framework's
@@ -496,6 +512,20 @@ export class MarketServiceScreen extends BaseScreen {
   async confirmAddProduct(): Promise<void> {
     await this.tap(this.addProductAddButton);
     await this.waitFor(this.fillsTitle);
+  }
+
+  /** Excel TC301 - taps the "Market Transfers" checklist tile; live-verified this environment always has only one market, so this consistently lands on the TC302 info popup rather than the real Transfers screen. */
+  async openMarketTransfers(): Promise<void> {
+    await this.tap(this.marketTransfersTile);
+  }
+
+  /** Excel TC302 - the "only one market available" info popup shown in place of the real Transfers screen. */
+  async isOnlyOneMarketMessageVisible(): Promise<boolean> {
+    return this.isVisible(this.onlyOneMarketMessage);
+  }
+
+  async dismissOnlyOneMarketMessage(): Promise<void> {
+    await this.tap(this.onlyOneMarketOkButton);
   }
 
   /** Opens Money Operations without filling/submitting anything - lets callers assert field presence before performMoneyOperations() commits values. */
