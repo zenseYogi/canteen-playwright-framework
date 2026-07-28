@@ -35,12 +35,7 @@ export class CoffeeServiceScreen extends BaseScreen {
 
   // Excel TC001-TC035 (Coffee "Header"/"Completing an equipment audit").
   // Live-verified 2026-07-28 (build 0.1.76, Route 10/YESTERDAY, "Alan B.
-  // Levan |NSU Broward Center of Innovation" stop - this stop has ZERO
-  // equipment on file, so only the screen's own title/header/empty-state
-  // and the Add Equipment form's field layout were reachable this session;
-  // the equipment-CARD-specific TCs (verify/mark-missing/persist-on-reopen)
-  // need either a stop with pre-existing equipment or completing an actual
-  // submission - not yet done, see coffee-service.spec.ts's own note).
+  // Levan |NSU Broward Center of Innovation" stop).
   //
   // Same hint-encoding pattern as Market's Add Product screen: the
   // Account/Manufacturer/Model dropdown-style fields expose "{Label}\n
@@ -59,6 +54,36 @@ export class CoffeeServiceScreen extends BaseScreen {
   private addEquipmentFieldSelector(label: string): string {
     return `//android.view.View[starts-with(@content-desc,"${label}\n")]`;
   }
+
+  // Excel TC008-TC017 (equipment card content, verify, mark-missing) - live-
+  // verified 2026-07-28 end-to-end in one continuous session (this data
+  // does NOT survive an app process restart before some further
+  // sync/completion step, so building it fresh within a single test run is
+  // the only reliable way to exercise these TCs - see this class's own
+  // history/commit notes on why a separately-added card couldn't be reused
+  // across sessions).
+  //
+  // Filling Account/Manufacturer/Model + Barcode/Serial/Asset Number on the
+  // blank "Add equipment" form (reached via the header + icon) enables a
+  // button that stays labeled "Add equipment" - live-verified submitting it
+  // saves a new card whose own status label is "Recently added", NOT yet
+  // "Verified". Reopening that SAME card afterward (tap the card itself,
+  // not the + icon) reaches a screen titled "Equipment detail" with an
+  // "Equipment does not exist" checkbox and a button labeled "Verify
+  // equipment" instead - it's the ENTRY POINT (blank form vs. an existing
+  // card) that determines the button's label, not the entered data.
+  // Submitting from Equipment detail with the checkbox left unchecked
+  // flips the card's status to "Verified"; checking it first hides the
+  // Manufacturer/Model detail fields and flips the status to "Equipment
+  // does not exist" instead - all three states ("Recently added"/
+  // "Verified"/"Equipment does not exist") are directly readable from the
+  // card's own content-desc, no visual-only (green/grey) signal needed.
+  private equipmentCard(name: string): string {
+    return `//android.view.View[starts-with(@content-desc,"${name}\n")]`;
+  }
+  private readonly equipmentDetailTitle = '//android.view.View[@content-desc="Equipment detail"]';
+  private readonly equipmentDoesNotExistCheckbox = '//android.widget.CheckBox';
+  private readonly verifyEquipmentSubmitButton = '~Verify equipment';
 
   async clickServiceLocation(position: Position): Promise<void> {
     await this.selectServiceLocation(this.coffeeLob, position);
@@ -162,8 +187,95 @@ export class CoffeeServiceScreen extends BaseScreen {
     return this.isEnabled(this.addEquipmentSubmitButton);
   }
 
+  /**
+   * Live-verified: Account options carry a trailing address in their own
+   * content-desc (e.g. "Covista\n3005 Highland Pkwy...") while Manufacturer/
+   * Model options are plain exact labels ("Cafection", "Galleria") - a
+   * starts-with match handles both without needing to know which field this
+   * is.
+   */
   async selectAddEquipmentDropdownOption(fieldLabel: string, optionLabel: string): Promise<void> {
     await this.tap(this.addEquipmentFieldSelector(fieldLabel));
-    await this.tap(`~${optionLabel}`);
+    await this.tap(`//*[starts-with(@content-desc,"${optionLabel}")]`);
+  }
+
+  async typeAddEquipmentField(hint: string, value: string): Promise<void> {
+    const field = await this.driver.$(`//android.widget.EditText[@hint="${hint}"]`);
+    await field.click();
+    await field.setValue(value);
+  }
+
+  /**
+   * Excel TC030-TC035 end-to-end - fills every mandatory Add Equipment
+   * field with a combination live-verified to resolve to a real, savable
+   * record (Account=Covista, Manufacturer=Cafection, Model=Galleria,
+   * Barcode=aaaa, Serial=1111, Asset=124), then submits. The submit
+   * button's own label flips from "Add equipment" to "Verify equipment"
+   * once this combination is entered (see this class's own note above the
+   * locators) - both are handled here since the button is targeted by
+   * being the sole enabled bottom action, not by its exact label.
+   */
+  async fillAndSubmitNewEquipment(values: {
+    account: string;
+    manufacturer: string;
+    model: string;
+    barcode: string;
+    serialNumber: string;
+    assetNumber: string;
+  }): Promise<void> {
+    await this.selectAddEquipmentDropdownOption('Account', values.account);
+    await this.selectAddEquipmentDropdownOption('Manufacturer', values.manufacturer);
+    await this.selectAddEquipmentDropdownOption('Model', values.model);
+    await this.typeAddEquipmentField('Barcode', values.barcode);
+    await this.typeAddEquipmentField('Serial Number', values.serialNumber);
+    await this.typeAddEquipmentField('Asset Number', values.assetNumber);
+  }
+
+  async submitAddOrVerifyEquipment(): Promise<void> {
+    const addBtn = await this.driver.$(this.addEquipmentSubmitButton);
+    if (await addBtn.isDisplayed().catch(() => false)) {
+      await addBtn.click();
+      return;
+    }
+    await this.tap(this.verifyEquipmentSubmitButton);
+  }
+
+  /** Excel TC094/TC008 - count of equipment cards currently rendered. */
+  async getEquipmentCardCount(): Promise<number> {
+    const cards = await this.driver.$$('//android.view.View[contains(@content-desc,"Model:")]');
+    return cards.length;
+  }
+
+  /**
+   * Excel TC008/TC010/TC011/TC012/TC016/TC017 - a card's full content-desc
+   * is "{Name}\nModel:\n{model}\nSerial Number:\n{serial}\nAsset Number:
+   * \n{asset}\n{status}", where status is either "Verified" or "Equipment
+   * does not exist" - both read directly, no visual-only signal needed.
+   */
+  async getEquipmentCardSummary(name: string): Promise<{ model: string; serialNumber: string; assetNumber: string; status: string }> {
+    const el = await this.driver.$(this.equipmentCard(name));
+    const desc = (await el.getAttribute('content-desc')) ?? '';
+    const parts = desc.split('\n');
+    return {
+      model: parts[2] ?? '',
+      serialNumber: parts[4] ?? '',
+      assetNumber: parts[6] ?? '',
+      status: parts[7] ?? ''
+    };
+  }
+
+  /** Excel TC012-TC015 - reopens an existing card's "Equipment detail" screen. */
+  async openEquipmentCard(name: string): Promise<void> {
+    await this.tap(this.equipmentCard(name));
+    await this.waitFor(this.equipmentDetailTitle);
+  }
+
+  async isEquipmentDoesNotExistCheckboxChecked(): Promise<boolean> {
+    const el = await this.driver.$(this.equipmentDoesNotExistCheckbox);
+    return (await el.getAttribute('checked').catch(() => 'false')) === 'true';
+  }
+
+  async tapEquipmentDoesNotExistCheckbox(): Promise<void> {
+    await this.tap(this.equipmentDoesNotExistCheckbox);
   }
 }

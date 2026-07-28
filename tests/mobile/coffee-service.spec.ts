@@ -97,34 +97,59 @@ test.describe('Coffee - Before Photos / Skip photo', () => {
   );
 });
 
-// TC001-TC035 (Coffee "Header" + "Completing an equipment audit") - live-
-// verified 2026-07-28 (build 0.1.76, Route 10/YESTERDAY, "Alan B. Levan
-// |NSU Broward Center of Innovation" stop). This stop has ZERO equipment
-// on file, so only the screen's own title/header/empty-state and the Add
-// Equipment form's field layout were reachable this session - see
-// CoffeeServiceScreen's own note above its locators.
+// TC001-TC017/TC030/TC033-TC035 (Coffee "Header" + "Completing an equipment
+// audit") - live-verified 2026-07-28 (build 0.1.76, Route 10/YESTERDAY,
+// "Alan B. Levan |NSU Broward Center of Innovation" stop).
 //
-// NOT independently asserted (documented instead, blocked pending either a
-// stop with pre-existing equipment or completing an actual submission):
-// - TC008/TC009/TC010/TC011/TC012/TC016/TC017 (equipment card content,
-//   verify/persist, mark-missing) - no equipment cards exist to test
-//   against on this stop.
-// - TC013/TC014/TC015/TC018/TC019 (Add equipment verification screen
-//   reached via search-no-match, prefilling, "Equipment does not exist"
-//   checkbox) - this path is reached FROM a search over existing equipment,
-//   which requires cards to search against first.
+// The equipment-CARD TCs (TC008-TC017) were initially blocked - this stop
+// starts with zero equipment on file, and manually-added equipment did NOT
+// survive across separate app sessions/restarts (confirmed live: the same
+// card the user added disappeared after this suite's own force-stop/
+// restart cycle, then reappeared once re-added and left untouched). That
+// makes cross-session fixture data unreliable for this sub-area - the fix
+// is to build the equipment record fresh WITHIN this same continuous test
+// (fill Add Equipment's fields, submit, then immediately exercise
+// verify/mark-missing on the resulting card), which is exactly what this
+// test now does end to end - see CoffeeServiceScreen's own note above its
+// equipment-card locators for the live-verified field combination used.
+//
+// NOT independently asserted (documented instead):
+// - TC013/TC018/TC019 (Add equipment verification screen reached via a
+//   search-no-match precursor, with prefilling) - this test reaches
+//   "Equipment detail" by reopening an already-known card, not via a
+//   search-no-match path - that precursor search flow itself is TC020-029.
 // - TC020-TC029 (search field icons/label/placeholder/typing/highlight/
-//   no-results within the equipment list) - same reason: nothing to search
-//   over yet on this stop.
-// - TC035's own "Add equipment button enabled (green)" half - reached
-//   Account+Manufacturer+Model+Serial+Asset filled and the submit button
-//   was STILL disabled; whatever the full set of required fields is (very
-//   possibly Photos) wasn't nailed down this session before the probe
-//   session's login expired - only the initial disabled state is asserted.
+//   no-results within the equipment list) - live-verified the header shows
+//   no separate Search icon even with equipment cards present (only
+//   section_header_add_cta) - the real search entry point for this list
+//   wasn't identified this session.
 test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)', () => {
   test(
-    'TC001-TC007/TC030/TC033-TC035: header, equipment audit title/empty-state, and Add Equipment form fields',
-    { tag: ['@TC001', '@TC002', '@TC003', '@TC004', '@TC005', '@TC006', '@TC007', '@TC030', '@TC033', '@TC034', '@TC035'] },
+    'TC001-TC017/TC030/TC033-TC035: header, equipment audit empty-state, Add Equipment, verify, and mark-missing',
+    {
+      tag: [
+        '@TC001',
+        '@TC002',
+        '@TC003',
+        '@TC004',
+        '@TC005',
+        '@TC006',
+        '@TC007',
+        '@TC008',
+        '@TC009',
+        '@TC010',
+        '@TC011',
+        '@TC012',
+        '@TC014',
+        '@TC015',
+        '@TC016',
+        '@TC017',
+        '@TC030',
+        '@TC033',
+        '@TC034',
+        '@TC035'
+      ]
+    },
     async ({ driver }, testInfo) => {
       testInfo.setTimeout(240_000);
       const prepTasks = new PrepTasksScreen(driver);
@@ -216,6 +241,94 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
       // before any input.
       await test.step('TC035: Add equipment starts disabled', async () => {
         expect(await coffee.isAddEquipmentSubmitEnabled()).toBe(false);
+      });
+
+      // TC035's other half + TC009 "physically confirm equipment presence" -
+      // filling every mandatory field (Barcode included - live-verified
+      // this was the missing piece an earlier attempt without it never
+      // enabled the button) enables the submit button. The button's own
+      // label stays "Add equipment" for a genuinely new record, or flips to
+      // "Verify equipment" if the entered Barcode/Serial/Asset combination
+      // happens to match an existing catalog record (both observed live) -
+      // submitAddOrVerifyEquipment() handles either.
+      await test.step("TC035/TC009: filling every field enables submit", async () => {
+        await coffee.fillAndSubmitNewEquipment({
+          account: 'Covista',
+          manufacturer: 'Cafection',
+          model: 'Galleria',
+          barcode: 'aaaa',
+          serialNumber: '1111',
+          assetNumber: '124'
+        });
+        expect(await coffee.isAddEquipmentSubmitEnabled()).toBe(true);
+        await coffee.submitAddOrVerifyEquipment();
+      });
+
+      // TC008 "view equipment cards" - the saved card's own Model/Serial/
+      // Asset, read directly from content-desc. Live-verified a freshly
+      // Added (not Verified) card's own status label is "Recently added",
+      // not "Verified" yet - that only appears after reopening the card and
+      // explicitly confirming it (see TC009/TC010 below).
+      await test.step('TC008: the new card shows Model/Serial/Asset', async () => {
+        expect(await coffee.getEquipmentCardCount()).toBe(1);
+        const card = await coffee.getEquipmentCardSummary('Cafection');
+        expect(card.model).toBe('Galleria');
+        expect(card.serialNumber).toBe('1111');
+        expect(card.assetNumber).toBe('124');
+        expect(card.status).toBe('Recently added');
+      });
+
+      // TC009/TC010 "physically confirm equipment presence" / "card turns
+      // green with Verified checkmark" - reopening the card (not the header
+      // + icon) reaches "Equipment detail" with its own "Verify equipment"
+      // button; submitting it (with "Equipment does not exist" left
+      // unchecked) flips the card's status from "Recently added" to
+      // "Verified".
+      await test.step('TC009/TC010: reopening and confirming the card marks it Verified', async () => {
+        await coffee.openEquipmentCard('Cafection');
+        expect(await coffee.isEquipmentDoesNotExistCheckboxChecked()).toBe(false);
+        await coffee.submitAddOrVerifyEquipment();
+        const card = await coffee.getEquipmentCardSummary('Cafection');
+        expect(card.status).toBe('Verified');
+      });
+
+      // TC011 "confirm verified status persists" - leave Equipment audit
+      // entirely (back to the checklist) and reopen it; the card and its
+      // Verified status are still there. Live-verified: pressing back from
+      // the equipment LIST screen triggers the same "Equipment Audit - Do
+      // you want to complete equipment audit!" confirmation this file's
+      // earlier TC134/TC136-TC138 test already covers - confirm with Yes.
+      await test.step('TC011: the Verified card persists after navigating away and back', async () => {
+        await coffee.pressKeyCode(4);
+        await driver.pause(500);
+        await coffee.tap('~Yes');
+        await driver.pause(500);
+        await coffee.openEquipmentAudit();
+        const card = await coffee.getEquipmentCardSummary('Cafection');
+        expect(card.status).toBe('Verified');
+      });
+
+      // TC012/TC014/TC015 "identify missing equipment" / "view 'Equipment
+      // does not exist'" / "mark not present" - reopening the card shows
+      // the same Equipment detail screen with an unchecked checkbox;
+      // checking it hides the detail fields and re-submitting updates the
+      // card's own status label.
+      await test.step('TC012/TC014/TC015: mark the equipment as not present', async () => {
+        await coffee.openEquipmentCard('Cafection');
+        expect(await coffee.isEquipmentDoesNotExistCheckboxChecked()).toBe(false);
+        await coffee.tapEquipmentDoesNotExistCheckbox();
+        expect(await coffee.isEquipmentDoesNotExistCheckboxChecked()).toBe(true);
+        await coffee.submitAddOrVerifyEquipment();
+      });
+
+      // TC016/TC017 "return to Equipment audit screen" / "card shows
+      // 'Equipment does not exist' in grey label format" - live-verified
+      // this is the card's own trailing status label, the same field that
+      // showed "Verified" before - directly readable, no visual-only
+      // green/grey signal needed.
+      await test.step('TC016/TC017: the card now shows "Equipment does not exist"', async () => {
+        const card = await coffee.getEquipmentCardSummary('Cafection');
+        expect(card.status).toBe('Equipment does not exist');
       });
     }
   );
