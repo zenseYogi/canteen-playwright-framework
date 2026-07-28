@@ -13,6 +13,10 @@ export const mobileConfig = {
     'appium:deviceName': process.env.DEVICE_NAME || 'emulator-5554',
     'appium:appPackage': process.env.APP_PACKAGE || 'com.canteen.nexus',
     'appium:appActivity': process.env.APP_ACTIVITY || '.MainActivity',
+
+    // $env:APP_PACKAGE="com.compass.canteen.nexus.test"
+    // $env:APP_ACTIVITY="com.compass.canteen.nexus.MainActivity"
+
     'appium:noReset': false,
     'appium:fullReset': true,
     'appium:newCommandTimeout': 240

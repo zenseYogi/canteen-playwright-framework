@@ -14,7 +14,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",
-    "@types/node": "^22.0.0",
+    "@types/node": "^22.20.1",
     "typescript": "^5.7.0"
   }
 }

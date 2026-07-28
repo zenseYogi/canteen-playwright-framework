@@ -96,7 +96,22 @@ export class DashboardScreen extends BaseScreen {
     await elements[index].click();
   }
 
+  /**
+   * Taps the LOB card header to expand it - made idempotent (CORRECTED
+   * 2026-07-24): this header is a toggle, not an open-only trigger. With a
+   * fresh login per test (the old default), the card always started
+   * collapsed, so a single tap always meant "expand." Once a shared session
+   * revisits the same stop across multiple tests (see
+   * vending-service.spec.ts), the card's expand state persists from the
+   * previous test - tapping an already-expanded card collapses it instead,
+   * live-verified to break the very next station lookup. Checks whether the
+   * first station row is already visible before tapping at all.
+   */
   async clickLob(lob: Lob): Promise<void> {
+    const alreadyExpanded = await this.isVisible(this.nthServiceStationUnder(lob, 'first'));
+    if (alreadyExpanded) {
+      return;
+    }
     await this.tap(this.lobSelector(lob));
   }
 }
