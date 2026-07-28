@@ -76,6 +76,64 @@ export class MarketServiceScreen extends BaseScreen {
     return `${this.fillProductRowAt(position)}//android.widget.EditText[@hint="${hint}"]`;
   }
 
+  // TC101-103's custom numeric keypad - live-verified 2026-07-28: focusing
+  // any Theft/Damaged/Returned/Spoiled/Delivery field replaces the system
+  // IME with an in-app keypad (digits, -/+, backspace, confirm, and Up/Down
+  // arrows that move focus to the previous/next quantity field without
+  // closing the keypad). The Up/Down arrow buttons have no content-desc of
+  // their own (same class of icon-only-button gap as elsewhere in this
+  // port) - located structurally as the sibling immediately after the
+  // "3"/"6" digit buttons respectively, which live-verified are always
+  // present and unique in this keypad's layout.
+  private numericKeypadDigit(d: string): string {
+    return `//android.widget.Button[@content-desc="${d}"]`;
+  }
+  private readonly numericKeypadUpArrow = `${this.numericKeypadDigit('3')}/following-sibling::android.widget.Button[1]`;
+  private readonly numericKeypadDownArrow = `${this.numericKeypadDigit('6')}/following-sibling::android.widget.Button[1]`;
+
+  /** Excel TC101 "see numeric keypad when entering Delivered" - checks for the keypad's own digit buttons rather than the system IME, since this is a custom in-app keypad. */
+  async isNumericKeypadVisible(): Promise<boolean> {
+    return this.isVisible(this.numericKeypadDigit('1'));
+  }
+
+  /** Excel TC102/TC103 - moves focus to the previous quantity field without closing the keypad. */
+  async tapKeypadUpArrow(): Promise<void> {
+    await this.tap(this.numericKeypadUpArrow);
+  }
+
+  /** Excel TC102/TC103 - moves focus to the next quantity field without closing the keypad. */
+  async tapKeypadDownArrow(): Promise<void> {
+    await this.tap(this.numericKeypadDownArrow);
+  }
+
+  /**
+   * Taps a digit key (0-9) on the custom numeric keypad. Live-verified
+   * 2026-07-28: the FIRST digit tap after focusing a field that already
+   * holds a committed value (its seeded default, or whatever was left from
+   * a previous visit) replaces that value outright; subsequent digit taps
+   * within the same continuous entry append normally (building "5" then
+   * "53") - see TC099/TC100's own test-step comments for the exact
+   * sequences that proved this. Deliberately NOT implemented via
+   * WebdriverIO's setValue() - that bypasses the app's own keypress
+   * handling and gave inconsistent results across runs (sometimes
+   * replacing, sometimes not) when this was first investigated.
+   */
+  async tapKeypadDigit(digit: string): Promise<void> {
+    await this.tap(this.numericKeypadDigit(digit));
+  }
+
+  /**
+   * TC104's decrement stepper - NOT a minus-sign/negative-number key
+   * despite sharing the visual "-" label with what looks like a sign
+   * toggle. Live-verified 2026-07-28: digit keys can never produce a "-"
+   * at all; only this stepper can decrement a value, and it's floor-
+   * clamped at 0 - tapping it on a field already at 0 leaves it at 0. This
+   * is how "unable to enter negative Delivered" is actually implemented.
+   */
+  async tapKeypadDecrement(): Promise<void> {
+    await this.tap(this.numericKeypadDigit('-'));
+  }
+
   async clickServiceLocation(position: Position): Promise<void> {
     await this.selectServiceLocation(this.marketLob, position);
   }

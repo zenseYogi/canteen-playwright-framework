@@ -214,4 +214,105 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       });
     }
   );
+
+  // TC099-TC104: same PBI misattribution as TC091/097/098/105 (Excel lists
+  // 619783/735739, whose real ACs are unrelated) - corrected to 611013,
+  // same reasoning as the notes above. These are the quantity fields'
+  // (Theft/Damaged/Returned/Spoiled/Delivery) own input behavior, live-
+  // verified 2026-07-28 via the Delivery field specifically.
+  test(
+    'TC099-TC104: quantity field overwrite behavior, custom numeric keypad, and negative-value handling',
+    { tag: ['@TC099', '@TC100', '@TC101', '@TC102', '@TC103', '@TC104'] },
+    async ({ driver }) => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
+        await loginAndWaitForMfa(driver);
+        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      });
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open a Market location's service station, Product fills, and expand the first row", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openFirstServiceStation('market');
+        await market.openFills();
+        await market.expandProductFill('first');
+      });
+
+      const deliveryField = () => driver.$('//android.widget.EditText[@hint="Delivery"]');
+      const theftField = () => driver.$('//android.widget.EditText[@hint="Theft"]');
+
+      // TC099 "tap the numeric field and enter a value" - the seeded
+      // default ("10") is cleared automatically on the first digit tap;
+      // only the new number shows. Uses real keypad taps, not setValue() -
+      // see MarketServiceScreen.tapKeypadDigit()'s own note on why.
+      await test.step('TC099: the first digit tap replaces the default value rather than appending to it', async () => {
+        await (await deliveryField()).click();
+        await market.tapKeypadDigit('5');
+        expect(await (await deliveryField()).getText()).toBe('5');
+      });
+
+      // Second digit tap in the SAME continuous entry appends normally
+      // (ordinary calculator-style typing) - not itself an Excel TC, just
+      // the contrast that makes TC100 below meaningful: "53" here, then
+      // TC100 proves a FRESH digit tap after refocusing replaces it again
+      // rather than continuing to append ("537").
+      await market.tapKeypadDigit('3');
+      expect(await (await deliveryField()).getText()).toBe('53');
+
+      // TC100 "change the value again in the same field" - moving focus
+      // away and back, then tapping a new digit, overwrites the field's
+      // settled value rather than appending to it.
+      await test.step('TC100: a fresh digit tap after refocusing overwrites rather than appends', async () => {
+        await (await theftField()).click();
+        await (await deliveryField()).click();
+        expect(await (await deliveryField()).getText()).toBe('53'); // refocusing alone doesn't clear it
+        await market.tapKeypadDigit('7');
+        expect(await (await deliveryField()).getText()).toBe('7'); // NOT "537"
+      });
+
+      // TC101 "see numeric keypad when entering Delivered" - this build uses
+      // a custom in-app keypad, not the system IME - see
+      // MarketServiceScreen's own note on isNumericKeypadVisible().
+      await test.step('TC101: the custom numeric keypad is displayed', async () => {
+        expect(await market.isNumericKeypadVisible()).toBe(true);
+      });
+
+      // TC102 "navigate using custom keyboard Up/Down arrows" - Down moves
+      // focus to the next quantity field (Theft, live-verified), Up moves
+      // it back.
+      await test.step('TC102: Down arrow moves focus to the next quantity field, Up arrow moves it back', async () => {
+        await market.tapKeypadDownArrow();
+        expect(await market.getFocusedFieldHint()).toBe('Theft');
+        await market.tapKeypadUpArrow();
+        expect(await market.getFocusedFieldHint()).toBe('Delivery');
+      });
+
+      // TC103 "maintain keyboard visibility when moving fields" - still up
+      // after both arrow taps above.
+      await test.step('TC103: the keypad remains open after navigating between fields', async () => {
+        expect(await market.isNumericKeypadVisible()).toBe(true);
+      });
+
+      // TC104 "unable to enter negative Delivered" - live-verified: there is
+      // no way to type a "-" via the digit keys at all; the visually
+      // similar "-" key is a decrement STEPPER (see
+      // MarketServiceScreen.tapKeypadDecrement()'s own note), floor-clamped
+      // at 0. Proven on Theft (currently 0 - untouched in this test): two
+      // decrement taps leave it at 0, never negative.
+      await test.step('TC104: the decrement stepper cannot push a value below zero', async () => {
+        await (await theftField()).click();
+        expect(await (await theftField()).getText()).toBe('0');
+        await market.tapKeypadDecrement();
+        await market.tapKeypadDecrement();
+        expect(await (await theftField()).getText()).toBe('0');
+      });
+    }
+  );
 });

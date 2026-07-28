@@ -204,6 +204,23 @@ export class BaseScreen {
     return el.isEnabled().catch(() => false);
   }
 
+  /**
+   * The `hint` of whichever on-screen EditText currently has input focus, or
+   * null if none does - used for TC102/103-style "did focus move to the
+   * right field after tapping a custom keyboard's Up/Down arrow" assertions,
+   * where there's no other way to tell which field is now active.
+   */
+  async getFocusedFieldHint(): Promise<string | null> {
+    const fields = await this.driver.$$('//android.widget.EditText');
+    for (const field of fields) {
+      const focused = await field.getAttribute('focused').catch(() => 'false');
+      if (focused === 'true') {
+        return field.getAttribute('hint');
+      }
+    }
+    return null;
+  }
+
   async waitFor(selector: string): Promise<void> {
     const el = await this.driver.$(selector);
     await el.waitForDisplayed({ timeout: mobileConfig.timeouts.element });
