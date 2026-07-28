@@ -397,4 +397,114 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       });
     }
   );
+
+  // TC116-TC122 (Market's "Delivery - Filters" sub-area, PBI 611013 - same
+  // PBI this whole file already covers, no misattribution here) - the
+  // Product fills filter BOTTOM SHEET's own contents and chip-selection
+  // behavior, live-verified 2026-07-28 (build 0.1.76, Route 10/YESTERDAY,
+  // first Market stop): opening the sheet (section_header_filter_cta) shows
+  // a "By category" label and one Button chip per category, each already
+  // carrying a live product-count suffix (e.g. "CANDY (1)").
+  //
+  // NOT independently asserted (documented instead):
+  // - TC117 ("view Product Group filters with count") - this build has no
+  //   "By product group" tab at all, only "By category" - confirmed
+  //   obsolete/deprioritized directly by BA/QA (same finding already noted
+  //   at the top of this file for the Filter sheet in general). Nothing to
+  //   assert; TC118 below covers the category-chip-with-count half of the
+  //   same bundled Excel outcome.
+  // - TC124/TC127/TC128/TC130 (bundled into TC119's Excel row) and
+  //   TC125/TC126/TC129 (bundled into TC120/TC121's rows) - all describe
+  //   the exact same Apply-Filters enable/disable and chip-selection
+  //   mechanics TC119-TC121 already exercise directly; not re-tagging
+  //   duplicates of an already-covered mechanism.
+  test(
+    'TC116-TC122: Product fills filter sheet contents, chip selection, and Apply/Clear behavior',
+    { tag: ['@TC116', '@TC118', '@TC119', '@TC120', '@TC121', '@TC122'] },
+    async ({ driver }) => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
+        await loginAndWaitForMfa(driver);
+        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      });
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open a Market location's service station and Product fills", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openFirstServiceStation('market');
+        await market.openFills();
+      });
+
+      // TC116 "view category text" / TC118 "view Category filters with
+      // count" - both the "By category" section label and the chips
+      // themselves (each labeled "<NAME> (<count>)") are visible.
+      await test.step('TC116/TC118: filter sheet shows the "By category" label and count-suffixed chips', async () => {
+        await market.openFilterSheet();
+        expect(await market.isFilterByCategoryLabelVisible()).toBe(true);
+        expect(await market.getFilterChipLabel('CANDY')).toMatch(/^CANDY \(\d+\)$/);
+      });
+
+      // TC119 "Apply Filters button disabled before selection" - live-
+      // verified: both Apply filters and Clear filters start disabled with
+      // zero chips selected.
+      await test.step('TC119: Apply/Clear filters start disabled with no chip selected', async () => {
+        expect(await market.isApplyFiltersEnabled()).toBe(false);
+        expect(await market.isClearFiltersEnabled()).toBe(false);
+      });
+
+      // TC120 "select one category chip - highlighted with tick icon and
+      // brand color" - live-verified via the chip's real `selected`
+      // attribute (not `checked` - that's the header filter_cta's own
+      // toggle), which is the closest a11y-tree signal to that visual
+      // state; Apply/Clear both flip to enabled the moment a chip is
+      // selected.
+      await test.step('TC120: selecting one chip marks it selected and enables Apply/Clear', async () => {
+        await market.tapFilterChip('CANDY');
+        expect(await market.isFilterChipSelected('CANDY')).toBe(true);
+        expect(await market.isApplyFiltersEnabled()).toBe(true);
+        expect(await market.isClearFiltersEnabled()).toBe(true);
+      });
+
+      // TC121 "select multiple chips" - a second chip can be selected
+      // alongside the first, Apply/Clear remain enabled.
+      await test.step('TC121: a second chip can be selected at the same time', async () => {
+        await market.tapFilterChip('LG SNACKS');
+        expect(await market.isFilterChipSelected('CANDY')).toBe(true);
+        expect(await market.isFilterChipSelected('LG SNACKS')).toBe(true);
+        expect(await market.isApplyFiltersEnabled()).toBe(true);
+      });
+
+      // Deselecting back to zero re-disables both buttons - the direct
+      // converse of TC119/TC120, confirms the enable logic is driven by
+      // selection COUNT, not a one-way latch.
+      await test.step('Deselecting all chips re-disables Apply/Clear filters', async () => {
+        await market.tapFilterChip('CANDY');
+        await market.tapFilterChip('LG SNACKS');
+        expect(await market.isApplyFiltersEnabled()).toBe(false);
+        expect(await market.isClearFiltersEnabled()).toBe(false);
+      });
+
+      // TC122 "clear all selected filters" - re-select a chip, Apply it
+      // (header filter icon goes active), reopen the sheet (selection
+      // persisted), then Clear filters resets the header icon back to
+      // inactive.
+      await test.step('TC122: applying then clearing filters resets the header filter icon', async () => {
+        await market.tapFilterChip('CANDY');
+        await market.tapApplyFilters();
+        expect(await market.isFilterActive()).toBe(true);
+
+        await market.openFilterSheet();
+        expect(await market.isFilterChipSelected('CANDY')).toBe(true);
+        await market.tapClearFilters();
+        expect(await market.isFilterActive()).toBe(false);
+      });
+    }
+  );
 });

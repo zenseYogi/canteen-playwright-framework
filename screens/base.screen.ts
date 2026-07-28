@@ -272,6 +272,71 @@ export class BaseScreen {
   }
 
   /**
+   * Lower-level filter-sheet building blocks (Excel TC116-TC122, Market's
+   * "Delivery - Filters" sub-area) - unlike selectFilterCategories/
+   * selectFilterCategoryByPrefix above (which drive the whole open->select
+   * ->Apply flow in one call), these expose each step separately so a test
+   * can assert the sheet's intermediate states (chip selected/deselected,
+   * Apply/Clear enabled/disabled) along the way. Live-verified on Market
+   * (build 0.1.76, CuraLeaf stop): only a single "By category" tab exists
+   * (no "By product group" tab - see market-fill-screen.spec.ts's own note,
+   * confirmed obsolete by BA/QA), chips are plain Buttons whose `selected`
+   * attribute (NOT `checked` - that's the header filter_cta's own toggle)
+   * flips true/false per tap, and both Apply filters/Clear filters start
+   * `enabled="false"` with zero chips selected.
+   */
+  protected readonly filterByCategoryLabel = '~By category';
+  protected readonly applyFiltersButton = '~Apply filters';
+  protected readonly clearFiltersButton = '~Clear filters';
+
+  async openFilterSheet(): Promise<void> {
+    await this.tap(this.filterCta);
+  }
+
+  async isFilterByCategoryLabelVisible(): Promise<boolean> {
+    return this.isVisible(this.filterByCategoryLabel);
+  }
+
+  private filterChipSelector(labelPrefix: string): string {
+    return `//android.widget.Button[starts-with(@content-desc,"${labelPrefix}")]`;
+  }
+
+  async tapFilterChip(labelPrefix: string): Promise<void> {
+    await this.tap(this.filterChipSelector(labelPrefix));
+  }
+
+  async isFilterChipVisible(labelPrefix: string): Promise<boolean> {
+    return this.isVisible(this.filterChipSelector(labelPrefix));
+  }
+
+  async getFilterChipLabel(labelPrefix: string): Promise<string> {
+    const el = await this.driver.$(this.filterChipSelector(labelPrefix));
+    return (await el.getAttribute('content-desc')) ?? '';
+  }
+
+  /** The chip's own selected/ticked state - distinct from isChecked (the header filter_cta toggle). */
+  async isFilterChipSelected(labelPrefix: string): Promise<boolean> {
+    const el = await this.driver.$(this.filterChipSelector(labelPrefix));
+    return (await el.getAttribute('selected').catch(() => 'false')) === 'true';
+  }
+
+  async isApplyFiltersEnabled(): Promise<boolean> {
+    return this.isEnabled(this.applyFiltersButton);
+  }
+
+  async isClearFiltersEnabled(): Promise<boolean> {
+    return this.isEnabled(this.clearFiltersButton);
+  }
+
+  async tapApplyFilters(): Promise<void> {
+    await this.tap(this.applyFiltersButton);
+  }
+
+  async tapClearFilters(): Promise<void> {
+    await this.tap(this.clearFiltersButton);
+  }
+
+  /**
    * Same as selectFilterCategories, but matches a chip by its label PREFIX
    * (e.g. "CANDY") rather than the full content-desc - the chip's real label
    * includes a live product count suffix (e.g. "CANDY (1)") that changes with
