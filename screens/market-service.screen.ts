@@ -90,6 +90,16 @@ export class MarketServiceScreen extends BaseScreen {
   }
   private readonly numericKeypadUpArrow = `${this.numericKeypadDigit('3')}/following-sibling::android.widget.Button[1]`;
   private readonly numericKeypadDownArrow = `${this.numericKeypadDigit('6')}/following-sibling::android.widget.Button[1]`;
+  // TC111's backspace key - live-verified 2026-07-28: only removes digits
+  // actually typed in the current session's entry buffer. Has no effect on
+  // an untouched seeded default ("10" stays "10") - the field must be
+  // touched by a digit tap first (which replaces the default per
+  // tapKeypadDigit's own note) before backspace can empty it out.
+  private readonly numericKeypadBackspace = `${this.numericKeypadDigit('9')}/following-sibling::android.widget.Button[1]`;
+  // Excel TC113's "saved successfully" confirmation, shown as a toast right
+  // after tapping Continue on Product fills - exact content-desc match,
+  // live-verified 2026-07-28.
+  private readonly savedSuccessToast = '~saved successfully.';
 
   /** Excel TC101 "see numeric keypad when entering Delivered" - checks for the keypad's own digit buttons rather than the system IME, since this is a custom in-app keypad. */
   async isNumericKeypadVisible(): Promise<boolean> {
@@ -132,6 +142,30 @@ export class MarketServiceScreen extends BaseScreen {
    */
   async tapKeypadDecrement(): Promise<void> {
     await this.tap(this.numericKeypadDigit('-'));
+  }
+
+  /** Excel TC111 - see numericKeypadBackspace's own note on when this actually removes anything. */
+  async tapKeypadBackspace(): Promise<void> {
+    await this.tap(this.numericKeypadBackspace);
+  }
+
+  /**
+   * Excel TC113 "proceed to next screen with valid entries" - tapping
+   * Continue on Product fills shows a "saved successfully" toast and
+   * returns to the service stop checklist, where the Delivery tile is now
+   * complete (live-verified 2026-07-28). Does NOT assert the tile's own
+   * green/checkmark visual state - its content-desc is unchanged from the
+   * incomplete state (no accessible signal to key off), so the toast is
+   * the reliable assertion; the tile state is confirmed only via screenshot
+   * evidence.
+   */
+  async submitFillsAndReturnToChecklist(): Promise<void> {
+    await this.tap(this.continueButton);
+    await this.waitFor(this.savedSuccessToast);
+  }
+
+  async isSavedSuccessToastVisible(): Promise<boolean> {
+    return this.isVisible(this.savedSuccessToast);
   }
 
   async clickServiceLocation(position: Position): Promise<void> {

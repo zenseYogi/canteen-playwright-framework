@@ -315,4 +315,86 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       });
     }
   );
+
+  // TC109-TC114: same PBI misattribution as TC091-105/092-096/099-104
+  // (Excel lists 619783/735739) - corrected to 611013, same reasoning as
+  // the notes above.
+  //
+  // NOT independently asserted (documented instead):
+  // - TC109 ("unable to enter alphabets... validation error blocking") -
+  //   structurally impossible to even attempt through the real UI: the
+  //   custom numeric keypad (see MarketServiceScreen's own note) has no
+  //   letter keys at all, only digits/steppers/navigation/confirm. There's
+  //   no genuine user action that could type a letter to reject in the
+  //   first place, so there's nothing to assert beyond what TC101's keypad
+  //   presence already proves.
+  // - TC110 ("unable to enter negative... blocks WITH MESSAGE") - the
+  //   blocking itself is the same mechanism TC104 already proved (the "-"
+  //   key is a floor-clamped decrement stepper, not text entry) - live-
+  //   verified no error message/toast appears when the clamp is hit, just
+  //   silent no-op. Not re-asserting the same mechanism a second time; the
+  //   "with message" part specifically is false.
+  // - TC112 ("Continue enabled with valid data") - live-verified true, but
+  //   not meaningfully distinct from TC111 below: Continue's enabled state
+  //   never actually changes based on field validity (same "always
+  //   enabled" pattern documented repeatedly elsewhere in this suite).
+  test(
+    'TC109-TC114: quantity field validation and the Continue/Delivery-tile completion flow',
+    { tag: ['@TC111', '@TC113', '@TC114'] },
+    async ({ driver }) => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
+        await loginAndWaitForMfa(driver);
+        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      });
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open a Market location's service station and Product fills", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openFirstServiceStation('market');
+        await market.openFills();
+      });
+
+      const continueBtn = () => driver.$('~Continue');
+
+      // TC111 "unable to proceed with invalid or missing Delivered value" -
+      // live-verified FALSE: Continue stays enabled even with Delivery
+      // emptied out entirely (first row's Delivery field, cleared via a
+      // digit tap then a backspace - see MarketServiceScreen's own note on
+      // why backspace alone can't touch the untouched seeded default).
+      await test.step('TC111: Continue remains enabled even with an empty Delivered value', async () => {
+        const field = await driver.$('//android.widget.EditText[@hint="Delivery"]');
+        await field.click();
+        await market.tapKeypadDigit('5');
+        await market.tapKeypadBackspace();
+        expect(await field.getText()).toBe('');
+        expect(await (await continueBtn()).isEnabled()).toBe(true);
+      });
+
+      // TC113 "proceed to next screen with valid entries" - tapping
+      // Continue shows a "saved successfully" toast and returns to the
+      // service stop checklist, where the Delivery tile becomes complete
+      // (screenshot-confirmed green background + checkmark, not asserted
+      // here - see submitFillsAndReturnToChecklist()'s own note).
+      await test.step('TC113: Continue saves and returns to the service stop checklist', async () => {
+        await market.submitFillsAndReturnToChecklist();
+        expect(await market.isSavedSuccessToastVisible()).toBe(true);
+      });
+
+      // TC114 "test Delivery tile and tick interactions after completion" -
+      // tapping the now-complete Delivery tile reopens Product fills, the
+      // same tap target as the original openFills().
+      await test.step('TC114: tapping the completed Delivery tile reopens Product fills', async () => {
+        await market.openFills();
+        expect(await market.isProductFillsTitleVisible()).toBe(true);
+      });
+    }
+  );
 });
