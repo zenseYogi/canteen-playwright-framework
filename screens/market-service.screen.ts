@@ -134,6 +134,39 @@ export class MarketServiceScreen extends BaseScreen {
     await this.openProductFills();
   }
 
+  /** Excel TC092 "view route details and date in the header" - the same shared date/route pill as every other screen (see BaseScreen's isDateRouteHeaderVisible), just re-exposed under Product fills' own PBI note below. */
+  async isFillsHeaderVisible(): Promise<{ date: boolean; route: boolean }> {
+    return this.isDateRouteHeaderVisible();
+  }
+
+  /** Excel TC093 "view header actions" - Filter/Sort/Add icons on the Product fills header, live-verified 2026-07-27 (build 0.1.76). */
+  async isFillsHeaderActionsVisible(): Promise<{ add: boolean; sort: boolean; filter: boolean }> {
+    return {
+      add: await this.isVisible(this.addProductButton),
+      sort: await this.isVisible(this.sortCta),
+      filter: await this.isVisible(this.filterCta)
+    };
+  }
+
+  /** Excel TC094 "view products to be refilled" - count of rendered product rows. */
+  async getFillProductRowCount(): Promise<number> {
+    const rows = await this.driver.$$(this.fillProductRow);
+    return rows.length;
+  }
+
+  /**
+   * Excel TC095 "view product title" / TC096 "view package info" - both
+   * read from the same row content-desc string ("{Name}\nMore info\nPkg: N")
+   * documented on fillProductRow above, not separate locators.
+   */
+  async getFillProductRowSummary(position: Position = 'first'): Promise<{ name: string; pkg: number }> {
+    const row = await this.driver.$(this.fillProductRowAt(position));
+    const desc = (await row.getAttribute('content-desc')) ?? '';
+    const name = desc.split('\n')[0] ?? '';
+    const pkg = Number(/Pkg: (\d+)/.exec(desc)?.[1]);
+    return { name, pkg };
+  }
+
   /** PBI 611013 step 3: expand a product row to reveal Par Stock/Ordered/Picked plus the Theft/Damaged/Returned/Spoiled/Delivery entry fields. */
   async expandProductFill(position: Position = 'first'): Promise<void> {
     await this.tap(this.fillExpandIcon(position));

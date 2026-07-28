@@ -1,8 +1,9 @@
 import { test, expect } from '../../fixtures/appium.fixture';
-import { loginAndWaitForMfa } from '../../utils/login-flow';
+import { loginAndWaitForMfa, switchRoute } from '../../utils/login-flow';
 import { PrepTasksScreen } from '../../screens/prep-tasks.screen';
 import { DashboardScreen } from '../../screens/dashboard.screen';
 import { MarketServiceScreen } from '../../screens/market-service.screen';
+import { mobileConfig } from '../../config/mobile.config';
 
 // PBI 611013 (Azure DevOps): "As a developer, I want to implement the Fill
 // Screen in the Market Flow based on the Figma design so that the list
@@ -145,6 +146,71 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
         await market.openFills();
         await market.selectFilterCategoryByPrefix('CANDY');
         expect(await market.isFilterActive()).toBe(true);
+      });
+    }
+  );
+
+  // TC092-TC096: same PBI misattribution as TC091/097/098/105 above (Excel
+  // lists 619783/735739, whose real ACs are unrelated) - these are the
+  // Product fills LIST screen's own header/row-content TCs, a direct match
+  // for 611013's Process Steps, so corrected the same way.
+  //
+  // Uses Route 10/YESTERDAY + position 'first' explicitly (not this file's
+  // other tests' plain login + position 'second') - live-verified
+  // 2026-07-28 that real time has advanced past Jul 27, so defaultRoute's
+  // own day (YESTERDAY resolving from a fresh login) and Market's stop
+  // position have both shifted since those tests were written - see
+  // market-service.spec.ts's own notes on the same two issues.
+  test(
+    'TC092-TC096: Product fills header, row content, and header actions',
+    { tag: ['@TC092', '@TC093', '@TC094', '@TC095', '@TC096'] },
+    async ({ driver }) => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
+        await loginAndWaitForMfa(driver);
+        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      });
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open a Market location's service station and Product fills", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openFirstServiceStation('market');
+        await market.openFills();
+      });
+
+      // TC092 "view route details and date in the header"
+      await test.step('TC092: verify the date/route header is visible', async () => {
+        const header = await market.isFillsHeaderVisible();
+        expect(header.date).toBe(true);
+        expect(header.route).toBe(true);
+      });
+
+      // TC093 "view header actions" - Filter, Sort, Add icons
+      await test.step('TC093: verify Filter, Sort, and Add icons are visible', async () => {
+        const actions = await market.isFillsHeaderActionsVisible();
+        expect(actions.add).toBe(true);
+        expect(actions.sort).toBe(true);
+        expect(actions.filter).toBe(true);
+      });
+
+      // TC094 "view products to be refilled" - at least one row rendered
+      await test.step('TC094: verify the product list renders at least one row', async () => {
+        const count = await market.getFillProductRowCount();
+        expect(count).toBeGreaterThan(0);
+      });
+
+      // TC095 "view product title" / TC096 "view package info" (Pkg: 1)
+      await test.step('TC095/TC096: verify the first row shows a product title and package info', async () => {
+        const summary = await market.getFillProductRowSummary('first');
+        expect(summary.name.length).toBeGreaterThan(0);
+        expect(Number.isNaN(summary.pkg)).toBe(false);
       });
     }
   );

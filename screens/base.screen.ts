@@ -65,6 +65,25 @@ export class BaseScreen {
   protected readonly sortCta = '~section_header_sort_cta';
   protected readonly filterCta = '~section_header_filter_cta';
   protected readonly planogramCta = '~section_header_planogram_cta';
+  // Date/route pill shown at the top of nearly every in-app screen once
+  // past login (Prep Tasks, Money Operations, Product Collection, Market's
+  // Product fills, service-stop checklists, ...) - hoisted here from
+  // PrepTasksScreen (originally added for TC169) once MarketServiceScreen
+  // needed the identical component (TC092). The date renders as a bare
+  // absolute-date string ("27 Jul 2026", not "Today"/"Yesterday" like the
+  // Dashboard's own badge - see HomeScreen's currentDateBadge, which
+  // wouldn't match here), immediately followed by the route pill
+  // ("Route 10"). Located relative to the route pill (stable starts-with
+  // match) since the date string itself has no fixed prefix to anchor on.
+  protected readonly headerRouteBadge = '//android.view.View[starts-with(@content-desc,"Route")]';
+  protected readonly headerDateBadge = `${this.headerRouteBadge}/preceding-sibling::android.view.View[1]`;
+
+  async isDateRouteHeaderVisible(): Promise<{ date: boolean; route: boolean }> {
+    return {
+      date: await this.isVisible(this.headerDateBadge),
+      route: await this.isVisible(this.headerRouteBadge)
+    };
+  }
   // Scrollable service-location list under a LOB tab (dashboard.yaml's
   // service_locations) - identical across coffee/market/vending_keywords.robot.
   protected readonly serviceLocations = "//android.view.View[@scrollable='true']";

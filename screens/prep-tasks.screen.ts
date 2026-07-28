@@ -41,16 +41,11 @@ export class PrepTasksScreen extends BaseScreen {
   private readonly addProductTitle = '~Add product';
   private readonly addButton = '~Add';
 
-  // TC169's "date and route in the header" - live-verified 2026-07-27: the
-  // date renders as a bare absolute-date string ("27 Jul 2026", not
-  // "Today"/"Yesterday" like the Dashboard's own badge - see HomeScreen's
-  // currentDateBadge, which wouldn't match here), immediately followed by
-  // the route pill ("Route 10"). Located relative to the route pill (which
-  // has a stable starts-with match) since the date string itself has no
-  // fixed prefix to anchor on.
+  // TC169's "date and route in the header" - see BaseScreen's
+  // headerDateBadge/headerRouteBadge/isDateRouteHeaderVisible() for the
+  // shared component itself (hoisted there once MarketServiceScreen also
+  // needed it, for TC092).
   private readonly moneyOperationsTitle = '~Money operations';
-  private readonly headerRouteBadge = '//android.view.View[starts-with(@content-desc,"Route")]';
-  private readonly headerDateBadge = `${this.headerRouteBadge}/preceding-sibling::android.view.View[1]`;
   // TC171's checklist items - live-verified 2026-07-27 exact content-desc matches.
   private readonly replacementMoneyBagsItem = '~Replacement money bag(s)';
   private readonly changerBagItem = '~Changer bag';
@@ -230,10 +225,10 @@ export class PrepTasksScreen extends BaseScreen {
 
   /** Excel TC169 "view date and route in the header" - assumes Money Operations is already open (openMoneyOperationsOnly()). */
   async isMoneyOperationsHeaderVisible(): Promise<{ title: boolean; date: boolean; route: boolean }> {
+    const header = await this.isDateRouteHeaderVisible();
     return {
       title: await this.isVisible(this.moneyOperationsTitle),
-      date: await this.isVisible(this.headerDateBadge),
-      route: await this.isVisible(this.headerRouteBadge)
+      ...header
     };
   }
 
