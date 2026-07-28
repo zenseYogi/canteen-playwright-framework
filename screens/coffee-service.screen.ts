@@ -85,6 +85,16 @@ export class CoffeeServiceScreen extends BaseScreen {
   private readonly equipmentDoesNotExistCheckbox = '//android.widget.CheckBox';
   private readonly verifyEquipmentSubmitButton = '~Verify equipment';
 
+  // Excel TC043/TC046/TC054/TC065 (Account/Manufacturer/Model "Select a
+  // stop"-style bottom sheets) - live-verified 2026-07-28: each sheet has
+  // its own "Search" field and a real clear (X) icon - NOT the decorative
+  // search icon on the field's other side (that one has clickable="false");
+  // the clear icon is the only clickable ImageView in the sheet. Tapping it
+  // restores the full unfiltered option list with nothing selected.
+  private readonly dropdownSearchField = '//android.widget.EditText[@hint="Search"]';
+  private readonly dropdownClearIcon = '//android.widget.ImageView[@clickable="true"]';
+  private readonly dropdownOption = '//android.view.View[@clickable="true" and @content-desc!="Scrim" and not(starts-with(@content-desc,"Add "))]';
+
   async clickServiceLocation(position: Position): Promise<void> {
     await this.selectServiceLocation(this.coffeeLob, position);
   }
@@ -277,5 +287,43 @@ export class CoffeeServiceScreen extends BaseScreen {
 
   async tapEquipmentDoesNotExistCheckbox(): Promise<void> {
     await this.tap(this.equipmentDoesNotExistCheckbox);
+  }
+
+  /**
+   * Excel TC043/TC054/TC065 - opens a dropdown sheet (Account/Manufacturer/
+   * Model) and types a search term into it. Types character by character
+   * with a pause between each - a single setValue() call doesn't reliably
+   * trigger this list's search-as-you-type filter (same class of issue as
+   * the Market Add Product search field elsewhere in this suite).
+   */
+  async openAddEquipmentDropdownAndSearch(fieldLabel: string, searchTerm: string): Promise<void> {
+    await this.tap(this.addEquipmentFieldSelector(fieldLabel));
+    const field = await this.driver.$(this.dropdownSearchField);
+    await field.click();
+    for (const ch of searchTerm) {
+      await field.addValue(ch);
+      await this.driver.pause(200);
+    }
+  }
+
+  /** Excel TC043/TC054/TC065 - taps the sheet's real clear (X) icon, restoring the unfiltered option list. */
+  async clearAddEquipmentDropdownSearch(): Promise<void> {
+    await this.tap(this.dropdownClearIcon);
+  }
+
+  async getAddEquipmentDropdownOptionCount(): Promise<number> {
+    const options = await this.driver.$$(this.dropdownOption);
+    return options.length;
+  }
+
+  /** Whether any option in the currently-open dropdown sheet is selected (ticked). */
+  async isAnyAddEquipmentDropdownOptionSelected(): Promise<boolean> {
+    const options = await this.driver.$$(this.dropdownOption);
+    for (const option of options) {
+      if ((await option.getAttribute('selected').catch(() => 'false')) === 'true') {
+        return true;
+      }
+    }
+    return false;
   }
 }

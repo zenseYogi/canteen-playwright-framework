@@ -332,4 +332,118 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
       });
     }
   );
+
+  // TC043/TC046/TC054/TC065/TC085/TC089 (Completing an equipment audit) -
+  // live-verified 2026-07-28 (build 0.1.76, Route 10/YESTERDAY, "Alan B.
+  // Levan |NSU Broward Center of Innovation" stop), on a fresh Add
+  // Equipment form:
+  //
+  // NOT independently asserted (documented instead):
+  // - TC086 ("Select barcode sheet opened") - live-verified FALSE: Barcode
+  //   is a plain EditText with a scanner icon, not a bottom-sheet picker
+  //   like Account/Manufacturer/Model - there is no "Select barcode" sheet
+  //   in this build at all.
+  // - TC088 ("scan a valid barcode") - not reproducible: no real camera/
+  //   barcode to scan against in this environment.
+  // - TC103/TC110/TC113/TC124 (Photos row's own Skip-photo confirmation
+  //   modal / Skip stop bottom sheet / capture / attach) - live-verified
+  //   the Photos row on THIS form goes straight into a native camera
+  //   capture screen with no intermediate "Add supporting photo" modal at
+  //   all (unlike Before/After Photos elsewhere in this suite, which do
+  //   have that modal) - there is no accessible "Skip photo" control to
+  //   assert against, and the camera view itself exposes no accessibility
+  //   tree (confirmed via a raw page-source dump: an entirely empty
+  //   hierarchy). Not reproducible without a real device camera.
+  // - TC139 ("Equipment Audit tile shows a green tick") - this exact Yes-
+  //   confirmation flow is already exercised (see the TC011 step above,
+  //   which taps Yes to get back to the checklist) - live-verified via
+  //   screenshot that the tile does turn green with a checkmark, but its
+  //   own content-desc carries no accessible completed/tick signal to
+  //   assert against (same category as the Market/Coffee Delivery tile's
+  //   already-documented visual-only state elsewhere in this suite).
+  test(
+    'TC043/TC046/TC054/TC065/TC085/TC089: Account/Manufacturer/Model search-clear and Barcode entry',
+    { tag: ['@TC043', '@TC046', '@TC054', '@TC065', '@TC085', '@TC089'] },
+    async ({ driver }, testInfo) => {
+      testInfo.setTimeout(240_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+
+      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
+        await loginAndWaitForMfa(driver);
+        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      });
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open the day's Coffee service stop, Equipment audit, and a fresh Add Equipment form", async () => {
+        await dashboard.clickLocationByPosition('second');
+        await dashboard.openFirstServiceStation('coffee');
+        await coffee.openEquipmentAudit();
+        await coffee.openAddEquipmentFromEmptyState();
+      });
+
+      // TC043/TC046 - the Account sheet's search narrows the list; the real
+      // clear (X) icon restores the full unfiltered list with nothing
+      // selected. (TC046 "selecting a stop populates the Account field" is
+      // already proven by every other test in this file that fills the Add
+      // Equipment form.)
+      //
+      // NOT a plain substring filter - live-verified typing "Cov" here
+      // returns a non-deterministic result set each time (sometimes
+      // includes unrelated accounts like "Warner Brothers Discovery",
+      // sometimes includes/excludes accounts that don't even contain
+      // "Cov") - some other matching/ranking logic, not a bug in this
+      // test, but too unstable to assert specific content against. The
+      // reliable signal is the clear icon itself: it empties the search
+      // field's own text (confirmed via its `text` attribute, not just
+      // visual appearance) and leaves nothing selected.
+      await test.step('TC043: the clear icon empties the Account search field', async () => {
+        await coffee.openAddEquipmentDropdownAndSearch('Account', 'Cov');
+        await coffee.clearAddEquipmentDropdownSearch();
+        const searchField = await driver.$('//android.widget.EditText');
+        expect(await searchField.getAttribute('text')).toBe('');
+        expect(await coffee.isAnyAddEquipmentDropdownOptionSelected()).toBe(false);
+      });
+
+      // The sheet is still open (clearing the search doesn't close it) -
+      // select directly rather than re-invoking the opener, which expects
+      // the closed form's own field to be tappable.
+      const covistaOption = await driver.$('//*[starts-with(@content-desc,"Covista")]');
+      await covistaOption.click();
+
+      // TC054/TC065 - same shared component for Manufacturer (and, by the
+      // same component, Model) - search narrows to an exact match, clear
+      // restores the unfiltered list.
+      await test.step('TC054/TC065: clearing the Manufacturer search restores the unfiltered list', async () => {
+        await coffee.openAddEquipmentDropdownAndSearch('Manufacturer', 'Bun');
+        const filteredCount = await coffee.getAddEquipmentDropdownOptionCount();
+        expect(filteredCount).toBe(1);
+        await coffee.clearAddEquipmentDropdownSearch();
+        const restoredCount = await coffee.getAddEquipmentDropdownOptionCount();
+        expect(restoredCount).toBeGreaterThan(filteredCount);
+      });
+
+      // Same reason as the Account sheet above - still open after clearing.
+      const bunnOption = await driver.$('~Bunn');
+      await bunnOption.click();
+      await coffee.selectAddEquipmentDropdownOption('Model', 'Axiom Single GPR');
+
+      // TC085/TC089 - typing a barcode value populates the field and stays
+      // shown. Uses a digits-only value and dismisses the keyboard right
+      // after - live-verified the system IME's word-prediction bar can
+      // otherwise append an autocorrect suggestion onto a letters-adjacent
+      // value if left open (e.g. a stray " ft" appended after "...561").
+      await test.step('TC085/TC089: a typed Barcode value is displayed in the field', async () => {
+        await coffee.typeAddEquipmentField('Barcode', '629104873561');
+        await coffee.pressKeyCode(4);
+        const barcodeField = await driver.$('//android.widget.EditText[starts-with(@hint,"Barcode")]');
+        expect(await barcodeField.getAttribute('text')).toBe('629104873561');
+      });
+    }
+  );
 });
