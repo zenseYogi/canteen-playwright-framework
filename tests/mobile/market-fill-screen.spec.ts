@@ -507,4 +507,123 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       });
     }
   );
+
+  // TC132-TC138 (Market's "Delivery - Filters" sub-area, PBI 611013, same
+  // Filter bottom sheet as the TC116-122 test above) - live-verified
+  // 2026-07-28 (build 0.1.76, Route 10/YESTERDAY, first Market stop,
+  // catalog: "Baby Ruth 2.1oz" under CANDY, "Doritos RF NChs 1oz"/"Doritos
+  // NChs 1.75oz" under LG SNACKS):
+  //   - Applying a filter narrows getFillProductRowCount() to only that
+  //     category's rows (TC130's own outcome, re-confirmed here as the
+  //     setup for TC132/133/136-138).
+  //   - Each applied category gets its own removable tag above the list (a
+  //     bare "<NAME>" View, no count suffix, with an unlabeled clickable
+  //     sibling as its close icon - see BaseScreen.removeFilterTag) -
+  //     removing the sheet's only active tag fully clears the filter and
+  //     restores the unfiltered row count (TC133).
+  //   - Clearing filters, then reopening the sheet, shows every chip
+  //     deselected and Apply filters disabled again (TC136) - re-selecting
+  //     re-enables Apply and re-highlights the chip (TC137), and re-Applying
+  //     re-narrows the list exactly as before (TC138).
+  //
+  // NOT independently asserted (documented instead):
+  // - TC139 ("empty-state when filter matches nothing") - not reproducible
+  //   live: the sheet only ever renders a chip for categories that already
+  //   have >=1 product (that's what its own count suffix comes from), so
+  //   there's no real user action on this account's seeded catalog that
+  //   selects a category with zero matches.
+  // - TC140 ("list sorted alphabetically") - live-verified FALSE as worded:
+  //   the unfiltered list order is "Baby Ruth 2.1oz", "Doritos RF NChs
+  //   1oz", "Doritos NChs 1.75oz" - the two Doritos rows are NOT in
+  //   alphabetical order ("NChs" < "RF NChs"), so whatever this build
+  //   actually sorts by, it isn't a strict alphabetical product-name sort.
+  // - TC141/TC143 ("Delivered field visible" / "valid qty -> Continue
+  //   enabled") - already covered: TC097/TC098's own test asserts the
+  //   Delivered field's visibility directly, and Continue's "always
+  //   enabled regardless of field validity" behavior is already documented
+  //   repeatedly (TC111/TC112 above) - re-tagging a valid-input case adds
+  //   nothing new.
+  // - TC142 ("invalid quantity -> Continue disabled") - contradicts the
+  //   already-documented "Continue always enabled" finding, and like
+  //   TC109/TC110, isn't reachable through the real UI in the first place:
+  //   the custom keypad has no decimal point and no literal minus-sign key
+  //   (only a floor-clamped decrement stepper), so "-1"/"10.5" can't
+  //   actually be typed to test against.
+  // - TC144/TC145/TC146 ("Continue -> workflow summary" / "Delivery tile
+  //   shows a green tick" / "reopen Delivery from workflow") - identical
+  //   mechanism to the already-covered TC113/TC114 (submitFillsAndReturn
+  //   ToChecklist -> saved-successfully toast -> re-tap Delivery -> Product
+  //   fills reopens). Re-confirmed here that the completed tile's own
+  //   content-desc ("Delivery\nRestock products") carries no accessible
+  //   completed/tick signal to assert against - that state remains
+  //   screenshot-confirmed only, per TC114's own note.
+  test(
+    'TC132/TC133/TC136-TC138: filter icon active state, single-tag removal, and reselect/reapply after Clear',
+    { tag: ['@TC132', '@TC133', '@TC136', '@TC137', '@TC138'] },
+    async ({ driver }) => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
+        await loginAndWaitForMfa(driver);
+        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      });
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      let unfilteredCount = 0;
+      await test.step("Open a Market location's service station and Product fills", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openFirstServiceStation('market');
+        await market.openFills();
+        unfilteredCount = await market.getFillProductRowCount();
+      });
+
+      // TC132 "see active filter icon" - applying a category filter flips
+      // the header filter_cta's checked/active state and narrows the list.
+      await test.step('TC132: applying CANDY activates the header filter icon and narrows the list', async () => {
+        await market.openFilterSheet();
+        await market.tapFilterChip('CANDY');
+        await market.tapApplyFilters();
+        expect(await market.isFilterActive()).toBe(true);
+        expect(await market.getFillProductRowCount()).toBeLessThan(unfilteredCount);
+      });
+
+      // TC133 "remove single filter" - the applied category's own tag (with
+      // its unlabeled close-icon sibling) removes just that filter; with
+      // only one filter active, removing it fully clears filtering.
+      await test.step('TC133: removing the single active filter tag restores the unfiltered list', async () => {
+        expect(await market.isFilterTagVisible('CANDY')).toBe(true);
+        await market.removeFilterTag('CANDY');
+        expect(await market.isFilterActive()).toBe(false);
+        expect(await market.getFillProductRowCount()).toBe(unfilteredCount);
+      });
+
+      // TC136 "reopen Filter and verify state" - after Clear (already
+      // exercised in the TC116-122 test above), reopening now with zero
+      // filters shows every chip deselected and Apply filters disabled.
+      await test.step('TC136: reopening the filter sheet after Clear shows chips deselected and Apply disabled', async () => {
+        await market.openFilterSheet();
+        expect(await market.isFilterChipSelected('LG SNACKS')).toBe(false);
+        expect(await market.isApplyFiltersEnabled()).toBe(false);
+      });
+
+      // TC137/TC138 "re-select filters again" / "re-apply filters" - a
+      // fresh selection re-enables Apply, and re-Applying re-narrows the
+      // list exactly as the first time.
+      await test.step('TC137/TC138: re-selecting and re-applying LG SNACKS narrows the list again', async () => {
+        await market.tapFilterChip('LG SNACKS');
+        expect(await market.isFilterChipSelected('LG SNACKS')).toBe(true);
+        expect(await market.isApplyFiltersEnabled()).toBe(true);
+
+        await market.tapApplyFilters();
+        expect(await market.isFilterActive()).toBe(true);
+        expect(await market.getFillProductRowCount()).toBeLessThan(unfilteredCount);
+      });
+    }
+  );
 });

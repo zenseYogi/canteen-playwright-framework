@@ -337,6 +337,27 @@ export class BaseScreen {
   }
 
   /**
+   * Excel TC133 "remove single filter" - once Applied, each active category
+   * gets its own removable tag above the product list (e.g. a bare "LG
+   * SNACKS" View, no count suffix - distinct from the filter SHEET's own
+   * chip). Live-verified (build 0.1.76): the tag has no separate close-icon
+   * content-desc/resource-id of its own - it's an unlabeled clickable View
+   * immediately following the tag's label View, same structural pattern as
+   * the numeric keypad's unlabeled Up/Down/backspace buttons.
+   */
+  private filterTagSelector(label: string): string {
+    return `//android.view.View[@content-desc="${label}"]`;
+  }
+
+  async isFilterTagVisible(label: string): Promise<boolean> {
+    return this.isVisible(this.filterTagSelector(label));
+  }
+
+  async removeFilterTag(label: string): Promise<void> {
+    await this.tap(`${this.filterTagSelector(label)}/following-sibling::android.view.View[1]`);
+  }
+
+  /**
    * Same as selectFilterCategories, but matches a chip by its label PREFIX
    * (e.g. "CANDY") rather than the full content-desc - the chip's real label
    * includes a live product count suffix (e.g. "CANDY (1)") that changes with
