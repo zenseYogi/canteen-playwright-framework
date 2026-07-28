@@ -37,7 +37,18 @@ export class BaseScreen {
   // read as enabled. Scoped to the Button class specifically to avoid that.
   protected readonly skipPhotoModalTitle = '~Add supporting photo';
   protected readonly skipPhotoButton = '//android.widget.Button[@content-desc="Skip photo"]';
-  protected readonly skipPhotoReasonField = '//android.widget.EditText[@hint="Reason to skip photo"]';
+  // CORRECTED (live-verified 2026-07-28, Market's own equivalent flow):
+  // once the field has been typed into and cleared once, its `hint`
+  // attribute stops being the exact string "Reason to skip photo" - it
+  // accumulates the previously-entered text as a second line ("Reason to
+  // skip photo\nCamera can't focus..."), presumably a restore-suggestion
+  // shown alongside the real placeholder. An exact-match selector then
+  // finds zero elements even though the field is genuinely still on
+  // screen - this is what looked like intermittent "not found" flakiness
+  // in enterSkipPhotoReason() across several runs, but is actually a real,
+  // reproducible state change. starts-with is stable across both the
+  // pristine and post-clear states.
+  protected readonly skipPhotoReasonField = '//android.widget.EditText[starts-with(@hint,"Reason to skip photo")]';
   // Generic EditText/ScrollView with no content-desc/resource-id of their own -
   // must stay xpath, no accessibility-id shorthand available for these.
   protected readonly searchField = '//android.widget.EditText';
@@ -533,12 +544,12 @@ export class BaseScreen {
    * (live-verified) - so this taps first for the app's own dirty-state
    * tracking to fire.
    *
-   * Retries the element lookup once: live-verified this UiAutomator2 build
-   * intermittently reports a genuinely-on-screen element as "not found"
-   * (same class of transient instrumentation flakiness hit throughout this
-   * session, not the field actually disappearing) - a screenshot taken at
-   * the moment of one such failure confirmed the sheet and field were both
-   * still visibly present.
+   * Retries the element lookup as a general safety net against ordinary
+   * UiAutomator2 instrumentation hiccups (seen intermittently elsewhere in
+   * this suite) - the specific repeated "not found" this surfaced while
+   * debugging turned out to be a real bug in skipPhotoReasonField's old
+   * exact-match locator, now fixed at its declaration (see that field's own
+   * comment), not something this retry papers over.
    */
   async enterSkipPhotoReason(reason: string): Promise<void> {
     let lastError: unknown;

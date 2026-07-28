@@ -5,17 +5,19 @@ import { DashboardScreen } from '../../screens/dashboard.screen';
 import { CoffeeServiceScreen } from '../../screens/coffee-service.screen';
 import { mobileConfig } from '../../config/mobile.config';
 
-// Traceability: the Excel's "Before Photo" sub-area only exists under the
-// Market Area (TC015/TC017/TC018/TC020/TC021/TC022/TC025/TC026...) - Coffee
-// has no "Before Photo" rows of its own (only "After Photo" and "Completing
-// an equipment audit", which share the identical Skip-photo pattern under
-// different PBIs). This flow is a genuinely shared, LOB-agnostic component
-// (see BaseScreen's openPhotoTrigger/openSkipPhotoReasonSheet) - Route 10's
-// only Market-capable stop had no Market service today, so this was
-// live-verified via its Coffee stop instead, and tagged to Market's rows as
-// the correctly-attributed source (per BA's 2026-07-27 correction that this
-// flow does NOT belong to Prep Tasks/Product Collection, where an earlier
-// Excel row mistakenly placed TC130-138 - see prep-tasks.spec.ts's note).
+// Traceability: this is the same shared/LOB-agnostic Skip-photo component
+// documented in market-service.spec.ts (see BaseScreen's openPhotoTrigger/
+// openSkipPhotoReasonSheet) - originally verified here via Coffee's own
+// "Before Photos" tile on 2026-07-27 because that day's Market-capable stop
+// had no Market service station yet. Now that Market's own stop is
+// reachable, the Excel's actual "Before Photo" TCs (TC015/TC021/TC022/
+// TC025) are tested there instead - see market-service.spec.ts's own
+// "Before Photos / Skip photo" describe block. Kept here untagged to those
+// Market TC numbers (still exercises the same component on Coffee's LOB as
+// incidental regression coverage), but tagged to TC134/TC136/TC137/TC138 -
+// the numbers under the ORIGINAL Excel row that BA confirmed was mislabeled
+// as Prep Tasks/Product Collection (see prep-tasks.spec.ts's note) - since
+// this is still the direct live verification of that correction.
 //
 // Discrepancy note (not asserted): the Excel describes a live camera-preview
 // screen opening first (TC017/TC130), then a "Can't take a photo?"
@@ -28,7 +30,7 @@ import { mobileConfig } from '../../config/mobile.config';
 test.describe('Coffee - Before Photos / Skip photo', () => {
   test(
     'Skip photo flow: reason sheet appears, validates non-blank input, and submits without saving a photo',
-    { tag: ['@TC015', '@TC021', '@TC022', '@TC025', '@TC134', '@TC136', '@TC137', '@TC138'] },
+    { tag: ['@TC134', '@TC136', '@TC137', '@TC138'] },
     async ({ driver }, testInfo) => {
       // This walks a full Start Day + LOB navigation + multi-step skip-photo
       // flow in one session - noticeably more real-device round trips than

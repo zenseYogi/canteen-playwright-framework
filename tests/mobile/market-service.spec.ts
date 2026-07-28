@@ -153,4 +153,78 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       });
     }
   );
+
+  // Sub Area "Before Photo". Originally live-verified via Coffee's own
+  // "Before Photos" tile (see coffee-service.spec.ts) because Route 10's
+  // Market-capable stop had no Market service station that day - now that
+  // Market's own stop ("CuraLeaf", position 'first') is reachable, this
+  // exercises the same shared component directly on Market, the Excel's
+  // actually-correct Area for these TC numbers.
+  //
+  // Uses day='YESTERDAY', not 'TODAY': real time advanced past 2026-07-27
+  // to 07-28 between sessions, and TODAY now resolves to an empty (0
+  // Delivery) day for Route 10 - same fixed-date-seed staleness flagged
+  // elsewhere (mobile.config.ts's own note). YESTERDAY still resolves to
+  // Jul 27, confirmed live to have real data.
+  test(
+    'TC015/TC021/TC022/TC025: Before Photos Skip-photo flow',
+    { tag: ['@TC015', '@TC021', '@TC022', '@TC025'] },
+    async ({ driver }, testInfo) => {
+      // Full Start Day + LOB navigation + multi-step skip-photo flow in one
+      // session - same reasoning as coffee-service.spec.ts's own timeout bump.
+      testInfo.setTimeout(240_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
+        await loginAndWaitForMfa(driver);
+        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      });
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open the day's Market service stop", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openFirstServiceStation('market');
+      });
+
+      // TC015 "open the Before Photos screen"
+      await test.step('TC015: tap Before Photos and verify the Take photo/Skip photo modal', async () => {
+        await market.openBeforePhotos();
+        const modal = await market.isPhotoModalVisible();
+        expect(modal.takePhoto).toBe(true);
+        expect(modal.skipPhoto).toBe(true);
+      });
+
+      // TC021 "open skip reason sheet" - bottom sheet with a Reason field
+      // and a disabled submit button.
+      await test.step('TC021: tap Skip photo and verify the reason sheet, disabled by default', async () => {
+        await market.openSkipPhotoReasonSheet();
+        expect(await market.isSkipPhotoReasonSheetVisible()).toBe(true);
+        expect(await market.isSkipPhotoSubmitEnabled()).toBe(false);
+      });
+
+      // TC022 "verify blank reason is not allowed" - type then clear,
+      // confirm it goes back to disabled rather than assuming it always was.
+      await test.step('TC022: a blank reason keeps Skip photo disabled', async () => {
+        await market.enterSkipPhotoReason("Camera can't focus and take clear picture");
+        await market.waitForSkipPhotoSubmitEnabled(true);
+        await market.enterSkipPhotoReason('');
+        await market.waitForSkipPhotoSubmitEnabled(false);
+      });
+
+      // TC025 "submit skip reason" - re-enter the reason, submit, and land
+      // back on the service stop checklist without a photo being saved.
+      await test.step('TC025: submit a non-blank reason and return to the service stop screen', async () => {
+        await market.enterSkipPhotoReason("Camera can't focus and take clear picture");
+        await market.waitForSkipPhotoSubmitEnabled(true);
+        await market.confirmSkipPhoto();
+        expect(await market.isSkipPhotoReasonSheetVisible()).toBe(false);
+      });
+    }
+  );
 });

@@ -19,6 +19,13 @@ export class MarketServiceScreen extends BaseScreen {
   // immediately preceding the Before Photos tile.
   private readonly serviceStopLocationHeader =
     '//android.view.View[starts-with(@content-desc,"Before Photos")]/preceding-sibling::android.view.View[1]';
+  // Excel TC015/TC021/TC022/TC025 ("Before Photo" sub-area) - live-verified
+  // 2026-07-27 on Market's own checklist ("CuraLeaf" stop). Same
+  // shared/LOB-agnostic component already exercised via Coffee's "Before
+  // Photos" tile in coffee-service.spec.ts (see BaseScreen's
+  // openPhotoTrigger/openSkipPhotoReasonSheet) - only the trigger locator
+  // is LOB-specific.
+  private readonly beforePhotos = '//android.view.View[starts-with(@content-desc,"Before Photos")]';
 
   // Money-operations fields: RF declared these in coffee.yaml (there is no
   // market.yaml) and market_keywords.robot never imports coffee.yaml
@@ -81,6 +88,11 @@ export class MarketServiceScreen extends BaseScreen {
   async getServiceStopLocationHeaderText(): Promise<string> {
     const el = await this.driver.$(this.serviceStopLocationHeader);
     return (await el.getAttribute('content-desc')) ?? '';
+  }
+
+  /** Opens the Before Photos step's "Add supporting photo" modal - see BaseScreen's openPhotoTrigger/isPhotoModalVisible/openSkipPhotoReasonSheet for the shared skip-photo flow beyond this. */
+  async openBeforePhotos(): Promise<void> {
+    await this.openPhotoTrigger(this.beforePhotos);
   }
 
   async isProductFillsTitleVisible(): Promise<boolean> {
