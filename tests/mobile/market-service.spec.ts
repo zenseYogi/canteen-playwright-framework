@@ -431,4 +431,139 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       });
     }
   );
+
+  // TC180-TC209 (Market "Delivery - Sort" sub-area, PBI 611013) - the
+  // Product fills Sort-by sheet. Live-verified 2026-07-28 (build 0.1.76,
+  // Route 10/YESTERDAY, first Market stop, catalog: "Baby Ruth 2.1oz",
+  // "Doritos NChs 1.75oz", "Doritos RF NChs 1oz"):
+  //
+  //   - The sheet's title is "Sort by" and lists FIVE options - "A to Z",
+  //     "Z to A", "By Category", "Newest First", "Oldest First" - NOT the
+  //     Excel's claimed four options, and there is no "Barcode Ascending"/
+  //     "Barcode Descending" pair anywhere in this build at all (TC198-205
+  //     describe a sort variant that doesn't exist here).
+  //   - There is no separate "Apply sort order" button either - tapping
+  //     ANY option applies it immediately and closes the sheet in one step
+  //     (BaseScreen.selectSortOption's own already-proven behavior) - only
+  //     "Clear sort order" exists as its own button.
+  //   - Confirmed the unfiltered/no-sort-applied row order is NOT
+  //     alphabetical (see market-fill-screen.spec.ts's own TC140 note) -
+  //     applying "A to Z" here produces a genuinely different, correctly
+  //     alphabetical order, and "Z to A" is the exact reverse.
+  //
+  // NOT independently asserted (documented instead):
+  // - TC183/TC187/TC190/TC195 ("selected option highlighted" / "persisted
+  //   selection on reopen") - no accessible signal: reopening the sheet
+  //   after applying a sort shows every option's `selected` attribute still
+  //   "false" - same class of gap as TC157's search-result highlight.
+  // - TC182/TC184/TC185's own "both buttons enabled/disabled" framing
+  //   assumes a select-then-apply-or-clear two-step flow that doesn't
+  //   exist live (selecting always applies immediately) - the real,
+  //   assertable behavior is just: Clear sort order starts disabled with no
+  //   sort active, and becomes enabled once one is (TC182, TC184).
+  // - TC185/TC191/TC196/TC201/TC206's "list returns to the default order"
+  //   after Clear - live-verified FALSE: Clear resets the header sort
+  //   icon's active state correctly, but the row order it leaves behind is
+  //   NOT the original pre-sort order (confirmed via two direct page-source
+  //   dumps: unsorted was "Baby Ruth, Doritos RF NChs, Doritos NChs", but
+  //   post-Clear-after-a-sort stayed "Baby Ruth, Doritos NChs, Doritos RF
+  //   NChs" - the two Doritos rows never swapped back).
+  // - TC198-TC205 (Barcode Ascending/Descending) - not applicable, this
+  //   sort variant doesn't exist in this build (see above).
+  // - TC208/TC209 ("Continue -> workflow summary" / "Delivery tile shows a
+  //   tick") - identical mechanism to the already-covered TC113/TC114.
+  test(
+    'TC180-TC182/TC186/TC188/TC189/TC192-TC194/TC197/TC202/TC207: Sort-by sheet contents, ascending/descending order, and Clear',
+    {
+      tag: [
+        '@TC180',
+        '@TC181',
+        '@TC182',
+        '@TC186',
+        '@TC188',
+        '@TC189',
+        '@TC192',
+        '@TC193',
+        '@TC194',
+        '@TC197',
+        '@TC202',
+        '@TC207'
+      ]
+    },
+    async ({ driver }, testInfo) => {
+      testInfo.setTimeout(240_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
+        await loginAndWaitForMfa(driver);
+        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      });
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open a Market location's service station and Product fills", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openFirstServiceStation('market');
+        await market.openFills();
+      });
+
+      // TC180/TC181 (+ bundled TC186/TC192/TC197/TC202/TC207 - same
+      // repeated Excel claim) - the sheet's title and its real five options.
+      await test.step('TC180/TC181: Sort by sheet title and its five real options', async () => {
+        await market.openSortSheet();
+        expect(await market.isSortSheetTitleVisible()).toBe(true);
+        expect(await market.isSortOptionVisible('A to Z')).toBe(true);
+        expect(await market.isSortOptionVisible('Z to A')).toBe(true);
+        expect(await market.isSortOptionVisible('By Category')).toBe(true);
+        expect(await market.isSortOptionVisible('Newest First')).toBe(true);
+        expect(await market.isSortOptionVisible('Oldest First')).toBe(true);
+      });
+
+      // TC182 - Clear sort order starts disabled with no sort active.
+      await test.step('TC182: Clear sort order is disabled with no sort currently active', async () => {
+        expect(await market.isClearSortEnabled()).toBe(false);
+        expect(await market.isSortActive()).toBe(false);
+        // Dismiss the still-open sheet from the previous step (back press) -
+        // selectSortOption below expects to open it fresh via the sort_cta
+        // tap, which would instead CLOSE an already-open sheet.
+        await market.pressKeyCode(4);
+      });
+
+      // TC188/TC189 - applying "A to Z" activates the header sort icon and
+      // produces a genuinely alphabetical row order.
+      let ascendingOrder: string[] = [];
+      await test.step('TC188/TC189: applying A to Z sorts the list alphabetically ascending', async () => {
+        await market.selectSortOption('A to Z');
+        expect(await market.isSortActive()).toBe(true);
+        ascendingOrder = await market.getFillProductNamesInOrder();
+        const sorted = [...ascendingOrder].sort((a, b) => a.localeCompare(b));
+        expect(ascendingOrder).toEqual(sorted);
+      });
+
+      // TC192/TC193/TC194 - applying "Z to A" produces the exact reverse
+      // order of "A to Z", and the header icon stays active.
+      await test.step('TC192/TC193/TC194: applying Z to A reverses the order', async () => {
+        await market.openSortSheet();
+        expect(await market.isClearSortEnabled()).toBe(true);
+        await market.pressKeyCode(4); // dismiss before selectSortOption re-opens it
+        await market.selectSortOption('Z to A');
+        expect(await market.isSortActive()).toBe(true);
+        const descendingOrder = await market.getFillProductNamesInOrder();
+        expect(descendingOrder).toEqual([...ascendingOrder].reverse());
+      });
+
+      // TC191/TC196/TC201/TC206 (bundled Excel claim, live-verified only
+      // the icon half) - Clear sort order resets the header icon.
+      await test.step('Clear sort order resets the header icon to inactive', async () => {
+        await market.openSortSheet();
+        await market.tapClearSort();
+        expect(await market.isSortActive()).toBe(false);
+      });
+    }
+  );
 });

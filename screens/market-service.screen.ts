@@ -293,6 +293,17 @@ export class MarketServiceScreen extends BaseScreen {
     return { name, pkg };
   }
 
+  /** Excel TC189/TC194/TC199/TC204 - every visible row's own name, in on-screen order, for asserting sort-order changes (e.g. A-Z ascending vs Z-A descending). */
+  async getFillProductNamesInOrder(): Promise<string[]> {
+    const rows = await this.driver.$$(this.fillProductRow);
+    const names: string[] = [];
+    for (const row of rows) {
+      const desc = (await row.getAttribute('content-desc')) ?? '';
+      names.push(desc.split('\n')[0] ?? '');
+    }
+    return names;
+  }
+
   /** PBI 611013 step 3: expand a product row to reveal Par Stock/Ordered/Picked plus the Theft/Damaged/Returned/Spoiled/Delivery entry fields. */
   async expandProductFill(position: Position = 'first'): Promise<void> {
     await this.tap(this.fillExpandIcon(position));

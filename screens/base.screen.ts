@@ -253,6 +253,42 @@ export class BaseScreen {
   }
 
   /**
+   * Excel TC180-TC209 (Market "Delivery - Sort" sub-area) - lower-level
+   * Sort-sheet building blocks, alongside selectSortOption above. Live-
+   * verified on Market (build 0.1.76): the sheet's title is "Sort by" and
+   * it lists FIVE options - "A to Z", "Z to A", "By Category", "Newest
+   * First", "Oldest First" - not the Excel's claimed four options nor its
+   * "Barcode Ascending"/"Barcode Descending" (neither exists in this
+   * build). There is also no separate "Apply sort order" button at all -
+   * tapping ANY option applies it immediately and closes the sheet in one
+   * step (matching selectSortOption's own already-proven behavior); only
+   * "Clear sort order" exists as its own button, disabled with no sort
+   * currently active and enabled once one is.
+   */
+  protected readonly sortSheetTitle = '~Sort by';
+  protected readonly clearSortButton = '~Clear sort order';
+
+  async openSortSheet(): Promise<void> {
+    await this.tap(this.sortCta);
+  }
+
+  async isSortSheetTitleVisible(): Promise<boolean> {
+    return this.isVisible(this.sortSheetTitle);
+  }
+
+  async isSortOptionVisible(optionLabel: string): Promise<boolean> {
+    return this.isVisible(`~${optionLabel}`);
+  }
+
+  async isClearSortEnabled(): Promise<boolean> {
+    return this.isEnabled(this.clearSortButton);
+  }
+
+  async tapClearSort(): Promise<void> {
+    await this.tap(this.clearSortButton);
+  }
+
+  /**
    * Opens the shared Filter sheet, taps the named category chip(s), then
    * Apply filters. Live-verified on Vending: selecting a chip enables both
    * Clear filters and Apply filters (disabled with zero chips selected),
