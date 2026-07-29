@@ -686,3 +686,65 @@ test.describe('Coffee - Delivery (add product, sort/search, sign-off)', () => {
     }
   );
 });
+
+// TC274/TC277/TC278 (Coffee "After Photo") - live-verified 2026-07-29
+// (build 0.1.76, Route 10/TODAY, "Amazon Corporate"/"3rd Floor" stop). The
+// checklist's own "After Photos" tile opens the exact same shared "Add
+// supporting photo"/Skip-photo-reason-sheet component already proven for
+// Before Photos (see the "Coffee - Before Photos / Skip photo" describe
+// block above) - this test is the direct live verification of that same
+// component against Coffee's own After Photo Excel row, not just
+// incidental regression coverage.
+test.describe('Coffee - After Photos / Skip photo', () => {
+  test(
+    'Skip photo flow: reason sheet appears, accepts a reason, and submits without saving a photo',
+    { tag: ['@TC274', '@TC277', '@TC278'] },
+    async ({ driver }, testInfo) => {
+      testInfo.setTimeout(240_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+
+      await test.step('Log in, switch to Route 10/TODAY (the Coffee stop is seeded on TODAY only)', async () => {
+        await loginAndWaitForMfa(driver);
+        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      });
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open the day's Coffee service stop", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openFirstServiceStation('coffee');
+      });
+
+      // TC274 "open skip reason sheet" - via After Photos' own Take/Skip
+      // photo modal, same shared component as Before Photos.
+      await test.step('TC274: tap After Photos, then Skip photo, and verify the reason sheet is disabled by default', async () => {
+        await coffee.openAfterPhotos();
+        const modal = await coffee.isPhotoModalVisible();
+        expect(modal.takePhoto).toBe(true);
+        expect(modal.skipPhoto).toBe(true);
+
+        await coffee.openSkipPhotoReasonSheet();
+        expect(await coffee.isSkipPhotoReasonSheetVisible()).toBe(true);
+        expect(await coffee.isSkipPhotoSubmitEnabled()).toBe(false);
+      });
+
+      // TC277 "type skip reason" - Skip enables once a non-blank reason is entered.
+      await test.step('TC277: entering a reason enables Skip photo', async () => {
+        await coffee.enterSkipPhotoReason('Camera cannot focus and take clear picture');
+        await coffee.waitForSkipPhotoSubmitEnabled(true);
+      });
+
+      // TC278 "submit skip reason" - lands back on the service stop
+      // checklist without a photo being saved.
+      await test.step('TC278: submit the reason and return to the service stop screen', async () => {
+        await coffee.confirmSkipPhoto();
+        expect(await coffee.isSkipPhotoReasonSheetVisible()).toBe(false);
+      });
+    }
+  );
+});

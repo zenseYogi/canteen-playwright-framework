@@ -581,6 +581,22 @@ export class CoffeeServiceScreen extends BaseScreen {
     await this.openPhotoTrigger(this.beforePhotos);
   }
 
+  // Excel TC274/TC277/TC278 (Coffee "After Photo") - live-verified
+  // 2026-07-29 (build 0.1.76, Route 10/TODAY, "Amazon Corporate"/"3rd
+  // Floor" stop): the checklist's own "After Photos\nDocument Completed
+  // Services" tile opens the exact same shared "Add supporting photo" /
+  // Skip photo reason-sheet component already proven for Before Photos -
+  // same BaseScreen methods (openPhotoTrigger/isPhotoModalVisible/
+  // openSkipPhotoReasonSheet/isSkipPhotoSubmitEnabled/enterSkipPhotoReason/
+  // waitForSkipPhotoSubmitEnabled/confirmSkipPhoto) apply unchanged, just
+  // against this different trigger tile.
+  private readonly afterPhotos = '//android.view.View[starts-with(@content-desc,"After Photos")]';
+
+  /** Opens the After Photos step's "Add supporting photo" modal - see openBeforePhotos's own note on the shared skip-photo flow beyond this. */
+  async openAfterPhotos(): Promise<void> {
+    await this.openPhotoTrigger(this.afterPhotos);
+  }
+
   /** Excel TC001/TC002/TC003 "view the delivery header" - assumes the service stop's checklist screen is already open. */
   async isServiceStopLocationHeaderVisible(): Promise<boolean> {
     return this.isVisible(this.serviceStopLocationHeader);
