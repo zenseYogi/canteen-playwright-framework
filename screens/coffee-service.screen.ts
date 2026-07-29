@@ -289,6 +289,267 @@ export class CoffeeServiceScreen extends BaseScreen {
     return this.isVisible(this.presalesContinueButton);
   }
 
+  // Excel TC206/TC207/TC209/TC210-TC212/TC215-TC217 (Coffee "Delivery") -
+  // live-verified 2026-07-29 (build 0.1.76, Route 10/TODAY, "Amazon
+  // Corporate"/"3rd Floor" stop). Reached from the checklist's own
+  // "Delivery\nRestock products" tile (BaseScreen.deliveryTrigger) - opens
+  // a "Deliveries" screen whose empty state ("No Deliveries Requested.")
+  // ALREADY shows the header's own Add (+)/Sort icons and its own Search
+  // product field - unlike Equipment audit's empty state, which hides
+  // Search until data exists.
+  //
+  // Adding a product (via the header + icon -> "Search product" sheet,
+  // same shared component as Coffee Presales order) creates a row with an
+  // "Ordered" value (always "-"/blank for this ad-hoc-added stop, since
+  // there was never a real requested order) and an editable "Delivered"
+  // numeric-keypad field (default 1) - Excel's own TC215/TC211 call this
+  // column "Ending Inventory", but the live build's own field/column label
+  // is "Delivered".
+  //
+  // Tapping Continue ALWAYS surfaced a "Coffee Delivery! Some deliveries
+  // are not updated. You still want to continue?" (No/Yes) popup in this
+  // session, even after setting Delivered to a non-zero value - live-
+  // verified this is most likely tied to the "Ordered" column staying
+  // blank (an ad-hoc product was never actually "requested"), not
+  // specifically a zero-value Delivered check as Excel's TC211 wording
+  // implies - the exact zero-value trigger condition couldn't be isolated
+  // without a stop that has real seeded Ordered-quantity data. The popup's
+  // own No/Yes behavior (TC212/TC213) was verified as described regardless.
+  //
+  // "Yes" lands on "Signing Order": an Order # chip, "Ordered Items"/
+  // "Items Delivered" fields, a "Delivery summary" table (Product/Ordered/
+  // Delivered columns - TC215's 3-column shape, different labels), a "Cost
+  // summary" table, and a dashed "Sign Off\nCustomer signature here"
+  // trigger. Tapping that trigger opens a dedicated signature-capture
+  // screen showing "Default Email" (a plain, non-editable View - TC218's
+  // "not editable" claim confirmed structurally: it's not even an
+  // EditText) and "Invoice Email" (a real EditText, optional) beneath the
+  // signature pad, with "Sign off" disabled until the pad is tapped
+  // (same double-tap pattern as performDelivery() above).
+  //
+  // NOT independently asserted (documented instead):
+  // - TC219-TC225 (delivery service fee display/consistency/backend sync)
+  //   - live-verified NOT PRESENT anywhere in this flow (no "fee" text at
+  //     all on the Signing Order screen's own Cost summary) - matches the
+  //     Excel's own "Not Tested" Result for all of these rows, suggesting
+  //     this is an unimplemented/not-yet-seeded feature rather than a
+  //     missed assertion.
+  private readonly deliveriesTitle = '~Deliveries';
+  private readonly deliveriesEmptyStateHeading = '~No Deliveries Requested.';
+  private readonly sortByTrigger = '~section_header_sort_cta';
+  private readonly sortBySheetTitle = '~Sort by';
+  private readonly clearSortOrderButton = '~Clear sort order';
+  private sortOption(label: string): string {
+    return `~${label}`;
+  }
+  // True XML sibling of the "Deliveries" title - see this class's own
+  // "Add Pre-sales order" note above for why a structural anchor, not a
+  // hint/content-desc match, is used: this EditText exposes neither.
+  private readonly deliveriesSearchField =
+    '//android.view.View[@content-desc="Deliveries"]/following-sibling::android.widget.EditText[1]';
+  private deliveryProductRow(name: string): string {
+    return `//android.view.View[starts-with(@content-desc,"${name}")]`;
+  }
+  // Not the bare/first EditText - that always resolves to the Deliveries
+  // screen's own top search field (document order puts it first). Once a
+  // product is added, its own Delivered field is a LATER EditText in the
+  // tree - last() targets whichever product was most recently added,
+  // which is exactly what a single-product test flow needs.
+  private readonly deliveredQtyField = '(//android.widget.EditText)[last()]';
+  private readonly deliveryConfirmDialog =
+    '//android.view.View[starts-with(@content-desc,"Coffee Delivery!")]';
+  private readonly orderNumberChip = '//android.view.View[starts-with(@content-desc,"Order #")]';
+  private readonly deliverySummaryTable = '~Delivery summary';
+  private readonly costSummaryTable = '~Cost summary';
+  private readonly signOffTrigger = '~Sign Off\nCustomer signature here';
+  private readonly signatureCapturePad =
+    '//android.view.View[@content-desc="Customer signature here:"]/following-sibling::android.view.View[1]';
+  // The non-editable Default Email is a plain View (no content-desc/hint
+  // of its own) - the following-sibling anchor off the signature label is
+  // the only way found to target it; Invoice Email is the one real
+  // EditText on this screen.
+  private readonly defaultEmailField =
+    '//android.view.View[@content-desc="Customer signature here:"]/following-sibling::android.view.View[2]';
+  private readonly invoiceEmailField = '//android.widget.EditText';
+
+  /** Excel TC206 (via checklist) - opens the Deliveries screen from the checklist's own Delivery tile. */
+  async openDelivery(): Promise<void> {
+    await this.tap(this.deliveryTrigger);
+    await this.waitFor(this.deliveriesTitle);
+  }
+
+  async isDeliveriesEmptyStateVisible(): Promise<boolean> {
+    return this.isVisible(this.deliveriesEmptyStateHeading);
+  }
+
+  /** Excel TC206 - opens the "Search product" sheet from the header's own + icon. */
+  async openAddDeliveryProduct(): Promise<void> {
+    await this.tap(this.addProductButton);
+    await this.waitFor('~Search product');
+  }
+
+  // Scoped as a sibling of the sheet's own title - same rationale as
+  // CoffeeServiceScreen's Presales searchProductField above.
+  private readonly deliveryAddProductSearchField =
+    '//android.view.View[@content-desc="Search product"]/following-sibling::android.widget.EditText[1]';
+
+  async searchDeliveryProductOption(term: string): Promise<void> {
+    const field = await this.driver.$(this.deliveryAddProductSearchField);
+    await field.click();
+    await field.setValue(term);
+  }
+
+  async selectDeliveryProductOption(term: string): Promise<void> {
+    await this.tap(`//android.view.View[contains(@content-desc,"${term}")]`);
+  }
+
+  /** Excel TC207 - opens the "Sort by" sheet from the header's own sort icon. */
+  async openSortBySheet(): Promise<void> {
+    await this.tap(this.sortByTrigger);
+    await this.waitFor(this.sortBySheetTitle);
+  }
+
+  async isSortBySheetVisible(): Promise<boolean> {
+    return this.isVisible(this.sortBySheetTitle);
+  }
+
+  /** Dismisses the "Sort by" sheet without selecting anything, via its own backdrop - it has no Cancel button (only "Clear sort order" at the bottom, unrelated to dismissal). */
+  async dismissSortBySheet(): Promise<void> {
+    await this.tap('~Scrim');
+  }
+
+  /** Excel TC208 - selects a sort option by its exact label (A to Z/Z to A/Newest First/Oldest First). */
+  async selectSortOption(label: string): Promise<void> {
+    await this.tap(this.sortOption(label));
+  }
+
+  async isClearSortOrderEnabled(): Promise<boolean> {
+    return this.isEnabled(this.clearSortOrderButton);
+  }
+
+  /** Excel TC209 - types into the Deliveries screen's own Search product field, filtering the already-added list. */
+  async searchDeliveriesList(term: string): Promise<void> {
+    const field = await this.driver.$(this.deliveriesSearchField);
+    await field.click();
+    await field.setValue(term);
+  }
+
+  // A row's own content-desc is "{Name} (Pkg: N)\nOrdered\n{value}" - it
+  // never includes the word "Delivered" (that's a separate sibling
+  // EditText, not part of this string) - "Pkg:" is the reliable per-row
+  // substring instead.
+  async getVisibleDeliveryProductCount(): Promise<number> {
+    const rows = await this.driver.$$('//android.view.View[contains(@content-desc,"Pkg:")]');
+    return rows.length;
+  }
+
+  async isDeliveryProductVisible(name: string): Promise<boolean> {
+    return this.isVisible(this.deliveryProductRow(name));
+  }
+
+  /** Excel TC211 - sets a product's own Delivered quantity via its numeric-keypad field (see deliveredQtyField's own note on targeting it). */
+  async setDeliveredQuantity(value: string): Promise<void> {
+    const field = await this.driver.$(this.deliveredQtyField);
+    await field.click();
+    await field.setValue(value);
+  }
+
+  async isDeliveryContinueEnabled(): Promise<boolean> {
+    return this.isEnabled(this.continueButton);
+  }
+
+  async tapDeliveryContinue(): Promise<void> {
+    await this.tap(this.continueButton);
+  }
+
+  async isDeliveryConfirmDialogVisible(): Promise<boolean> {
+    return this.isVisible(this.deliveryConfirmDialog);
+  }
+
+  /** Excel TC212 - dismisses the confirm dialog via No, remaining on Deliveries. */
+  async dismissDeliveryConfirmDialog(): Promise<void> {
+    await this.tap(this.noButton);
+  }
+
+  /** Excel TC213 - confirms the dialog via Yes, navigating to Signing Order. */
+  async confirmDeliveryConfirmDialog(): Promise<void> {
+    await this.tap(this.yesButton);
+    await this.waitFor(this.signingOrderTitle);
+  }
+
+  async isOrderNumberChipVisible(): Promise<boolean> {
+    return this.isVisible(this.orderNumberChip);
+  }
+
+  /**
+   * Excel TC215 - confirms a given product's own row is present under the
+   * Delivery summary table. Live-verified the table's row is just the bare
+   * product name as its own content-desc ("AllCoffee CafeRealExpoCuban
+   * 2lb") - the Ordered/Delivered VALUES render as separate sibling
+   * elements (their own content-desc is just the value, e.g. "-"/"1"),
+   * not combined into one row string - too structurally fragile to read
+   * reliably as a single value here, so this only confirms the row's own
+   * name is present; isDeliverySummaryVisible()/isCostSummaryVisible()
+   * cover the table headers.
+   */
+  async isDeliverySummaryRowVisible(productName: string): Promise<boolean> {
+    return this.isVisible(this.deliveryProductRow(productName));
+  }
+
+  async isDeliverySummaryVisible(): Promise<boolean> {
+    return this.isVisible(this.deliverySummaryTable);
+  }
+
+  async isCostSummaryVisible(): Promise<boolean> {
+    return this.isVisible(this.costSummaryTable);
+  }
+
+  /** Excel TC216 - opens the dedicated signature-capture screen from the Signing Order summary's own trigger. */
+  async openSignOff(): Promise<void> {
+    await this.tap(this.signOffTrigger);
+    await this.waitFor('~Customer signature here:');
+  }
+
+  async isSignOffEnabled(): Promise<boolean> {
+    return this.isEnabled(this.signOffButton);
+  }
+
+  /** Draws a signature by double-tapping the pad - same pattern as performDelivery() above. */
+  async drawSignature(): Promise<void> {
+    await this.tap(this.signatureCapturePad);
+    await this.tap(this.signatureCapturePad);
+  }
+
+  /**
+   * Excel TC218 - "Default Email is not editable". Confirmed structurally
+   * rather than via a disabled-EditText check: this field is a plain
+   * android.view.View by construction (see defaultEmailField's own note) -
+   * Invoice Email is the ONLY true EditText on this screen, so simply
+   * being present at its expected position already demonstrates it isn't
+   * a real input.
+   */
+  async isDefaultEmailFieldVisible(): Promise<boolean> {
+    return this.isVisible(this.defaultEmailField);
+  }
+
+  async enterInvoiceEmail(email: string): Promise<void> {
+    const field = await this.driver.$(this.invoiceEmailField);
+    await field.click();
+    await field.setValue(email);
+  }
+
+  /**
+   * Submits the signature-capture screen, returning to the Signing Order
+   * summary screen. Waits for the Delivery summary table specifically, not
+   * just the "Signing Order" title - live-verified BOTH the summary screen
+   * and this signature sub-screen share that exact same title, so it alone
+   * can't distinguish having actually navigated back.
+   */
+  async submitSignOff(): Promise<void> {
+    await this.tap(this.signOffButton);
+    await this.waitFor(this.deliverySummaryTable);
+  }
+
   async clickServiceLocation(position: Position): Promise<void> {
     await this.selectServiceLocation(this.coffeeLob, position);
   }

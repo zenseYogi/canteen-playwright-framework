@@ -17,6 +17,7 @@ export class BaseScreen {
   protected readonly saveButton = '~Save';
   protected readonly deleteButton = '~Delete';
   protected readonly yesButton = '~Yes';
+  protected readonly noButton = '~No';
   protected readonly addProductButton = '~section_header_add_cta';
   protected readonly takePhotoButton = '~Take photo';
   protected readonly attachPhotoButton = '~Attach Photo';

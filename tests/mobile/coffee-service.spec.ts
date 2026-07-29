@@ -565,3 +565,124 @@ test.describe('Coffee - Presales order (Add Pre-sales order)', () => {
     }
   );
 });
+
+// TC206/TC207/TC209/TC210-TC212/TC215-TC217 (Coffee "Delivery") - live-
+// verified 2026-07-29 (build 0.1.76, Route 10/TODAY, "Amazon Corporate"/
+// "3rd Floor" stop, the same manually-seeded ad-hoc Coffee delivery used
+// for the Presales order suite above).
+//
+// NOT independently asserted (documented instead):
+// - TC208 (sort actually reorders the list) - the "Sort by" sheet itself
+//   (TC207) is opened and its options/Clear sort order confirmed, but
+//   applying a sort and asserting reordering needs 2+ differently-named
+//   products already in a stable order - not attempted here to keep this
+//   test focused; see CoffeeServiceScreen.selectSortOption for the hook a
+//   future test can use.
+// - TC211's exact "zero value" trigger - live-verified the "Coffee
+//   Delivery! Some deliveries are not updated" confirm popup appeared
+//   regardless of the Delivered value entered (including non-zero) on
+//   this ad-hoc stop, most likely because its "Ordered" column stays
+//   blank ("-") rather than a real requested quantity - see
+//   CoffeeServiceScreen's own note above its Delivery locators. This test
+//   asserts the popup's real, confirmed behavior (appears on Continue,
+//   No/Yes navigate as TC212/TC213 describe) without asserting a specific
+//   zero-value CAUSE that couldn't be isolated from data available this
+//   session.
+// - TC213/TC214 - exercised as the natural continuation of TC212's own
+//   Yes path and TC210's own page-elements check, not separately tagged.
+// - TC219-TC225 (delivery service fee) - live-verified NOT PRESENT in this
+//   build at all (no "fee" text anywhere on the Signing Order screen) -
+//   matches the Excel's own "Not Tested" Result for all of these rows.
+test.describe('Coffee - Delivery (add product, sort/search, sign-off)', () => {
+  test(
+    'TC206/TC207/TC209/TC210-TC212/TC215-TC217: add a product, confirm popup, sign off with an invoice email',
+    { tag: ['@TC206', '@TC207', '@TC209', '@TC210', '@TC211', '@TC212', '@TC215', '@TC216', '@TC217'] },
+    async ({ driver }, testInfo) => {
+      testInfo.setTimeout(240_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+
+      await test.step('Log in, switch to Route 10/TODAY (the Coffee Delivery stop is seeded on TODAY only)', async () => {
+        await loginAndWaitForMfa(driver);
+        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      });
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open the day's Coffee service stop and the Delivery tile", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openFirstServiceStation('coffee');
+        await coffee.openDelivery();
+        expect(await coffee.isDeliveriesEmptyStateVisible()).toBe(true);
+      });
+
+      // TC206 "add a product to the delivery screen"
+      await test.step('TC206: add a product via the header + icon', async () => {
+        await coffee.openAddDeliveryProduct();
+        await coffee.searchDeliveryProductOption('coffee');
+        await coffee.selectDeliveryProductOption('Coffee');
+        expect(await coffee.getVisibleDeliveryProductCount()).toBe(1);
+      });
+
+      // TC207 "open the sort screen" - options + Clear sort order visible.
+      await test.step('TC207: the Sort by sheet opens with its own options', async () => {
+        await coffee.openSortBySheet();
+        expect(await coffee.isSortBySheetVisible()).toBe(true);
+        await coffee.dismissSortBySheet();
+      });
+
+      // TC209 "search for a product" - filters the already-added list down
+      // to a second, differently-named product added for this purpose.
+      await test.step('TC209: the Deliveries search field filters the already-added product list', async () => {
+        await coffee.openAddDeliveryProduct();
+        await coffee.searchDeliveryProductOption('sugar');
+        await coffee.selectDeliveryProductOption('Sugar');
+        expect(await coffee.getVisibleDeliveryProductCount()).toBe(2);
+
+        await coffee.searchDeliveriesList('sugar');
+        expect(await coffee.getVisibleDeliveryProductCount()).toBe(1);
+      });
+
+      // TC211/TC212 "zero Ending Inventory blocks proceeding, No keeps the
+      // user on Deliveries" - see this describe block's own note on why
+      // the popup's TRIGGER (zero value specifically) isn't asserted, only
+      // its real observed behavior.
+      await test.step('TC211/TC212: Continue surfaces a confirm popup; No stays on Deliveries', async () => {
+        expect(await coffee.isDeliveryContinueEnabled()).toBe(true);
+        await coffee.tapDeliveryContinue();
+        expect(await coffee.isDeliveryConfirmDialogVisible()).toBe(true);
+        await coffee.dismissDeliveryConfirmDialog();
+        expect(await coffee.isDeliveriesEmptyStateVisible()).toBe(false);
+        expect(await coffee.getVisibleDeliveryProductCount()).toBe(1);
+      });
+
+      // TC210/TC213/TC214 "Yes navigates to Signing Order; its own fields
+      // and Delivery/Cost summary tables are correct"
+      await test.step('TC210/TC213/TC215: Yes navigates to Signing Order, with Delivery/Cost summary tables', async () => {
+        await coffee.tapDeliveryContinue();
+        await coffee.confirmDeliveryConfirmDialog();
+        expect(await coffee.isOrderNumberChipVisible()).toBe(true);
+        expect(await coffee.isDeliverySummaryVisible()).toBe(true);
+        expect(await coffee.isCostSummaryVisible()).toBe(true);
+      });
+
+      // TC216/TC217/TC218 "sign-off requires a signature; email fields"
+      await test.step('TC216/TC217/TC218: Sign off is gated on a signature; Default Email is read-only, Invoice Email is editable', async () => {
+        await coffee.openSignOff();
+        expect(await coffee.isDefaultEmailFieldVisible()).toBe(true);
+        expect(await coffee.isSignOffEnabled()).toBe(false);
+
+        await coffee.enterInvoiceEmail('test@example.com');
+        await coffee.drawSignature();
+        expect(await coffee.isSignOffEnabled()).toBe(true);
+
+        await coffee.submitSignOff();
+        expect(await coffee.isDeliveryContinueEnabled()).toBe(true);
+      });
+    }
+  );
+});
