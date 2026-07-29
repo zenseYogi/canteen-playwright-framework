@@ -155,6 +155,143 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
     }
   );
 
+  // TC117/TC165/TC168-TC180 (Vending "delivery - Product delivery") -
+  // live-verified 2026-07-29 (build 0.1.76, Route 103/YESTERDAY, "Aaron's"
+  // stop, "61241 - Lg Snacks"/"3247550" machines). See VendingServiceScreen's
+  // own extensive note above its Product fills locators for every
+  // discrepancy found relative to the Excel (TC165/TC168/TC169/TC171/
+  // TC172/TC174/TC176/TC177/TC178) - not repeated here.
+  //
+  // MUST run before "TC004-TC015" below: that test's own
+  // completeBeforePhotosMoneyOpsAndFills() fully submits (Continue) this
+  // exact same "first" Vending machine's Product fills - live-verified
+  // that re-tapping Continue on an already-submitted Fill is a silent
+  // no-op (the screen never navigates away, even though every field still
+  // reads as valid) rather than an error, which made the failure look like
+  // a Continue-locator bug at first. Placing this test first guarantees
+  // Fills is still genuinely pending when TC178/TC179/TC180 tap Continue.
+  test(
+    'TC117/TC165/TC168-TC180: Product fills header actions, row summary, Delivery/Ending Inventory fields, keypad, Continue',
+    {
+      tag: [
+        '@Vending-TC117',
+        '@Vending-TC165',
+        '@Vending-TC168',
+        '@Vending-TC169',
+        '@Vending-TC170',
+        '@Vending-TC171',
+        '@Vending-TC172',
+        '@Vending-TC173',
+        '@Vending-TC174',
+        '@Vending-TC175',
+        '@Vending-TC176',
+        '@Vending-TC177',
+        '@Vending-TC178',
+        '@Vending-TC179',
+        '@Vending-TC180'
+      ]
+    },
+    async ({}, testInfo) => {
+      // fillAllProductDeliveryQuantities()'s scroll-and-fill loop can run
+      // to 40+ rounds on a "full service" machine with a large catalog -
+      // well beyond the 150s default budget (see this file's own
+      // TC004-TC015 test, which needs the same allowance).
+      testInfo.setTimeout(400_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const vending = new VendingServiceScreen(driver);
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open the first stop's first Vending machine's Product fills", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openNthServiceStation('vending', 'first');
+        await vending.openFills();
+      });
+
+      // TC165 "Filter, Sort, Add icons visible" - actual header has
+      // Filter/Sort/Planogram, no Add (documented discrepancy).
+      await test.step('TC165: header shows Sort/Filter/Planogram, not Add', async () => {
+        const actions = await vending.isFillsHeaderActionsVisible();
+        expect(actions.sort).toBe(true);
+        expect(actions.filter).toBe(true);
+        expect(actions.planogram).toBe(true);
+        expect(actions.add).toBe(false);
+      });
+
+      // TC117 "open Planogram from delivery".
+      await test.step('TC117: Planogram opens from the header icon', async () => {
+        await vending.openPlanogram();
+        expect(await vending.isPlanogramTitleVisible()).toBe(true);
+        await vending.pressKeyCode(4);
+        await vending.waitFor('~Product fills');
+      });
+
+      // TC168/TC169 "view package info / Par, Ordered, Picked values" -
+      // only a Par value is actually present (documented discrepancy).
+      await test.step('TC168/TC169: first row exposes a name and Par value', async () => {
+        const summary = await vending.getFillRowSummary('first');
+        expect(summary.name.length).toBeGreaterThan(0);
+        expect(summary.par).toBeGreaterThan(0);
+      });
+
+      // TC170 "Delivery field labeled 'Delivery', not 'DEL'".
+      await test.step("TC170: the Delivery field's label reads \"Delivery\"", async () => {
+        expect(await vending.getDeliveryFieldHint('first')).toBe('Delivery');
+      });
+
+      // TC173/TC175 "enter Ending Inventory, numeric keypad shown" /
+      // TC171/TC172 "default value clears then overwrites, not appends" -
+      // of the End (Ending Inventory) field, which starts pre-filled with
+      // the row's own Par value (see this file's own note above on why
+      // it's End, not Delivery, that carries this default).
+      await test.step('TC171/TC172/TC173/TC175: Ending Inventory field replaces its default on first entry', async () => {
+        const before = await vending.getEndFieldValue('first');
+        expect(before.length).toBeGreaterThan(0);
+        await vending.setEndFieldValue('first', '9');
+        expect(await vending.getEndFieldValue('first')).toBe('9');
+      });
+
+      // TC176 "unable to enter negative Ending Inventory" - the keypad's
+      // "-" key is a decrement stepper floored at 0, not a literal minus
+      // sign - repeated taps never go negative.
+      await test.step('TC176: repeated decrement taps floor Ending Inventory at 0, never negative', async () => {
+        await vending.tapEndFieldDecrement('first', 20);
+        expect(await vending.getEndFieldValue('first')).toBe('0');
+      });
+
+      // TC177 "Continue disabled due to empty Ending Inventory" - live:
+      // Continue stays enabled even with the field cleared to empty
+      // (documented discrepancy).
+      await test.step('TC177: Continue stays enabled even with Ending Inventory cleared to empty', async () => {
+        await vending.clearEndFieldValue('first');
+        expect(await vending.getEndFieldValue('first')).toBe('');
+        expect(await vending.isFillsContinueEnabled()).toBe(true);
+      });
+
+      // TC178/TC179/TC180 "Continue enabled with valid entries, proceeds,
+      // and the Fills tile can be re-opened from the checklist". Live-
+      // verified Continue's ENABLED state is purely cosmetic (see TC177's
+      // own note) - tapping it while any row's own Delivery field is still
+      // blank is a silent no-op that never actually leaves this screen,
+      // regardless of the End field. The real gate is every row's
+      // Delivery field being filled - reuses the already-proven
+      // fillAllProductDeliveryQuantities() scroll-and-fill loop rather
+      // than re-deriving that discovery here.
+      await test.step('TC178/TC179/TC180: restoring a valid value, filling every row\'s Delivery quantity, Continue proceeds back to the checklist, and Fills reopens', async () => {
+        await vending.setEndFieldValue('first', '24');
+        expect(await vending.isFillsContinueEnabled()).toBe(true);
+        await vending.fillAllProductDeliveryQuantities();
+        expect(await vending.isProductFillsTitleVisible()).toBe(false);
+        await vending.openFills();
+        expect(await vending.isProductFillsTitleVisible()).toBe(true);
+      });
+    }
+  );
+
   // TC004-TC015 (Vending "After Photos") - live-verified 2026-07-29 (build
   // 0.1.76, Route 103/YESTERDAY, "Aaron's" and "Admark Graphics" stops,
   // "11333 - Bottle Bev"/"97624 - Bottle Bev" machines).

@@ -1,5 +1,5 @@
 import { BaseScreen } from './base.screen';
-import type { Position } from '../utils/position';
+import { positionToIndex, type Position } from '../utils/position';
 
 /**
  * Vending LOB - servicing a delivery location. Ported from vending_keywords.robot,
@@ -389,5 +389,158 @@ export class VendingServiceScreen extends BaseScreen {
 
   async tapRemovalsDone(): Promise<void> {
     await this.tap(this.doneButton);
+  }
+
+  // Excel TC117/TC165/TC168-TC180 (Vending "delivery - Product delivery") -
+  // live-verified 2026-07-29 (build 0.1.76, Route 103/YESTERDAY, "Aaron's"
+  // stop, "61241 - Lg Snacks"/"3247550" machines). Each Product fills row
+  // renders as ONE content-desc string "{position}\n{Name}\nMore info\nPar
+  // \n{parValue}" followed by two EditTexts: hint="Delivery" (blank by
+  // default - the quantity being delivered) and hint="End" (Ending
+  // Inventory - defaults to the row's own Par value, e.g. 24).
+  //
+  // Key live-verified discrepancies from the Excel (documented, not
+  // asserted as bugs):
+  // - TC165 "Filter, Sort, Add icons" - this header has Filter, Sort, and
+  //   Planogram icons; there is NO Add icon on Vending's Product fills
+  //   screen (confirmed absent via a direct existence check), unlike
+  //   Market's equivalent screen which does have one.
+  // - TC168 "Pkg: 1" / TC169 "Par 15/Ordered 15/Picked 15" - the row's own
+  //   content-desc has no "Pkg:" segment at all, and only ONE quantity
+  //   value (Par) - there is no separate Ordered/Picked figure anywhere in
+  //   the row; the leading number is the row's on-screen position, not a
+  //   package count.
+  // - TC171/TC172 "default value clears automatically / overwrites, not
+  //   appends" - true, but of the End field (which has a real default of
+  //   Par), not the Delivery field (which starts genuinely blank) - tapping
+  //   an End field auto-selects its existing text, so the very FIRST digit
+  //   typed replaces it; every subsequent digit APPENDS (confirmed: typing
+  //   "5" then "5" again on a freshly-focused field produced "155", not
+  //   "5" replacing "15").
+  // - TC174/TC176 (alphabetic/negative Ending Inventory blocked) - this
+  //   field is driven by the SAME custom digit-only keypad family as
+  //   Removals & Returns (screenshotted: 0-9, a "-"/"+" pair, backspace,
+  //   confirm - no letter/decimal keys at all). Live-verified the "-"/"+"
+  //   keys are INCREMENT/DECREMENT steppers (one tap = ±1), floored at 0
+  //   (30 consecutive "-" taps from 24 left the field at 0, never
+  //   negative) and capped at 3 digits (mashing "9" against an existing
+  //   3-digit value left it unchanged) - the same floor/cap behavior
+  //   already documented for Removals & Returns' fields.
+  // - TC177 "Continue disabled due to empty Ending Inventory" - live-
+  //   verified FALSE: Continue stayed enabled even after clearing an End
+  //   field to a genuinely empty string - same "always enabled" pattern
+  //   already documented for Done/Save elsewhere in this app.
+  // - TC178 "Continue enabled...with green color" - live-verified Continue
+  //   is enabled by DEFAULT on a completely untouched, freshly-opened
+  //   machine (every row's End field already defaults to a valid Par
+  //   value) - "enter valid data in all visible rows" isn't actually
+  //   required to reach this state. IMPORTANT: this enabled/disabled state
+  //   is purely cosmetic - live-verified tapping Continue while ANY row's
+  //   own Delivery field is still blank is a silent no-op (no toast, no
+  //   error, the screen just never navigates away), regardless of the End
+  //   field's value. Every row's Delivery must be filled - see
+  //   fillAllProductDeliveryQuantities - for Continue to actually submit
+  //   and leave this screen.
+  // - TC173/TC175 (enter Ending Inventory / numeric keypad shown) - both
+  //   confirmed true as-is.
+  private readonly planogramTitle = '~Planogram';
+  private readonly fillProductRow = '//android.view.View[contains(@content-desc,"More info")]';
+
+  private fillProductRowAt(position: Position): string {
+    return `(${this.fillProductRow})[${positionToIndex(position) + 1}]`;
+  }
+
+  private fillDeliveryFieldAt(position: Position): string {
+    return `(//android.widget.EditText)[${positionToIndex(position) * 2 + 1}]`;
+  }
+
+  private fillEndFieldAt(position: Position): string {
+    return `(//android.widget.EditText)[${positionToIndex(position) * 2 + 2}]`;
+  }
+
+  /** Excel TC165 - this header's own Sort/Filter/Planogram icons; there is no Add icon here (see this class's own note above). */
+  async isFillsHeaderActionsVisible(): Promise<{ sort: boolean; filter: boolean; planogram: boolean; add: boolean }> {
+    return {
+      sort: await this.isVisible(this.sortCta),
+      filter: await this.isVisible(this.filterCta),
+      planogram: await this.isVisible(this.planogramCta),
+      add: await (await this.driver.$(this.addProductButton)).isExisting()
+    };
+  }
+
+  /** Excel TC168/TC169 - a row's own name and Par value, parsed from its content-desc (see this class's own note on why there's no separate Pkg/Ordered/Picked figure here). */
+  async getFillRowSummary(position: Position = 'first'): Promise<{ name: string; par: number }> {
+    const row = await this.driver.$(this.fillProductRowAt(position));
+    const desc = (await row.getAttribute('content-desc')) ?? '';
+    const parts = desc.split('\n');
+    return { name: parts[1] ?? '', par: Number(parts[4]) };
+  }
+
+  /** Excel TC170 - the Delivery field's own accessible label, live-verified as the hint attribute rather than a separate text element. */
+  async getDeliveryFieldHint(position: Position = 'first'): Promise<string> {
+    const field = await this.driver.$(this.fillDeliveryFieldAt(position));
+    return (await field.getAttribute('hint')) ?? '';
+  }
+
+  async getEndFieldValue(position: Position = 'first'): Promise<string> {
+    const field = await this.driver.$(this.fillEndFieldAt(position));
+    return field.getText();
+  }
+
+  /**
+   * The custom numeric keypad's own confirm key (bottom-right checkmark) -
+   * live-verified it carries no content-desc/text of its own (unlike every
+   * digit/+/- key), so it's targeted positionally as the last Button on
+   * screen once the keypad is open. Tapping Continue while this keypad is
+   * still open does NOT commit the field or navigate away (live-verified:
+   * the tap is silently swallowed) - every keypad-driven field write here
+   * dismisses it afterward via this method rather than leaving that to the
+   * caller.
+   */
+  private async dismissNumericKeypad(): Promise<void> {
+    const confirmKey = await this.driver.$('(//android.widget.Button)[last()]');
+    if (await confirmKey.isExisting().catch(() => false)) {
+      await confirmKey.click();
+    }
+  }
+
+  /** Excel TC171/TC172 - clicking an End field selects its existing default value, so the first setValue() call replaces it; a second call on the same field appends instead (see this class's own note above). */
+  async setEndFieldValue(position: Position, value: string): Promise<void> {
+    const field = await this.driver.$(this.fillEndFieldAt(position));
+    await field.click();
+    await field.setValue(value);
+    await this.dismissNumericKeypad();
+  }
+
+  async clearEndFieldValue(position: Position): Promise<void> {
+    const field = await this.driver.$(this.fillEndFieldAt(position));
+    await field.click();
+    await field.clearValue();
+    await this.dismissNumericKeypad();
+  }
+
+  /** Excel TC176 - the keypad's own decrement stepper (see this class's own note on why it's a stepper, not a literal minus sign). Re-opens the keypad first, since a prior setEndFieldValue/clearEndFieldValue call already dismissed it. */
+  async tapEndFieldDecrement(position: Position, times = 1): Promise<void> {
+    const field = await this.driver.$(this.fillEndFieldAt(position));
+    await field.click();
+    const key = await this.driver.$('~-');
+    for (let i = 0; i < times; i++) {
+      await key.click();
+    }
+    await this.dismissNumericKeypad();
+  }
+
+  async isFillsContinueEnabled(): Promise<boolean> {
+    return this.isEnabled(this.continueButton);
+  }
+
+  /** Excel TC117 - opens Planogram from the Product fills header's own planogram icon. */
+  async openPlanogram(): Promise<void> {
+    await this.tap(this.planogramCta);
+    await this.waitFor(this.planogramTitle);
+  }
+
+  async isPlanogramTitleVisible(): Promise<boolean> {
+    return this.isVisible(this.planogramTitle);
   }
 }

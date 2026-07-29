@@ -91,6 +91,7 @@ export class DashboardScreen extends BaseScreen {
    * BaseScreen.selectServiceLocation's 1-based XPath predicate.
    */
   async clickLocationByPosition(position: Position): Promise<void> {
+    await this.waitFor(this.deliveryLocationList);
     const elements = await this.driver.$$(this.deliveryLocationList);
     const index = positionToIndex(position, 0);
     await elements[index].click();
