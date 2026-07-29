@@ -789,6 +789,18 @@ export class BaseScreen {
    * NOTE: the RF source appended a stray literal "zs" to the theft value
    * (`Input Text ... ${theft value}zs`) - almost certainly a paste-o, not
    * intentional test data. Not reproduced here.
+   *
+   * CORRECTED (live-verified 2026-07-29 via Vending's own Removals &
+   * Returns): the original type()-then-pressKeyCode(66) pattern does NOT
+   * reliably commit a value on this screen's own quantity fields - a live
+   * run using exactly that pattern surfaced the screen's "Quantity must be
+   * greater than zero" validation toast on Save, meaning the field was
+   * still seen as empty. These fields are driven by a custom keypad (same
+   * family as every other numeric-keypad field elsewhere in this app) that
+   * needs an explicit click() first to engage before setValue() - a bare
+   * setValue() with no prior click, followed by an Enter keycode, doesn't
+   * commit through the app's own controller. Enter is no longer needed at
+   * all once the field is properly clicked first.
    */
   async performRemovalsAndReturns(
     searchTerm: string,
@@ -797,16 +809,19 @@ export class BaseScreen {
     await this.tap(this.removalsAndReturns);
     await this.searchAndSelect(searchTerm);
     await this.waitFor(this.documentProductTitle);
-    await this.type(this.removalsSpoiledField, values.spoiled ?? '0');
-    await this.pressKeyCode(66);
-    await this.type(this.removalsDamagedField, values.damaged ?? '0');
-    await this.pressKeyCode(66);
-    await this.type(this.removalsTheftField, values.theft ?? '0');
-    await this.pressKeyCode(66);
-    await this.type(this.removalsTruckReturnsField, values.truckReturns ?? '0');
-    await this.pressKeyCode(66);
+    await this.fillRemovalsField(this.removalsSpoiledField, values.spoiled ?? '0');
+    await this.fillRemovalsField(this.removalsDamagedField, values.damaged ?? '0');
+    await this.fillRemovalsField(this.removalsTheftField, values.theft ?? '0');
+    await this.fillRemovalsField(this.removalsTruckReturnsField, values.truckReturns ?? '0');
     await this.tap(this.removalsSaveButton);
     await this.waitFor(this.removalsDoneButton);
     await this.tap(this.removalsDoneButton);
+  }
+
+  /** Clicks then sets a value on one of Removals & Returns' custom-keypad-driven quantity fields - see performRemovalsAndReturns's own note on why a bare setValue() isn't enough. */
+  protected async fillRemovalsField(selector: string, value: string): Promise<void> {
+    const field = await this.driver.$(selector);
+    await field.click();
+    await field.setValue(value);
   }
 }

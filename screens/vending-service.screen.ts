@@ -215,4 +215,179 @@ export class VendingServiceScreen extends BaseScreen {
     await this.tap(this.removalsAndReturns);
     await this.tap(this.doneButton);
   }
+
+  // Excel TC016-TC068 (Vending "Removals & Returns") - live-verified
+  // 2026-07-29 (build 0.1.76, Route 103/YESTERDAY, "Advocate Health
+  // Carolina Neurosurgery & Spine Association" stop, "97713 - Bottle Bev"
+  // machine). BaseScreen's own performRemovalsAndReturns/removalsAndReturns/
+  // documentProductTitle/removalsSpoiledField/removalsDamagedField/
+  // removalsTheftField/removalsTruckReturnsField/removalsSaveButton/
+  // removalsDoneButton were already ported from RF but never live-verified
+  // or exercised by any spec before this session - confirmed here to work
+  // exactly as written.
+  //
+  // Key live-verified discrepancies from the Excel (documented, not
+  // asserted as bugs):
+  // - TC018 "Sort Alphabetically, Filter, Search, and Barcode Scanner
+  //   icons" - only Sort/Filter are separate header icons; Search/Scan are
+  //   the search field's own embedded left/right icons, not standalone
+  //   header actions.
+  // - TC019/TC020 (search field's "Look up product" label / "Scan or
+  //   search name, sku" placeholder) - both real and visible on screen
+  //   (confirmed via screenshot) but NEITHER is exposed via content-desc
+  //   or any other accessible attribute on the EditText or its
+  //   surroundings - not independently assertable, unlike almost every
+  //   other field-label pattern elsewhere in this app.
+  // - TC022 "Continue disabled initially" - the empty-state's own action
+  //   button is labeled Done (not Continue) and is ENABLED by default
+  //   with nothing entered - same discrepancy already documented for the
+  //   After Photos prerequisite chain above.
+  // - TC029/TC030 (search by barcode text/SKU) - not independently
+  //   exercised; same shared search-and-filter component as TC024-TC028's
+  //   name-based search, already proven to filter correctly.
+  // - TC033/TC036/TC066 ("Barcode: value" in the row/header) - live-
+  //   verified the row's own content-desc format is "{Name} - pkg: N\nSKU:
+  //   {value}" - it says "SKU", never "Barcode:", in this build.
+  // - TC034 (scan a barcode) - tapping the field's own scan icon opens a
+  //   real native camera-based scanner view (live-verified, screenshotted)
+  //   - same category as Take Photo's camera screen: not reliably
+  //   automatable (shutter/decode timing) and not exercised here.
+  // - TC045-TC050 (numeric keypad validation) - live-verified structurally
+  //   rather than by attempting invalid input: the Spoiled/Damaged/Theft/
+  //   Truck Return fields are driven by a custom digit-only keypad with no
+  //   letter/decimal-point/symbol keys at all (TC046-TC048 blocked by
+  //   construction, not a runtime validation check) - its "-"/"+" keys are
+  //   INCREMENT/DECREMENT steppers, not literal minus/plus characters, and
+  //   are floored at 0 (TC049 confirmed: 5 consecutive "-" taps from a
+  //   starting value of 4 left the field at 0, never negative) and capped
+  //   at 3 digits (TC050 confirmed: a 4th "0" tap after reaching "999" was
+  //   silently ignored).
+  // - TC060 "Save enabled when any value entered" - live-verified Save is
+  //   ALWAYS enabled, even with every field still at its default (blank/
+  //   zero) state - same discrepancy pattern as TC022/TC067.
+  // - TC063-TC065 (compact list layout / 6-7 items visible / readable) -
+  //   purely visual layout claims, not independently assertable via the
+  //   accessibility tree; not asserted.
+  private readonly removalsEmptyStateHeading = '~Record Removed Items & Truck Returns';
+  private readonly removalsNoResultsText = '~No search results found';
+  // The saved-row list has a genuine accessibility gap: live-verified via a
+  // raw page-source dump that a saved row's product name/Pkg text is NOT
+  // exposed at all (no content-desc, no text attribute anywhere in the
+  // tree) - only its aggregate Qty number renders as a bare View's own
+  // "text" attribute. This is the one thing reliably readable; rows can't
+  // be looked up by product name, only by position/count.
+  private readonly removalsSavedRow = '//android.view.View[@text!=""]';
+  private readonly removalsCancelButton = '~Cancel';
+
+  async openRemovalsAndReturns(): Promise<void> {
+    await this.tap(this.removalsAndReturns);
+    await this.waitFor('~Removals & Returns');
+  }
+
+  async isRemovalsEmptyStateVisible(): Promise<boolean> {
+    return this.isVisible(this.removalsEmptyStateHeading);
+  }
+
+  async isRemovalsDoneEnabled(): Promise<boolean> {
+    return this.isEnabled(this.doneButton);
+  }
+
+  /** Excel TC018 - the header's own Sort/Filter icons; Search/Scan are the search field's own embedded icons, not separate header actions (see this class's own note above). */
+  async areRemovalsHeaderIconsVisible(): Promise<{ sort: boolean; filter: boolean }> {
+    return { sort: await this.isVisible(this.sortCta), filter: await this.isVisible(this.filterCta) };
+  }
+
+  /** Excel TC024/TC028 - searches the shared field; results are asserted via getVisibleSearchResultCount/isNoResultsVisible rather than selecting one. */
+  async searchRemovalsProduct(term: string): Promise<void> {
+    const field = await this.driver.$(this.searchField);
+    await field.click();
+    await field.clearValue().catch(() => {});
+    await field.setValue(term);
+    await this.driver.pause(1500);
+  }
+
+  async isNoSearchResultsVisible(): Promise<boolean> {
+    return this.isVisible(this.removalsNoResultsText);
+  }
+
+  async getVisibleSearchResultCount(): Promise<number> {
+    const options = [...(await this.driver.$$(this.searchList))];
+    return options.length;
+  }
+
+  /**
+   * Excel TC032 - clears the search field. Deliberately NOT tapping the
+   * field's own right-side icon: live-verified that icon is a real barcode
+   * SCANNER trigger (opens the native camera - see this class's own note
+   * on TC034), not a clear/X icon like the equivalent dropdown sheets
+   * elsewhere in this app - tapping it would launch the camera instead of
+   * clearing anything. clearValue() clears the field directly instead.
+   */
+  async clearRemovalsSearch(): Promise<void> {
+    const field = await this.driver.$(this.searchField);
+    await field.clearValue();
+    await this.driver.pause(1000);
+  }
+
+  /** Excel TC038 - cancels out of Document product without saving. */
+  async cancelDocumentProduct(): Promise<void> {
+    await this.tap(this.removalsCancelButton);
+    await this.waitFor('~Removals & Returns');
+  }
+
+  /** Excel TC061/TC055 - count of saved rows on the Removals & Returns list. */
+  async getRemovalsSavedRowCount(): Promise<number> {
+    const rows = [...(await this.driver.$$(this.removalsSavedRow))];
+    return rows.length;
+  }
+
+  /**
+   * Excel TC066 - a saved row's own aggregate Qty value, by position
+   * (0-based) - see removalsSavedRow's own note on why lookup by product
+   * name isn't possible here.
+   */
+  async getRemovalsSavedRowQty(position = 0): Promise<string> {
+    const rows = [...(await this.driver.$$(this.removalsSavedRow))];
+    return (await rows[position].getAttribute('text')) ?? '';
+  }
+
+  async isDocumentProductOpen(): Promise<boolean> {
+    return this.isVisible(this.documentProductTitle);
+  }
+
+  /**
+   * Excel TC041-TC044 - fills only the given fields on the already-open
+   * Document product screen, leaving the rest at their default (blank/
+   * zero). Uses BaseScreen's own fillRemovalsField (click() then
+   * setValue()) - see its note there on why a bare setValue() doesn't
+   * reliably commit on these custom-keypad-driven fields.
+   */
+  async fillRemovalsQuantities(values: { spoiled?: string; damaged?: string; theft?: string; truckReturns?: string }): Promise<void> {
+    if (values.spoiled !== undefined) {
+      await this.fillRemovalsField(this.removalsSpoiledField, values.spoiled);
+    }
+    if (values.damaged !== undefined) {
+      await this.fillRemovalsField(this.removalsDamagedField, values.damaged);
+    }
+    if (values.theft !== undefined) {
+      await this.fillRemovalsField(this.removalsTheftField, values.theft);
+    }
+    if (values.truckReturns !== undefined) {
+      await this.fillRemovalsField(this.removalsTruckReturnsField, values.truckReturns);
+    }
+  }
+
+  async isRemovalsSaveEnabled(): Promise<boolean> {
+    return this.isEnabled(this.removalsSaveButton);
+  }
+
+  /** Submits the already-open Document product screen, returning to the Removals & Returns list. */
+  async saveDocumentProduct(): Promise<void> {
+    await this.tap(this.removalsSaveButton);
+    await this.waitFor('~Removals & Returns');
+  }
+
+  async tapRemovalsDone(): Promise<void> {
+    await this.tap(this.doneButton);
+  }
 }

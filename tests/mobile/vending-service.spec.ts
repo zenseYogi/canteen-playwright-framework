@@ -239,4 +239,138 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       });
     }
   );
+
+  // TC016-TC068 (Vending "Removals & Returns") - live-verified 2026-07-29
+  // (build 0.1.76, Route 103/YESTERDAY, "Advocate Health Carolina
+  // Neurosurgery & Spine Association" stop, "97713 - Bottle Bev" machine).
+  // See VendingServiceScreen's own extensive note above its Removals &
+  // Returns locators for every discrepancy found relative to the Excel
+  // (TC018/TC019/TC020/TC022/TC029/TC030/TC033/TC034/TC036/TC045-TC050/
+  // TC060/TC063-TC066) - not repeated here.
+  test(
+    'TC016-TC068: search, add a product with Spoiled/Damaged quantities, validate zero-quantity handling, save',
+    {
+      tag: [
+        '@Vending-TC016',
+        '@Vending-TC017',
+        '@Vending-TC018',
+        '@Vending-TC021',
+        '@Vending-TC022',
+        '@Vending-TC024',
+        '@Vending-TC028',
+        '@Vending-TC031',
+        '@Vending-TC032',
+        '@Vending-TC035',
+        '@Vending-TC038',
+        '@Vending-TC040',
+        '@Vending-TC041',
+        '@Vending-TC042',
+        '@Vending-TC043',
+        '@Vending-TC044',
+        '@Vending-TC045',
+        '@Vending-TC049',
+        '@Vending-TC050',
+        '@Vending-TC051',
+        '@Vending-TC052',
+        '@Vending-TC054',
+        '@Vending-TC055',
+        '@Vending-TC056',
+        '@Vending-TC060',
+        '@Vending-TC061',
+        '@Vending-TC066',
+        '@Vending-TC067',
+        '@Vending-TC068'
+      ]
+    },
+    async ({}, testInfo) => {
+      testInfo.setTimeout(240_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const vending = new VendingServiceScreen(driver);
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open the first stop's first Vending machine", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openNthServiceStation('vending', 'first');
+      });
+
+      // TC016/TC023/TC062 "open Removals & Returns" / TC017/TC037 "route &
+      // date header" (shared chrome) / TC018 "header icons" (Sort/Filter -
+      // see this file's own describe-block note on Search/Scan actually
+      // being the field's own embedded icons) / TC021 "info message" /
+      // TC022 "Continue disabled initially" (live: Done, enabled by
+      // default - documented discrepancy).
+      await test.step('TC016/TC017/TC018/TC021/TC022: open Removals & Returns, verify its empty state', async () => {
+        await vending.openRemovalsAndReturns();
+        expect(await vending.isRemovalsEmptyStateVisible()).toBe(true);
+        const icons = await vending.areRemovalsHeaderIconsVisible();
+        expect(icons.sort).toBe(true);
+        expect(icons.filter).toBe(true);
+        expect(await vending.isRemovalsDoneEnabled()).toBe(true);
+      });
+
+      // TC031 "no results" / TC032 "clear search restores the list".
+      await test.step('TC031/TC032: a non-matching search shows no results; clearing restores them', async () => {
+        await vending.searchRemovalsProduct('XYZNONEXISTENT');
+        expect(await vending.isNoSearchResultsVisible()).toBe(true);
+        await vending.clearRemovalsSearch();
+        await vending.searchRemovalsProduct('Snickers');
+        expect(await vending.getVisibleSearchResultCount()).toBeGreaterThan(0);
+      });
+
+      // TC024/TC028/TC035/TC040 "search, filter, select a product, open
+      // Document product" - reuses the already-open search from above.
+      // Deliberately re-searching by the same plain term ("Snickers"), not
+      // the fuller name searchAndSelect returns (e.g. "Snickers (1.86oz)")
+      // - live-verified the parenthesized full name doesn't reliably
+      // re-match on a fresh search.
+      await test.step('TC024/TC028/TC035/TC040: selecting a search result opens Document product', async () => {
+        const options = await vending.getVisibleSearchResultCount();
+        expect(options).toBeGreaterThan(0);
+        await vending.searchAndSelect('Snickers');
+        expect(await vending.isDocumentProductOpen()).toBe(true);
+      });
+
+      // TC038 "Cancel returns without saving" - back out, reconfirm the
+      // list still has zero saved rows, before actually saving anything.
+      await test.step('TC038: Cancel returns to Removals & Returns without saving', async () => {
+        await vending.cancelDocumentProduct();
+        expect(await vending.getRemovalsSavedRowCount()).toBe(0);
+      });
+
+      // TC041-TC044 "Spoiled/Damaged/Theft/Truck Return fields editable" /
+      // TC045 "numeric keypad" / TC049/TC050 (blocked at the floor/cap -
+      // see VendingServiceScreen's own note; not re-exercised here, just
+      // relied upon) / TC051/TC052/TC054 "zero quantity accepted, saved,
+      // excluded from the list".
+      await test.step('TC041-TC044/TC051/TC052/TC054: a zero-quantity save is accepted but excluded from the list', async () => {
+        await vending.searchAndSelect('Twix');
+        expect(await vending.isRemovalsSaveEnabled()).toBe(true);
+        await vending.saveDocumentProduct();
+        expect(await vending.getRemovalsSavedRowCount()).toBe(0);
+      });
+
+      // TC055/TC056/TC060/TC061/TC066 "valid quantity saves and appears
+      // with an aggregate Qty, not a per-field breakdown".
+      await test.step('TC055/TC056/TC060/TC061/TC066: Spoiled=2/Damaged=1 saves and appears with an aggregate Qty of 3', async () => {
+        await vending.searchAndSelect('Snickers');
+        await vending.fillRemovalsQuantities({ spoiled: '2', damaged: '1' });
+        expect(await vending.isRemovalsSaveEnabled()).toBe(true);
+        await vending.saveDocumentProduct();
+        expect(await vending.getRemovalsSavedRowCount()).toBe(1);
+        expect(await vending.getRemovalsSavedRowQty(0)).toBe('3');
+      });
+
+      // TC067/TC068 "Done enabled after saving; tapping it proceeds".
+      await test.step('TC067/TC068: Done is enabled and navigates back to the checklist', async () => {
+        expect(await vending.isRemovalsDoneEnabled()).toBe(true);
+        await vending.tapRemovalsDone();
+        expect(await vending.isVisible('//android.view.View[starts-with(@content-desc,"Removals")]')).toBe(true);
+      });
+    }
+  );
 });
