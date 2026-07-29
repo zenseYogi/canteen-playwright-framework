@@ -194,11 +194,12 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
         expect(header.route).toBe(true);
       });
 
-      // TC007 "view header actions" - live-verified only Add equipment
-      // (section_header_add_cta) is present in this empty-state; no Search
-      // icon shows until equipment exists to search over.
-      await test.step('TC007: the Add equipment header action is visible', async () => {
+      // TC007 "view header actions" - live-verified only Back and Add
+      // equipment (section_header_add_cta) are present in this empty-state;
+      // no Search icon shows until equipment exists to search over.
+      await test.step('TC007: the Back and Add equipment header actions are visible', async () => {
         const actions = await coffee.isEquipmentAuditHeaderActionsVisible();
+        expect(actions.back).toBe(true);
         expect(actions.addEquipment).toBe(true);
       });
 

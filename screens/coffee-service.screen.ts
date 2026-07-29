@@ -617,9 +617,21 @@ export class CoffeeServiceScreen extends BaseScreen {
     return this.isVisible(this.equipmentAuditTitle);
   }
 
-  /** Excel TC007 - header actions; live-verified 2026-07-28: Search is NOT present in the empty-state (no equipment to search yet) - only Back and Add equipment (section_header_add_cta). */
-  async isEquipmentAuditHeaderActionsVisible(): Promise<{ addEquipment: boolean }> {
-    return { addEquipment: await this.isVisible(this.addProductButton) };
+  /**
+   * Excel TC007 - header actions; live-verified 2026-07-28: Search is NOT
+   * present in the empty-state (no equipment to search yet) - only Back
+   * and Add equipment (section_header_add_cta). Back itself is
+   * BaseScreen.backButton - live-verified 2026-07-29 against this exact
+   * screen (Equipment audit empty-state, Route 10/TODAY, "Amazon
+   * Fulfillment" stop): its own FRAGILE deep structural path resolves
+   * correctly here too, same generic app-shell chrome as every other
+   * screen.
+   */
+  async isEquipmentAuditHeaderActionsVisible(): Promise<{ back: boolean; addEquipment: boolean }> {
+    return {
+      back: await this.isVisible(this.backButton),
+      addEquipment: await this.isVisible(this.addProductButton)
+    };
   }
 
   /** Excel TC004's empty-state (this account's stop has zero equipment on file) - "Log equipment audit" heading + explanatory message + Add equipment/Done buttons. */
