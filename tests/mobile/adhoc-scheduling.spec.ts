@@ -33,7 +33,7 @@ import { mobileConfig } from '../../config/mobile.config';
 test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
   test(
     'TC027/TC019/TC052: navigate to the Ad-hoc delivery creation screen',
-    { tag: ['@TC027', '@TC019', '@TC052'] },
+    { tag: ['@StartOfDay-TC027', '@StartOfDay-TC019', '@StartOfDay-TC052'] },
     async ({ driver }) => {
       const home = new HomeScreen(driver);
       const adhoc = new AdhocDeliveryScreen(driver);
@@ -74,7 +74,7 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
 
   test(
     'TC029: dashboard shows the delivery list (not the empty state) when deliveries exist',
-    { tag: ['@TC029'] },
+    { tag: ['@StartOfDay-TC029'] },
     async ({ driver }) => {
       const home = new HomeScreen(driver);
 
@@ -93,7 +93,7 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
 
   test(
     'TC025: view the "No deliveries available" empty state',
-    { tag: ['@TC025'] },
+    { tag: ['@StartOfDay-TC025'] },
     async ({ driver }) => {
       const home = new HomeScreen(driver);
       const adhoc = new AdhocDeliveryScreen(driver);
@@ -118,7 +118,7 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
 
   test(
     'TC028: Ad-hoc scheduling is available across multiple zero-delivery days',
-    { tag: ['@TC028'] },
+    { tag: ['@StartOfDay-TC028'] },
     async ({ driver }) => {
       const home = new HomeScreen(driver);
 

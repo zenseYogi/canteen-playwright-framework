@@ -11,7 +11,7 @@ import { mobileConfig } from '../../config/mobile.config';
 test.describe('Prep Tasks / Start of Day', () => {
   test(
     'view all prep categories, then complete the full Start Day flow',
-    { tag: ['@TC071', '@TC072', '@TC079', '@TC168', '@TC184', '@TC203'] },
+    { tag: ['@StartOfDay-TC071', '@StartOfDay-TC072', '@StartOfDay-TC079', '@StartOfDay-TC168', '@StartOfDay-TC184', '@StartOfDay-TC203'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
 
@@ -51,7 +51,7 @@ test.describe('Prep Tasks / Start of Day', () => {
 
   test(
     'skip a prep task via the back-press popup',
-    { tag: ['@TC198', '@TC199'] },
+    { tag: ['@StartOfDay-TC198', '@StartOfDay-TC199'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
 
@@ -84,7 +84,7 @@ test.describe('Prep Tasks / Start of Day', () => {
   // Miami/010 needs BA data prep - consistent with adhoc-scheduling.spec.ts.
   test(
     'view the Add product (+) icon, open Add product, and add a product with a quantity',
-    { tag: ['@TC075', '@TC080', '@TC110'] },
+    { tag: ['@StartOfDay-TC075', '@StartOfDay-TC080', '@StartOfDay-TC110'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
 
@@ -128,7 +128,7 @@ test.describe('Prep Tasks / Start of Day', () => {
   // live to have a fresh, not-yet-completed Start Day this day).
   test(
     'TC169: view the date and route in the Money operations header',
-    { tag: ['@TC169'] },
+    { tag: ['@StartOfDay-TC169'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
 
@@ -168,7 +168,7 @@ test.describe('Prep Tasks / Start of Day', () => {
   // Product Collection TC077/TC173 note earlier in this file.
   test(
     'TC171/TC179-TC183: Money operations checklist items and the back-arrow Skip/Complete confirmation',
-    { tag: ['@TC171', '@TC179', '@TC180', '@TC181', '@TC182', '@TC183'] },
+    { tag: ['@StartOfDay-TC171', '@StartOfDay-TC179', '@StartOfDay-TC180', '@StartOfDay-TC181', '@StartOfDay-TC182', '@StartOfDay-TC183'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
 

@@ -30,7 +30,7 @@ import { mobileConfig } from '../../config/mobile.config';
 test.describe('Coffee - Before Photos / Skip photo', () => {
   test(
     'Skip photo flow: reason sheet appears, validates non-blank input, and submits without saving a photo',
-    { tag: ['@TC134', '@TC136', '@TC137', '@TC138'] },
+    { tag: ['@Coffee-TC134', '@Coffee-TC136', '@Coffee-TC137', '@Coffee-TC138'] },
     async ({ driver }, testInfo) => {
       // This walks a full Start Day + LOB navigation + multi-step skip-photo
       // flow in one session - noticeably more real-device round trips than
@@ -128,26 +128,26 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
     'TC001-TC017/TC030/TC033-TC035: header, equipment audit empty-state, Add Equipment, verify, and mark-missing',
     {
       tag: [
-        '@TC001',
-        '@TC002',
-        '@TC003',
-        '@TC004',
-        '@TC005',
-        '@TC006',
-        '@TC007',
-        '@TC008',
-        '@TC009',
-        '@TC010',
-        '@TC011',
-        '@TC012',
-        '@TC014',
-        '@TC015',
-        '@TC016',
-        '@TC017',
-        '@TC030',
-        '@TC033',
-        '@TC034',
-        '@TC035'
+        '@Coffee-TC001',
+        '@Coffee-TC002',
+        '@Coffee-TC003',
+        '@Coffee-TC004',
+        '@Coffee-TC005',
+        '@Coffee-TC006',
+        '@Coffee-TC007',
+        '@Coffee-TC008',
+        '@Coffee-TC009',
+        '@Coffee-TC010',
+        '@Coffee-TC011',
+        '@Coffee-TC012',
+        '@Coffee-TC014',
+        '@Coffee-TC015',
+        '@Coffee-TC016',
+        '@Coffee-TC017',
+        '@Coffee-TC030',
+        '@Coffee-TC033',
+        '@Coffee-TC034',
+        '@Coffee-TC035'
       ]
     },
     async ({ driver }, testInfo) => {
@@ -364,7 +364,7 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
   //   already-documented visual-only state elsewhere in this suite).
   test(
     'TC043/TC046/TC054/TC065/TC085/TC089: Account/Manufacturer/Model search-clear and Barcode entry',
-    { tag: ['@TC043', '@TC046', '@TC054', '@TC065', '@TC085', '@TC089'] },
+    { tag: ['@Coffee-TC043', '@Coffee-TC046', '@Coffee-TC054', '@Coffee-TC065', '@Coffee-TC085', '@Coffee-TC089'] },
     async ({ driver }, testInfo) => {
       testInfo.setTimeout(240_000);
       const prepTasks = new PrepTasksScreen(driver);
@@ -470,7 +470,7 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
 test.describe('Coffee - Presales order (Add Pre-sales order)', () => {
   test(
     'TC147/TC149/TC167: open Add Pre-sales order, enforce the delivery-date upper limit, save an order',
-    { tag: ['@TC147', '@TC149', '@TC167'] },
+    { tag: ['@Coffee-TC147', '@Coffee-TC149', '@Coffee-TC167'] },
     async ({ driver }, testInfo) => {
       testInfo.setTimeout(240_000);
       const prepTasks = new PrepTasksScreen(driver);
@@ -597,7 +597,7 @@ test.describe('Coffee - Presales order (Add Pre-sales order)', () => {
 test.describe('Coffee - Delivery (add product, sort/search, sign-off)', () => {
   test(
     'TC206/TC207/TC209/TC210-TC212/TC215-TC217: add a product, confirm popup, sign off with an invoice email',
-    { tag: ['@TC206', '@TC207', '@TC209', '@TC210', '@TC211', '@TC212', '@TC215', '@TC216', '@TC217'] },
+    { tag: ['@Coffee-TC206', '@Coffee-TC207', '@Coffee-TC209', '@Coffee-TC210', '@Coffee-TC211', '@Coffee-TC212', '@Coffee-TC215', '@Coffee-TC216', '@Coffee-TC217'] },
     async ({ driver }, testInfo) => {
       testInfo.setTimeout(240_000);
       const prepTasks = new PrepTasksScreen(driver);
@@ -699,7 +699,7 @@ test.describe('Coffee - Delivery (add product, sort/search, sign-off)', () => {
 test.describe('Coffee - After Photos / Skip photo', () => {
   test(
     'Skip photo flow: reason sheet appears, accepts a reason, and submits without saving a photo',
-    { tag: ['@TC274', '@TC277', '@TC278'] },
+    { tag: ['@Coffee-TC274', '@Coffee-TC277', '@Coffee-TC278'] },
     async ({ driver }, testInfo) => {
       testInfo.setTimeout(240_000);
       const prepTasks = new PrepTasksScreen(driver);

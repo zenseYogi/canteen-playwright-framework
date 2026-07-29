@@ -62,7 +62,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
 
   test(
     'reach Product fills and verify the Add Product entry screen',
-    { tag: ['@TC147', '@TC149', '@TC153'] },
+    { tag: ['@Market-TC147', '@Market-TC149', '@Market-TC153'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -113,7 +113,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // 'second' is always Market.
   test(
     'TC010: view the account location name as the delivery header',
-    { tag: ['@TC010'] },
+    { tag: ['@Market-TC010'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -168,7 +168,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // Jul 27, confirmed live to have real data.
   test(
     'TC015/TC021/TC022/TC025: Before Photos Skip-photo flow',
-    { tag: ['@TC015', '@TC021', '@TC022', '@TC025'] },
+    { tag: ['@Market-TC015', '@Market-TC021', '@Market-TC022', '@Market-TC025'] },
     async ({ driver }, testInfo) => {
       // Full Start Day + LOB navigation + multi-step skip-photo flow in one
       // session - same reasoning as coffee-service.spec.ts's own timeout bump.
@@ -258,24 +258,24 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
     'TC150-TC173/TC178-TC179: Add Product search, select, quantity entry, and submit',
     {
       tag: [
-        '@TC150',
-        '@TC151',
-        '@TC152',
-        '@TC154',
-        '@TC155',
-        '@TC156',
-        '@TC158',
-        '@TC159',
-        '@TC161',
-        '@TC162',
-        '@TC163',
-        '@TC164',
-        '@TC165',
-        '@TC167',
-        '@TC170',
-        '@TC173',
-        '@TC178',
-        '@TC179'
+        '@Market-TC150',
+        '@Market-TC151',
+        '@Market-TC152',
+        '@Market-TC154',
+        '@Market-TC155',
+        '@Market-TC156',
+        '@Market-TC158',
+        '@Market-TC159',
+        '@Market-TC161',
+        '@Market-TC162',
+        '@Market-TC163',
+        '@Market-TC164',
+        '@Market-TC165',
+        '@Market-TC167',
+        '@Market-TC170',
+        '@Market-TC173',
+        '@Market-TC178',
+        '@Market-TC179'
       ]
     },
     async ({ driver }, testInfo) => {
@@ -476,18 +476,18 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
     'TC180-TC182/TC186/TC188/TC189/TC192-TC194/TC197/TC202/TC207: Sort-by sheet contents, ascending/descending order, and Clear',
     {
       tag: [
-        '@TC180',
-        '@TC181',
-        '@TC182',
-        '@TC186',
-        '@TC188',
-        '@TC189',
-        '@TC192',
-        '@TC193',
-        '@TC194',
-        '@TC197',
-        '@TC202',
-        '@TC207'
+        '@Market-TC180',
+        '@Market-TC181',
+        '@Market-TC182',
+        '@Market-TC186',
+        '@Market-TC188',
+        '@Market-TC189',
+        '@Market-TC192',
+        '@Market-TC193',
+        '@Market-TC194',
+        '@Market-TC197',
+        '@Market-TC202',
+        '@Market-TC207'
       ]
     },
     async ({ driver }, testInfo) => {
@@ -586,7 +586,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   //   reachable this session ever showed a genuine multi-POS list, so this
   //   whole sub-area remains unverified pending an account/route that
   //   actually has one.
-  test('TC301/TC302: Market Transfers shows the only-one-market info popup', { tag: ['@TC301', '@TC302'] }, async ({ driver }) => {
+  test('TC301/TC302: Market Transfers shows the only-one-market info popup', { tag: ['@Market-TC301', '@Market-TC302'] }, async ({ driver }) => {
     const prepTasks = new PrepTasksScreen(driver);
     const dashboard = new DashboardScreen(driver);
     const market = new MarketServiceScreen(driver);

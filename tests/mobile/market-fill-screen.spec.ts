@@ -52,7 +52,7 @@ import { mobileConfig } from '../../config/mobile.config';
 test.describe('Market - Fill Screen (PBI 611013)', () => {
   test(
     'review Par/Ordered/Picked and enter Theft/Damaged/Returned/Spoiled/Delivered quantities',
-    { tag: ['@TC091', '@TC097', '@TC098', '@TC105'] },
+    { tag: ['@Market-TC091', '@Market-TC097', '@Market-TC098', '@Market-TC105'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -117,7 +117,7 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
 
   test(
     'Step 4: filter Product fills by category',
-    { tag: ['@TC115', '@TC132'] },
+    { tag: ['@Market-TC115', '@Market-TC132'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -163,7 +163,7 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
   // market-service.spec.ts's own notes on the same two issues.
   test(
     'TC092-TC096: Product fills header, row content, and header actions',
-    { tag: ['@TC092', '@TC093', '@TC094', '@TC095', '@TC096'] },
+    { tag: ['@Market-TC092', '@Market-TC093', '@Market-TC094', '@Market-TC095', '@Market-TC096'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -222,7 +222,7 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
   // verified 2026-07-28 via the Delivery field specifically.
   test(
     'TC099-TC104: quantity field overwrite behavior, custom numeric keypad, and negative-value handling',
-    { tag: ['@TC099', '@TC100', '@TC101', '@TC102', '@TC103', '@TC104'] },
+    { tag: ['@Market-TC099', '@Market-TC100', '@Market-TC101', '@Market-TC102', '@Market-TC103', '@Market-TC104'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -340,7 +340,7 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
   //   enabled" pattern documented repeatedly elsewhere in this suite).
   test(
     'TC109-TC114: quantity field validation and the Continue/Delivery-tile completion flow',
-    { tag: ['@TC111', '@TC113', '@TC114'] },
+    { tag: ['@Market-TC111', '@Market-TC113', '@Market-TC114'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -420,7 +420,7 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
   //   duplicates of an already-covered mechanism.
   test(
     'TC116-TC122: Product fills filter sheet contents, chip selection, and Apply/Clear behavior',
-    { tag: ['@TC116', '@TC118', '@TC119', '@TC120', '@TC121', '@TC122'] },
+    { tag: ['@Market-TC116', '@Market-TC118', '@Market-TC119', '@Market-TC120', '@Market-TC121', '@Market-TC122'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -559,7 +559,7 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
   //   screenshot-confirmed only, per TC114's own note.
   test(
     'TC132/TC133/TC136-TC138: filter icon active state, single-tag removal, and reselect/reapply after Clear',
-    { tag: ['@TC132', '@TC133', '@TC136', '@TC137', '@TC138'] },
+    { tag: ['@Market-TC132', '@Market-TC133', '@Market-TC136', '@Market-TC137', '@Market-TC138'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);

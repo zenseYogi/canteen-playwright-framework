@@ -73,7 +73,7 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
 
   test(
     'reach the first Vending machine and verify Product fills, Sort, and Filter',
-    { tag: ['@TC163', '@TC164', '@TC166', '@TC167', '@TC212', '@TC215', '@TC181', '@TC183', '@TC186'] },
+    { tag: ['@Vending-TC163', '@Vending-TC164', '@Vending-TC166', '@Vending-TC167', '@Vending-TC212', '@Vending-TC215', '@Vending-TC181', '@Vending-TC183', '@Vending-TC186'] },
     async () => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -124,7 +124,7 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
 
   test(
     'verify the Money Collection screen fields',
-    { tag: ['@TC244', '@TC246', '@TC248'] },
+    { tag: ['@Vending-TC244', '@Vending-TC246', '@Vending-TC248'] },
     async () => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);

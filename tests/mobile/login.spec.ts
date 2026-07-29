@@ -7,14 +7,17 @@ import { HomeScreen } from '../../screens/home.screen';
 test.describe('Login', () => {
   // Traceability note: the title's "TC001-TC002" refers to the pre-
   // optimization Master sheet's original numbering (Android/iOS login
-  // variants). The @TC001 tag below is the Optimized sheet's own TC001
-  // (Login/Login, "I am able to login to Nexus application on Android
-  // device") - Optimized_TCs_V_2.0.xlsx already merged the original
-  // TC001-TC004 into that one row, so the two "TC001"s are different IDs
-  // in different sheets, not the same test case.
+  // variants). The @Login-TC001 tag below is the Optimized sheet's own
+  // TC001 (Login/Login, "I am able to login to Nexus application on
+  // Android device") - Optimized_TCs_V_2.0.xlsx already merged the
+  // original TC001-TC004 into that one row, so the two "TC001"s are
+  // different IDs in different sheets, not the same test case. Tags are
+  // area-qualified (@{Area}-TC{n}) suite-wide since the Excel reuses the
+  // same TC number across unrelated areas (e.g. a separate Coffee TC001
+  // exists too) - a bare @TC001 would have conflated the two.
   test(
     'TC001-TC002: user can log in with valid credentials and reach Home',
-    { tag: ['@TC001'] },
+    { tag: ['@Login-TC001'] },
     async ({ driver }) => {
       const loginScreen = new LoginScreen(driver);
       const passwordScreen = new PasswordScreen(driver);

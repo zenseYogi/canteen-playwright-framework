@@ -23,7 +23,7 @@ import { HomeScreen } from '../../screens/home.screen';
 test.describe('Home / Dashboard - dynamic data (PBI 622025)', () => {
   test(
     'view the system date, route badge, and dynamic Deliveries/LOB counts',
-    { tag: ['@TC007', '@TC012', '@TC013', '@TC014', '@TC015'] },
+    { tag: ['@StartOfDay-TC007', '@StartOfDay-TC012', '@StartOfDay-TC013', '@StartOfDay-TC014', '@StartOfDay-TC015'] },
     async ({ driver }) => {
       const home = new HomeScreen(driver);
 
@@ -76,7 +76,7 @@ test.describe('Home / Dashboard - dynamic data (PBI 622025)', () => {
 
   test(
     'open Edit schedule and verify it lists every stop',
-    { tag: ['@TC018', '@TC020', '@TC036'] },
+    { tag: ['@StartOfDay-TC018', '@StartOfDay-TC020', '@StartOfDay-TC036'] },
     async ({ driver }) => {
       const home = new HomeScreen(driver);
 
