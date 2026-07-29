@@ -3,6 +3,8 @@ import { loginAndWaitForMfa } from '../../utils/login-flow';
 import { VendingDeliveryScreen } from '../../screens/vending-delivery.screen';
 import { PrepTasksScreen } from '../../screens/prep-tasks.screen';
 import { DashboardScreen } from '../../screens/dashboard.screen';
+import { RouteSetupScreen } from '@screens/route-setup.screen';
+import { HomeScreen } from '@screens/home.screen';
 
 
 test.describe('Vending delivery workflow', () => {
@@ -12,21 +14,33 @@ test.describe('Vending delivery workflow', () => {
         const prepTasks = new PrepTasksScreen(driver);
         const dashboard = new DashboardScreen(driver);
         const delivery = new VendingDeliveryScreen(driver);
+        const routeSetup = new RouteSetupScreen(driver);
+        const home = new HomeScreen(driver);
         var firstMachineName: string;
 
     await test.step('Log in', async () => {
       await loginAndWaitForMfa(driver);
     });
 
-    await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.completeFullDayPrep();
-      });
+    // await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+    //     await prepTasks.openFromHamburgerMenu();
+    //     await prepTasks.completeFullDayPrep();
+    //   });
 
-      await test.step("Open the first stop's first Vending machine", async () => {
-        await dashboard.clickLocationByPosition('first');
-        await dashboard.openNthServiceStation('vending', 'first');
-      });
+      await test.step('Change route, then select the configured day', async () => {
+        await routeSetup.changeRouteAndSelectDay({
+          operationSearch: 'Charlotte',
+          operationLabel: 'Charlotte, NC',
+          routeSearch: 'Route 103',
+          routeLabel: 'Route 103',
+          day: 'TODAY'
+        });
+    });
+      
+          await test.step('Verify Dashboard reloaded with the selected day', async () => {
+            await home.waitForDashboardLoaded();
+            expect(await home.isLoaded()).toBe(true);
+          });
 
 
     await test.step('verify if the Vending header is displayed', async () => {
