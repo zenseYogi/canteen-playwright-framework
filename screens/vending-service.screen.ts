@@ -443,6 +443,19 @@ export class VendingServiceScreen extends BaseScreen {
   //   and leave this screen.
   // - TC173/TC175 (enter Ending Inventory / numeric keypad shown) - both
   //   confirmed true as-is.
+  // - TC144/TC145 (Vending "Planogram" sub-area's own "PAR value read-only
+  //   / positioned between product name and delivery field") - despite
+  //   the sub-area name, these describe this same Product fills row, not
+  //   the separate Planogram grid screen - see isParFieldEditable's own
+  //   note for the full discovery.
+  // - TC146 "verify legacy UI layout - PAR value displayed as per the
+  //   legacy application" - a pure visual-parity claim with no
+  //   accessible signal to check against; not independently assertable,
+  //   same category as TC063-TC065 elsewhere in this file.
+  // - TC147 "view delivery field - empty numeric input with label
+  //   Delivery" - confirmed true (see getDeliveryFieldValue/
+  //   getDeliveryFieldHint), same field already covered by TC170's own
+  //   label check above - not a separate field.
   private readonly planogramTitle = '~Planogram';
   private readonly fillProductRow = '//android.view.View[contains(@content-desc,"More info")]';
 
@@ -480,6 +493,34 @@ export class VendingServiceScreen extends BaseScreen {
   async getDeliveryFieldHint(position: Position = 'first'): Promise<string> {
     const field = await this.driver.$(this.fillDeliveryFieldAt(position));
     return (await field.getAttribute('hint')) ?? '';
+  }
+
+  /** Excel TC147 - the Delivery field's own current value, blank by default on a fresh row (see getEndFieldValue for the same on End, which is NOT blank by default). */
+  async getDeliveryFieldValue(position: Position = 'first'): Promise<string> {
+    const field = await this.driver.$(this.fillDeliveryFieldAt(position));
+    return field.getText();
+  }
+
+  /**
+   * Excel TC144/TC145 (Vending "Planogram" sub-area, despite describing
+   * the Product fills row itself rather than the Planogram grid screen) -
+   * Par has no editable counterpart anywhere in this row: live-verified
+   * via a raw page-source dump that a row's only two EditTexts are
+   * hint="Delivery" and hint="End" - Par's value is baked directly into
+   * the row's own content-desc text ("{pos}\n{Name}\nMore info\nPar
+   * \n{value}"), with no separate widget of its own, hence "read-only" by
+   * construction rather than by a disabled/read-only attribute on some
+   * dedicated element. Its "position" (TC145) is also structural rather
+   * than a separate check: that same content-desc places the Par value
+   * after the product Name and before either EditText in both DOM and
+   * on-screen (left-of-Delivery) order - see getFillRowSummary, which
+   * already parses it from that exact position.
+   */
+  async isParFieldEditable(position: Position = 'first'): Promise<boolean> {
+    const deliveryHint = await this.getDeliveryFieldHint(position);
+    const endField = await this.driver.$(this.fillEndFieldAt(position));
+    const endHint = (await endField.getAttribute('hint')) ?? '';
+    return deliveryHint === 'Par' || endHint === 'Par';
   }
 
   async getEndFieldValue(position: Position = 'first'): Promise<string> {

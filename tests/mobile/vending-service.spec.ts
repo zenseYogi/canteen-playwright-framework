@@ -155,6 +155,63 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
     }
   );
 
+  // TC144/TC146/TC147 (Vending "Planogram" sub-area, despite describing
+  // the Product fills row rather than the separate Planogram grid screen
+  // - see VendingServiceScreen's own note above isParFieldEditable) -
+  // live-verified 2026-07-29 (build 0.1.76, Route 103/YESTERDAY, "Aaron's"
+  // stop, "61241 - Lg Snacks" machine).
+  //
+  // MUST run before "TC117/TC165/TC168-TC180" below (and therefore before
+  // "TC004-TC015" too): TC147 asserts the Delivery field is genuinely
+  // BLANK, which is only true before anything has filled it - both of
+  // those later tests fill this exact same "first" machine's Delivery
+  // fields (TC178-180 fills every row to make Continue actually submit;
+  // TC004-015's own prerequisite helper does the same) - see the note on
+  // that test for why re-using this machine post-submission also breaks
+  // Continue itself, a separate but related ordering constraint.
+  test(
+    'TC144/TC146/TC147: Par is read-only, and the Delivery field starts genuinely empty',
+    { tag: ['@Vending-TC144', '@Vending-TC147'] },
+    async () => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const vending = new VendingServiceScreen(driver);
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open the first stop's first Vending machine's Product fills", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openNthServiceStation('vending', 'first');
+        await vending.openFills();
+      });
+
+      // TC144/TC145 "Par value is read-only, positioned between the
+      // product name and Delivery field" - live: no EditText anywhere on
+      // the row carries an hint of "Par" (only "Delivery" and "End" do);
+      // its value is baked into the row's own content-desc, structurally
+      // preceding both fields (see getFillRowSummary).
+      await test.step('TC144: Par has no editable counterpart anywhere on the row', async () => {
+        const summary = await vending.getFillRowSummary('first');
+        expect(summary.par).toBeGreaterThan(0);
+        expect(await vending.isParFieldEditable('first')).toBe(false);
+      });
+
+      // TC146 "PAR value displayed as per the legacy application" - a
+      // pure visual-parity claim with no accessible signal to check
+      // against (see VendingServiceScreen's own note) - not asserted.
+
+      // TC147 "empty numeric input with label Delivery" - on a
+      // genuinely fresh, not-yet-touched machine, Delivery starts blank.
+      await test.step('TC147: the Delivery field is visible, labeled "Delivery", and starts empty', async () => {
+        expect(await vending.getDeliveryFieldHint('first')).toBe('Delivery');
+        expect(await vending.getDeliveryFieldValue('first')).toBe('');
+      });
+    }
+  );
+
   // TC117/TC165/TC168-TC180 (Vending "delivery - Product delivery") -
   // live-verified 2026-07-29 (build 0.1.76, Route 103/YESTERDAY, "Aaron's"
   // stop, "61241 - Lg Snacks"/"3247550" machines). See VendingServiceScreen's
