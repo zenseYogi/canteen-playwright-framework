@@ -154,4 +154,89 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       });
     }
   );
+
+  // TC004-TC015 (Vending "After Photos") - live-verified 2026-07-29 (build
+  // 0.1.76, Route 103/YESTERDAY, "Aaron's" and "Admark Graphics" stops,
+  // "11333 - Bottle Bev"/"97624 - Bottle Bev" machines).
+  //
+  // Unlike every other Vending tile, After Photos starts DISABLED until
+  // Before Photos, Money Operations, Fills, and Removals & Returns are ALL
+  // completed first - see VendingServiceScreen's own note above
+  // isAfterPhotosEnabled/completeBeforePhotosMoneyOpsAndFills for the full
+  // discovery (including why Fills needs a scroll-and-fill loop, not a
+  // fixed row count).
+  //
+  // NOT independently asserted (documented instead):
+  // - TC006/TC007 (camera opens, no "Taking a photo" text) - both live-
+  //   verified true via a direct manual walkthrough (see this describe
+  //   block's own commit history), but not exercised by this automated
+  //   test - it goes via Skip Photo instead, since driving the emulator's
+  //   own camera reliably from an automated run (shutter tap timing,
+  //   review-screen Attach Photo) proved far less deterministic than the
+  //   shared Skip Photo component every other LOB already relies on.
+  // - TC008/TC009 (capture/save a real photo) - same reason; live-verified
+  //   true manually (unlike Coffee, where the camera view is entirely
+  //   inaccessible) but not re-exercised here.
+  // - TC014 (visual completion checkmark) - live-verified as a real
+  //   visual-only signal (green background + checkmark icon) with NO
+  //   accessible content-desc/selected/checked change - not assertable.
+  test(
+    'TC004-TC015: complete the machine prerequisites, then Skip Photo on After Photos',
+    { tag: ['@Vending-TC004', '@Vending-TC005', '@Vending-TC010', '@Vending-TC011', '@Vending-TC012', '@Vending-TC013', '@Vending-TC015'] },
+    async ({}, testInfo) => {
+      // Fills' scroll-and-fill loop can run to 40+ rounds on a "full
+      // service" machine with a large catalog - well beyond the 150s
+      // default budget.
+      testInfo.setTimeout(400_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const vending = new VendingServiceScreen(driver);
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open the first stop's first Vending machine", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openNthServiceStation('vending', 'first');
+      });
+
+      // TC004 "access After Photos" - visible, but NOT yet enabled until
+      // the other three tiles are completed (live-verified discrepancy
+      // from the Excel's own "option available" wording - see
+      // VendingServiceScreen's note).
+      await test.step('TC004: After Photos tile is visible but disabled until prerequisites are met', async () => {
+        expect(await vending.isAfterPhotosEnabled()).toBe(false);
+        await vending.completeBeforePhotosMoneyOpsAndFills();
+        await vending.completeRemovalsAndReturns();
+        expect(await vending.isAfterPhotosEnabled()).toBe(true);
+      });
+
+      // TC005/TC010-TC013/TC015 - the shared Take/Skip photo modal and
+      // Skip Photo reason sheet, identical to Coffee/Market's own.
+      await test.step('TC005: After Photos opens the Take/Skip photo modal without opening the camera', async () => {
+        await vending.openAfterPhotos();
+        const modal = await vending.isPhotoModalVisible();
+        expect(modal.takePhoto).toBe(true);
+        expect(modal.skipPhoto).toBe(true);
+      });
+
+      await test.step('TC010/TC012: Skip photo opens the reason sheet, disabled by default', async () => {
+        await vending.openSkipPhotoReasonSheet();
+        expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(true);
+        expect(await vending.isSkipPhotoSubmitEnabled()).toBe(false);
+      });
+
+      await test.step('TC011: entering a reason enables Skip photo', async () => {
+        await vending.enterSkipPhotoReason('Camera cannot focus and take clear picture');
+        await vending.waitForSkipPhotoSubmitEnabled(true);
+      });
+
+      await test.step('TC013/TC015: submitting returns to the service stop checklist without saving a photo', async () => {
+        await vending.confirmSkipPhoto();
+        expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(false);
+      });
+    }
+  );
 });
