@@ -95,6 +95,200 @@ export class CoffeeServiceScreen extends BaseScreen {
   private readonly dropdownClearIcon = '//android.widget.ImageView[@clickable="true"]';
   private readonly dropdownOption = '//android.view.View[@clickable="true" and @content-desc!="Scrim" and not(starts-with(@content-desc,"Add "))]';
 
+  // Excel TC147/TC149/TC167 (Coffee "Presales order") - live-verified
+  // 2026-07-29 (build 0.1.76, Route 10/TODAY, "Amazon Corporate"/"3rd Floor"
+  // stop, manually-seeded Covista Coffee data). Reached from the checklist's
+  // own "Add presale\nLog presale if/when requested" optional tile (NOT the
+  // Delivery tile) - opens straight into a "Pre-sales" empty state
+  // ("Log Pre-Sales by Order") with its own "Add order" button, same
+  // empty-state pattern as Equipment audit.
+  //
+  // "Add order" opens "Add Pre-sales order": a Delivery Date field (native
+  // Android Material DatePicker, NOT a custom Flutter widget - the only
+  // native picker found in this app so far) + an "Add product" field that
+  // opens a "Search product" bottom sheet. Live-verified contrary to Excel's
+  // TC150 claim: the Delivery Date field starts EMPTY ("Select Delivery
+  // Date"), not pre-populated with today's date - not asserted here.
+  //
+  // Delivery Date picker: today itself is NOT selectable (only future dates
+  // enabled) - Thu Jul 30 (today+1) is the earliest enabled date and the
+  // one pre-highlighted on open. The upper limit is exactly today+35 days
+  // (live-verified: Sep 2, 2026 enabled, Sep 3 onward disabled, from a
+  // "today" of Jul 29, 2026) - matches Excel TC165 exactly.
+  //
+  // Selecting a product from the search sheet adds a row with a package
+  // size ("pkg: N") and its own Qty numeric-keypad input (default 1),
+  // enabling Cancel/Save order. Submitting "Save order" lands on the
+  // "Pre-sales" summary screen (location header + "Items\nN" dropdown +
+  // Delivery Date chip + "Add order"/"Continue" buttons) - tapping the
+  // Items row reopens "Add Pre-sales order" PRE-FILLED with the saved
+  // product (TC193), while "Add order" opens a genuinely blank form for a
+  // second order (TC201, live-verified: Cancel is disabled on a blank form
+  // since there's nothing to cancel - the back arrow is the only way out).
+  private readonly addPresaleTrigger = '//android.view.View[starts-with(@content-desc,"Add presale")]';
+  private readonly presalesEmptyStateHeading = '~Log Pre-Sales by Order';
+  private readonly presalesAddOrderTrigger = '~Add order';
+  private readonly addPresalesOrderTitle = '~Add Pre-sales order';
+  // Live-verified (build 0.1.76): both fields are true XML siblings of the
+  // title under one parent (index 3 = title, 4 = Delivery Date, 6 = Add
+  // product EditText) - content-desc/hint-based locators don't work here
+  // since this field is BLANK (no content-desc, no hint) until a date is
+  // picked, when it switches to using the plain "text" attribute instead
+  // ("Thu 30 Jul") rather than content-desc. following-sibling off the
+  // title is the only stable anchor found.
+  private readonly deliveryDateField =
+    '//android.view.View[@content-desc="Add Pre-sales order"]/following-sibling::android.view.View[1]';
+  private readonly addProductField =
+    '//android.view.View[@content-desc="Add Pre-sales order"]/following-sibling::android.widget.EditText[1]';
+  private readonly searchProductSheetTitle = '~Search product';
+  // Scoped as a sibling of the sheet's own title, not a bare
+  // "//android.widget.EditText" - the underlying "Add Pre-sales order"
+  // screen's own "Add product" EditText is still present in the tree while
+  // this sheet is open, so an unscoped EditText locator could resolve to
+  // either one non-deterministically.
+  private readonly searchProductField =
+    '//android.view.View[@content-desc="Search product"]/following-sibling::android.widget.EditText[1]';
+  private searchProductOption(term: string): string {
+    return `//android.view.View[contains(@content-desc,"${term}")]`;
+  }
+  private readonly saveOrderButton = '~Save order';
+  private readonly cancelOrderButton = '~Cancel';
+  private readonly presalesSummaryTitle = '//android.view.View[@content-desc="Pre-sales"]';
+  private readonly presalesItemsRow = '//android.view.View[starts-with(@content-desc,"Items")]';
+  private readonly presalesContinueButton = '~Continue';
+
+  /** Excel TC147 (via checklist) - opens the checklist's own "Add presale" tile, landing on the Pre-sales empty state. */
+  async openAddPresaleFromChecklist(): Promise<void> {
+    await this.tap(this.addPresaleTrigger);
+    await this.waitFor(this.presalesEmptyStateHeading);
+  }
+
+  async isPresalesEmptyStateVisible(): Promise<boolean> {
+    return this.isVisible(this.presalesEmptyStateHeading);
+  }
+
+  /** Excel TC147/TC148 - opens "Add Pre-sales order" from the empty-state's own "Add order" button. */
+  async openAddPresalesOrder(): Promise<void> {
+    await this.tap(this.presalesAddOrderTrigger);
+    await this.waitFor(this.addPresalesOrderTitle);
+  }
+
+  async isAddPresalesOrderTitleVisible(): Promise<boolean> {
+    return this.isVisible(this.addPresalesOrderTitle);
+  }
+
+  /**
+   * Excel TC149/TC150 - the Delivery Date field's own current value. Reads
+   * the "text" attribute, not content-desc - live-verified this field
+   * switches to plain text ("Thu 30 Jul") once a date is picked, unlike
+   * every other dropdown-style field in this app which uses content-desc.
+   */
+  async getDeliveryDateFieldText(): Promise<string> {
+    const el = await this.driver.$(this.deliveryDateField);
+    return (await el.getAttribute('text').catch(() => '')) || '';
+  }
+
+  async openDeliveryDatePicker(): Promise<void> {
+    await this.tap(this.deliveryDateField);
+    // Not an accessibility-id match ('~Select date') - live-verified this
+    // native Android DatePicker dialog's own content-desc is actually
+    // "Select date\n{selected day}" (e.g. "Select date\nThu, Jul 30"), so
+    // an exact-match accessibility id never resolves.
+    await this.waitFor('//android.view.View[starts-with(@content-desc,"Select date")]');
+  }
+
+  // starts-with, not contains: each day button's content-desc is
+  // "{day}, {weekday}, {month} {day}, {year}" (e.g. "2, Wednesday,
+  // September 2, 2026") - contains("2,") would also match "12," (which
+  // ends in the substring "2,"), wrongly resolving to the wrong day.
+  private dayOption(desc: string): string {
+    return `//android.widget.Button[starts-with(@content-desc,"${desc}")]`;
+  }
+
+  /**
+   * Excel TC165/TC167 - reads whether a given day-of-month button in the
+   * currently-open month view is enabled. Caller navigates months first via
+   * tapNextMonth()/tapPreviousMonth().
+   */
+  async isDayEnabled(dayContentDescFragment: string): Promise<boolean> {
+    const el = await this.driver.$(this.dayOption(dayContentDescFragment));
+    return (await el.getAttribute('enabled').catch(() => 'false')) === 'true';
+  }
+
+  async tapNextMonth(): Promise<void> {
+    await this.tap('~Next month');
+  }
+
+  async tapPreviousMonth(): Promise<void> {
+    await this.tap('~Previous month');
+  }
+
+  async confirmDatePickerSelection(): Promise<void> {
+    await this.tap('~OK');
+  }
+
+  async cancelDatePicker(): Promise<void> {
+    await this.tap('~Cancel');
+  }
+
+  /** Excel TC166 - selects a specific enabled day (e.g. the pre-highlighted today+1 default) and confirms. */
+  async selectDeliveryDate(dayContentDescFragment: string): Promise<void> {
+    await this.tap(this.dayOption(dayContentDescFragment));
+    await this.confirmDatePickerSelection();
+  }
+
+  /** Opens the "Search product" bottom sheet from the Add product field. */
+  async openAddProductSearch(): Promise<void> {
+    await this.tap(this.addProductField);
+    await this.waitFor(this.searchProductSheetTitle);
+  }
+
+  async searchPresaleProduct(term: string): Promise<void> {
+    const field = await this.driver.$(this.searchProductField);
+    await field.click();
+    await field.setValue(term);
+  }
+
+  async selectPresaleProductOption(term: string): Promise<void> {
+    await this.tap(this.searchProductOption(term));
+  }
+
+  async isSaveOrderEnabled(): Promise<boolean> {
+    return this.isEnabled(this.saveOrderButton);
+  }
+
+  async isCancelOrderEnabled(): Promise<boolean> {
+    return this.isEnabled(this.cancelOrderButton);
+  }
+
+  /** Excel TC199 - submits the Add Pre-sales order form, landing on the Pre-sales summary screen. */
+  async saveOrder(): Promise<void> {
+    await this.tap(this.saveOrderButton);
+    await this.waitFor(this.presalesSummaryTitle);
+  }
+
+  /** Excel TC200 - the summary screen's own "Items\n{count}" line. */
+  async getPresalesSummaryItemsText(): Promise<string> {
+    const el = await this.driver.$(this.presalesItemsRow);
+    return (await el.getAttribute('content-desc')) ?? '';
+  }
+
+  /** Excel TC193 - reopens "Add Pre-sales order" pre-filled, by tapping the summary's own Items row. */
+  async reopenPresalesOrderFromSummary(): Promise<void> {
+    await this.tap(this.presalesItemsRow);
+    await this.waitFor(this.addPresalesOrderTitle);
+  }
+
+  /** Excel TC201 - opens a genuinely blank "Add Pre-sales order" form for a second order. */
+  async openAnotherPresalesOrder(): Promise<void> {
+    await this.tap(this.presalesAddOrderTrigger);
+    await this.waitFor(this.addPresalesOrderTitle);
+  }
+
+  async isPresalesContinueVisible(): Promise<boolean> {
+    return this.isVisible(this.presalesContinueButton);
+  }
+
   async clickServiceLocation(position: Position): Promise<void> {
     await this.selectServiceLocation(this.coffeeLob, position);
   }

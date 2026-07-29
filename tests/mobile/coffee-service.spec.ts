@@ -447,3 +447,121 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
     }
   );
 });
+
+// TC147/TC149/TC167 (Coffee "Presales order") - live-verified 2026-07-29
+// (build 0.1.76, Route 10/TODAY, "Amazon Corporate"/"3rd Floor" stop, a
+// manually-seeded Covista Coffee delivery - Route 10's own Coffee stop is
+// date-relative seed data that rotates as the real calendar date advances,
+// so unlike the equipment-audit stop this one had to be added fresh for
+// this session rather than reused from an earlier day).
+//
+// Reached via the checklist's own "Add presale\nLog presale if/when
+// requested" OPTIONAL tile (distinct from the mandatory Delivery tile) -
+// opens straight into a "Pre-sales" empty state, same
+// empty-state-with-its-own-Add-button pattern as Equipment audit.
+//
+// NOT independently asserted (documented instead):
+// - TC150 ("current date pre-populated in the field") - live-verified
+//   FALSE: the Delivery Date field starts on a "Select Delivery Date"
+//   placeholder, not today's date.
+// - TC148 - covered incidentally (the date/route header chip is the same
+//   shared component asserted elsewhere), not re-asserted per-field here.
+test.describe('Coffee - Presales order (Add Pre-sales order)', () => {
+  test(
+    'TC147/TC149/TC167: open Add Pre-sales order, enforce the delivery-date upper limit, save an order',
+    { tag: ['@TC147', '@TC149', '@TC167'] },
+    async ({ driver }, testInfo) => {
+      testInfo.setTimeout(240_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+
+      await test.step('Log in, switch to Route 10/TODAY (the Coffee Presales stop is seeded on TODAY only)', async () => {
+        await loginAndWaitForMfa(driver);
+        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      });
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open the day's Coffee service stop", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openFirstServiceStation('coffee');
+      });
+
+      // TC147 "open Add a Pre-sale order screen" - via the checklist's
+      // Optional "Add presale" tile, then its own empty-state Add order.
+      await test.step('TC147: Add presale opens the Pre-sales empty state, then Add Pre-sales order', async () => {
+        await coffee.openAddPresaleFromChecklist();
+        expect(await coffee.isPresalesEmptyStateVisible()).toBe(true);
+        await coffee.openAddPresalesOrder();
+        expect(await coffee.isAddPresalesOrderTitleVisible()).toBe(true);
+      });
+
+      // TC149 "view the Delivery Date field" + TC165/TC167 "enforce/reject
+      // a delivery date beyond the upper limit" - live-verified the native
+      // Android date picker's own upper bound is exactly today+35 days
+      // (Sep 2, 2026 enabled, Sep 3 onward disabled, from a "today" of
+      // Jul 29, 2026) - re-derives that same +35 offset relative to
+      // whatever "today" actually is at run time, rather than a fixed date.
+      await test.step('TC149/TC167: the Delivery Date picker enforces an upper limit of today+35 days', async () => {
+        await coffee.openDeliveryDatePicker();
+
+        const today = new Date();
+        const limit = new Date(today);
+        limit.setDate(limit.getDate() + 35);
+        const dayAfterLimit = new Date(limit);
+        dayAfterLimit.setDate(dayAfterLimit.getDate() + 1);
+
+        const format = (d: Date) => d.getDate().toString();
+
+        // Navigate the picker to the limit month (and the day-after-limit's
+        // month, if different) via Next month, then read each day's own
+        // enabled state directly - no fixed calendar assumptions beyond the
+        // +35 day offset itself.
+        const monthsToAdvance =
+          (limit.getFullYear() - today.getFullYear()) * 12 + (limit.getMonth() - today.getMonth());
+        for (let i = 0; i < monthsToAdvance; i++) {
+          await coffee.tapNextMonth();
+        }
+        expect(await coffee.isDayEnabled(`${format(limit)},`)).toBe(true);
+
+        if (dayAfterLimit.getMonth() !== limit.getMonth()) {
+          await coffee.tapNextMonth();
+        }
+        expect(await coffee.isDayEnabled(`${format(dayAfterLimit)},`)).toBe(false);
+
+        await coffee.cancelDatePicker();
+      });
+
+      // TC199/TC200/TC201 - not independently Excel-numbered under this
+      // TC147 row's own TC# but part of the same Merged source-TC group;
+      // exercised here as the natural continuation of the same screen
+      // already open, confirming the end-to-end save + summary flow works.
+      await test.step('Save an order and confirm the Pre-sales summary reflects it', async () => {
+        await coffee.openDeliveryDatePicker();
+        await coffee.confirmDatePickerSelection();
+
+        await coffee.openAddProductSearch();
+        await coffee.searchPresaleProduct('coffee');
+        await coffee.selectPresaleProductOption('Coffee');
+        // Deliberately NOT dismissing the quantity keypad that appears here
+        // via a BACK press - live-verified this keypad is the app's own
+        // custom widget, not a system IME, so BaseScreen.hideKeyboardViaAdb
+        // (which relies on Android intercepting BACK to close an open IME)
+        // would instead navigate back out of this screen. Not needed
+        // anyway - live-verified the Cancel/Save order buttons sit above
+        // the keypad's own bounds, with no overlap.
+
+        expect(await coffee.isSaveOrderEnabled()).toBe(true);
+        await coffee.saveOrder();
+
+        const itemsText = await coffee.getPresalesSummaryItemsText();
+        expect(itemsText).toContain('Items');
+        expect(await coffee.isPresalesContinueVisible()).toBe(true);
+      });
+    }
+  );
+});
