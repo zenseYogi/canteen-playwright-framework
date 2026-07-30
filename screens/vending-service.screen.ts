@@ -187,6 +187,15 @@ export class VendingServiceScreen extends BaseScreen {
       if (filledAny) {
         continue;
       }
+      // The last field written above leaves its custom keypad open -
+      // live-verified (on a short, filtered list where every row fits
+      // without a single scroll) that tapping Continue while it's still
+      // open is a silent no-op identical to the one documented on
+      // setEndFieldValue/dismissNumericKeypad - a larger, unfiltered
+      // catalog happens to scroll at least once after the last fill,
+      // which incidentally dismisses the keypad first, masking this on
+      // long lists.
+      await this.dismissNumericKeypad();
       const continueBtn = await this.driver.$(this.continueButton);
       if (await continueBtn.isEnabled().catch(() => false)) {
         await continueBtn.click();

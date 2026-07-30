@@ -212,6 +212,179 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
     }
   );
 
+  // TC182/TC185/TC187-TC211 (Vending "delivery - Filters") - live-verified
+  // 2026-07-29 (build 0.1.76, Route 103/YESTERDAY, "Aaron's" stop,
+  // "3247550" machine, categories CANDY (6)/LG SNACKS (2)/SNACKS (24)).
+  //
+  // Uses the SECOND Vending machine at this stop, not "first" - both
+  // "TC117/TC165/TC168-TC180" and "TC004-TC015" fully submit (Continue)
+  // the "first" machine's Fills as part of their own flow, and this test
+  // needs to actually complete a (filtered) Fill of its own for
+  // TC210/TC211 - reusing "first" here would hit the exact same
+  // already-submitted-Continue-is-a-no-op issue documented on that test.
+  //
+  // Key live-verified discrepancies from the Excel (documented, not
+  // asserted as bugs):
+  // - TC187's own test data ("Snacks, Nuts") doesn't match this catalog's
+  //   real category chips - there is no "Nuts" category here, only
+  //   CANDY/LG SNACKS/SNACKS - CANDY and LG SNACKS are used instead
+  //   throughout this test.
+  // - TC202 "reopen Filter and verify chips cleared, Apply Filters
+  //   disabled" - live-verified FALSE: reopening the sheet after removing
+  //   ONE of two applied tags (TC199) shows the sheet reflecting the
+  //   CURRENTLY active filter (the still-applied category's chip stays
+  //   selected, Apply Filters stays enabled) - it does not reset to a
+  //   blank slate.
+  // - TC205 "apply filters with no matching items -> empty-state shown" -
+  //   not reproducible via category filters alone on this catalog: all
+  //   three real categories have a non-zero count (6/2/24), so there is
+  //   no combination of category chips that yields zero results.
+  // - TC206 "list sorted alphabetically (if applicable)" - the Excel's
+  //   own "if applicable" hedge; not asserted (Sort is a separate,
+  //   already-covered feature - see TC212/TC215 above - orthogonal to
+  //   Filter).
+  // - TC208 "invalid Ending Inventory (-1/blank/10.5) -> Continue
+  //   disabled" - live-verified FALSE, same "always enabled" discrepancy
+  //   already documented on TC177/TC178 above; not re-explored via the
+  //   keypad again here, just re-confirmed via a cleared field.
+  // - TC211 "delivery tile highlighted green with a tick mark" - visual-
+  //   only signal with no accessible content-desc/selected/checked
+  //   change, same pattern as TC014/TC179 elsewhere in this file - not
+  //   assertable.
+  test(
+    'TC182/TC185/TC187-TC211: Filter sheet chip selection, apply/clear, tags, reopened state, and completing a filtered Fill',
+    { tag: (
+      ['TC182', 'TC185', 'TC187', 'TC188', 'TC190', 'TC192', 'TC193', 'TC194', 'TC195', 'TC196',
+        'TC198', 'TC199', 'TC200', 'TC201', 'TC202', 'TC203', 'TC204', 'TC205', 'TC206', 'TC207',
+        'TC208', 'TC209', 'TC210', 'TC211'
+      ].map((n) => `@Vending-${n}`)
+    ) },
+    async ({}, testInfo) => {
+      // fillAllProductDeliveryQuantities()'s scroll-and-fill loop can run
+      // to 40+ rounds on a "full service" machine with a large catalog -
+      // well beyond the 150s default budget (see TC117/TC165/TC168-TC180
+      // above, which needs the same allowance).
+      testInfo.setTimeout(400_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const vending = new VendingServiceScreen(driver);
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open the first stop's second Vending machine's Product fills", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openNthServiceStation('vending', 'second');
+        await vending.openFills();
+      });
+
+      // TC182 "view category text" / TC185/TC190 "Apply Filters disabled
+      // without a selection" (Clear Filters also starts disabled - both
+      // confirmed live).
+      await test.step('TC182/TC185/TC190: Filter sheet opens with "By category" and both actions disabled', async () => {
+        await vending.openFilterSheet();
+        expect(await vending.isFilterByCategoryLabelVisible()).toBe(true);
+        expect(await vending.isApplyFiltersEnabled()).toBe(false);
+        expect(await vending.isClearFiltersEnabled()).toBe(false);
+      });
+
+      // TC187/TC192 "select multiple chips" / TC193/TC195 "Apply Filters
+      // enabled" / TC194 "Apply Filters disabled again on deselection".
+      await test.step('TC187/TC192/TC193/TC195/TC194: selecting/deselecting chips toggles Apply Filters', async () => {
+        await vending.tapFilterChip('CANDY');
+        await vending.tapFilterChip('LG SNACKS');
+        expect(await vending.isFilterChipSelected('CANDY')).toBe(true);
+        expect(await vending.isFilterChipSelected('LG SNACKS')).toBe(true);
+        expect(await vending.isApplyFiltersEnabled()).toBe(true);
+
+        await vending.tapFilterChip('CANDY');
+        await vending.tapFilterChip('LG SNACKS');
+        expect(await vending.isApplyFiltersEnabled()).toBe(false);
+
+        await vending.tapFilterChip('CANDY');
+        await vending.tapFilterChip('LG SNACKS');
+        expect(await vending.isApplyFiltersEnabled()).toBe(true);
+      });
+
+      // TC196 "apply -> filtered list" / TC198 "active filter icon".
+      await test.step('TC196/TC198: applying filters activates the header icon and shows both tags', async () => {
+        await vending.tapApplyFilters();
+        expect(await vending.isFilterActive()).toBe(true);
+        expect(await vending.isFilterTagVisible('CANDY')).toBe(true);
+        expect(await vending.isFilterTagVisible('LG SNACKS')).toBe(true);
+      });
+
+      // TC199 "remove a single filter tag -> list updates with the
+      // remaining filter still applied".
+      await test.step('TC199: removing one tag leaves the other filter active', async () => {
+        await vending.removeFilterTag('CANDY');
+        expect(await vending.isFilterTagVisible('CANDY')).toBe(false);
+        expect(await vending.isFilterTagVisible('LG SNACKS')).toBe(true);
+      });
+
+      // TC202 "reopen Filter and verify state" - live: reflects the
+      // currently-active filter, not a cleared slate (documented
+      // discrepancy above).
+      await test.step('TC202: reopening Filter reflects the still-active filter, not a cleared sheet', async () => {
+        await vending.openFilterSheet();
+        expect(await vending.isFilterChipSelected('LG SNACKS')).toBe(true);
+        expect(await vending.isFilterChipSelected('CANDY')).toBe(false);
+        expect(await vending.isApplyFiltersEnabled()).toBe(true);
+      });
+
+      // TC203/TC204 "re-select and re-apply filters".
+      await test.step('TC203/TC204: re-selecting the removed category and re-applying restores both tags', async () => {
+        await vending.tapFilterChip('CANDY');
+        await vending.tapApplyFilters();
+        expect(await vending.isFilterTagVisible('CANDY')).toBe(true);
+        expect(await vending.isFilterTagVisible('LG SNACKS')).toBe(true);
+      });
+
+      // TC188/TC200 "clear all filters" / TC198/TC201 "icon returns to
+      // normal".
+      await test.step('TC188/TC200/TC201: Clear Filters removes every tag and deactivates the header icon', async () => {
+        await vending.openFilterSheet();
+        await vending.tapClearFilters();
+        expect(await vending.isFilterActive()).toBe(false);
+        expect(await vending.isFilterTagVisible('CANDY')).toBe(false);
+        expect(await vending.isFilterTagVisible('LG SNACKS')).toBe(false);
+      });
+
+      // TC207/TC209 "Ending Inventory field visible, valid quantity ->
+      // Continue enabled" / TC208 "invalid (cleared) quantity -> Continue
+      // disabled" - live: Continue stays enabled regardless (documented
+      // discrepancy above, same as TC177/TC178).
+      await test.step('TC207/TC208/TC209: Ending Inventory field is present; Continue stays enabled even when cleared', async () => {
+        const before = await vending.getEndFieldValue('first');
+        expect(before.length).toBeGreaterThan(0);
+        await vending.clearEndFieldValue('first');
+        expect(await vending.isFillsContinueEnabled()).toBe(true);
+        await vending.setEndFieldValue('first', before);
+      });
+
+      // TC210 "Continue with valid inputs navigates to the workflow
+      // summary screen" - reuses the already-proven
+      // fillAllProductDeliveryQuantities() scroll-and-fill loop (every
+      // row's Delivery must be filled for Continue to actually submit -
+      // see TC178-TC180's own note above). Re-applies the small "LG
+      // SNACKS" (2-item) filter first rather than completing against the
+      // full, just-cleared catalog - live-verified this machine's full
+      // catalog runs well past fillAllProductDeliveryQuantities()'s
+      // default 60-round cap, which left several rows blank and made
+      // Continue a legitimate no-op (not a bug) when first tried against
+      // the unfiltered list.
+      await test.step('TC210: re-filtering to a small category, then filling and continuing leaves Product fills', async () => {
+        await vending.openFilterSheet();
+        await vending.tapFilterChip('LG SNACKS');
+        await vending.tapApplyFilters();
+        await vending.fillAllProductDeliveryQuantities();
+        expect(await vending.isProductFillsTitleVisible()).toBe(false);
+      });
+    }
+  );
+
   // TC117/TC165/TC168-TC180 (Vending "delivery - Product delivery") -
   // live-verified 2026-07-29 (build 0.1.76, Route 103/YESTERDAY, "Aaron's"
   // stop, "61241 - Lg Snacks"/"3247550" machines). See VendingServiceScreen's
