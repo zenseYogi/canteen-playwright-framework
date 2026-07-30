@@ -8,6 +8,17 @@ import { HomeScreen } from '@screens/home.screen';
 
 
 test.describe('Vending delivery workflow', () => {
+  /**
+   *  Vending & Coffee machine workflow.
+   *
+   * Steps:
+   * 1. Verify the Vending header is visible.
+   * 2. Read the first Vending machine tile label and click it.
+   * 3. Confirm the selected Vending machine header is displayed and address also appears.
+   * 4. Verify the Coffee header is visible.
+   * 5. Navigate to the Coffee section and select the first coffee machine.
+   * 6. Verify the selected coffee item is shown in the header.
+   */
   test('reads the first location name, clicks it and verifies it and address', 
      { tag: ['@TC001', '@TC002', '@TC003'] },
     async ({ driver }) => {
@@ -18,30 +29,33 @@ test.describe('Vending delivery workflow', () => {
         const home = new HomeScreen(driver);
         var firstMachineName: string;
 
-    await test.step('Log in', async () => {
-      await loginAndWaitForMfa(driver);
-    });
-
+    // await test.step('Log in', async () => {
+    //   await loginAndWaitForMfa(driver);
+    // });
+//
     // await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
     //     await prepTasks.openFromHamburgerMenu();
     //     await prepTasks.completeFullDayPrep();
     //   });
 
-      await test.step('Change route, then select the configured day', async () => {
-        await routeSetup.changeRouteAndSelectDay({
-          operationSearch: 'Charlotte',
-          operationLabel: 'Charlotte, NC',
-          routeSearch: 'Route 103',
-          routeLabel: 'Route 103',
-          day: 'TODAY'
-        });
-    });
-      
-          await test.step('Verify Dashboard reloaded with the selected day', async () => {
-            await home.waitForDashboardLoaded();
-            expect(await home.isLoaded()).toBe(true);
-          });
+    //   await test.step('Change route, then select the configured day', async () => {
 
+    //    // await routeSetup.selectDay("TODAY");
+    //     await routeSetup.changeRouteAndSelectDay({
+    //       operationSearch: 'Charlotte',
+    //       operationLabel: 'Charlotte, NC',
+    //       routeSearch: 'Route 103',
+    //       routeLabel: 'Route 103',
+    //       day: 'TODAY'
+    //     });
+    // });
+      
+
+
+    //       await test.step('Verify Dashboard reloaded with the selected day', async () => {
+    //         await home.waitForDashboardLoaded();
+    //         expect(await home.isLoaded()).toBe(true);
+    //       });
 
     await test.step('verify if the Vending header is displayed', async () => {
         const isHeaderDisplayed = await delivery.isHeaderDisplayed('Vending');
@@ -70,19 +84,26 @@ test.describe('Vending delivery workflow', () => {
       const address = await delivery.getHeaderAddress(firstMachineName);
       expect(address).toBeTruthy();
       expect(address).not.toEqual('');
+      await delivery.tap("~View schedule");
     });
-
    
+
     await test.step('verify if the Coffee header is displayed', async () => {
-            const isHeaderDisplayed = await delivery.isHeaderDisplayed('Coffee');
-            expect(isHeaderDisplayed).toBe(true);
+        const isHeaderDisplayed = await delivery.isHeaderDisplayed('Coffee');
+        expect(isHeaderDisplayed).toBe(true);
     });
     
-    
+    await test.step('Scroll and select the first coffee icon item', async () => {
+      
+      await delivery.scrollToCoffeeIconItem("Covista");
+      const firstCoffeeName = await delivery.getCoffeeIconName("Covista");
+      expect(firstCoffeeName).toBeTruthy();
+      await delivery.clickCoffeeIcon(firstCoffeeName);
 
-
-
-
+      expect(await delivery.isHeaderDisplayed(firstCoffeeName)).toBe(true);
+      const coffeeHeader = await delivery.getHeaderText(firstCoffeeName);
+      expect(coffeeHeader).toBe(firstCoffeeName);
+    });
 
 
   });

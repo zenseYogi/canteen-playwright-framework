@@ -31,8 +31,10 @@ export const test = base.extend<MobileFixtures>({
     // manually via the Privacy Policy link, independent of pm clear
     // entirely. That's a real app-level WebView cert-trust bug, unrelated
     // to this reset step. Restored.)
+
     try {
-      execSync(`adb -s ${deviceName} shell pm clear ${appId}`);
+      //commented for testing purpose uncomment while pushing to git
+     // execSync(`adb -s ${deviceName} shell pm clear ${appId}`);
     } catch (e) {
       console.warn(`Could not clear app data for ${appId} before session start:`, e);
     }

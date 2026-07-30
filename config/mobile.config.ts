@@ -17,9 +17,18 @@ export const mobileConfig = {
     // $env:APP_PACKAGE="com.compass.canteen.nexus.test"
     // $env:APP_ACTIVITY="com.compass.canteen.nexus.MainActivity"
 
-    'appium:noReset': false,
-    'appium:fullReset': true,
+    //For using the existing app session on the device, 
+    // we can use noReset and fullReset capabilities. 
+    // uncomment the below lines while pushin code to git 
+    'appium:noReset': true,
+    'appium:fullReset': false,
     'appium:newCommandTimeout': 240
+
+
+    // 'appium:noReset': false,
+    // 'appium:fullReset': true,
+    // 'appium:newCommandTimeout': 240
+
   },
   timeouts: {
     element: parseInt(process.env.ELEMENT_TIMEOUT || '15000')

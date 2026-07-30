@@ -38,33 +38,50 @@ export class RouteSetupScreen extends BaseScreen {
   }
 
   /**
-   * Taps the Operation field, types into the resulting "Select operation"
-   * modal's search box, and taps the matching result by its exact
-   * content-desc (the option label, e.g. "Miami, FL"). The search field
-   * needs an explicit tap-to-focus before typing.
-   *
-   * CORRECTED: BaseScreen.type()'s el.setValue() sets the field's text
-   * without going through a real IME/key-event path - confirmed live this
-   * silently fails to trigger the list's search-as-you-type filter (the
-   * field shows the typed text, but the option list stays fully unfiltered
-   * indefinitely, so the subsequent tap on `~${resultLabel}` times out).
-   * Same underlying class of issue as the Login WebView fields elsewhere in
-   * this codebase - typeViaAdb (real key events) reliably triggers it where
-   * setValue() does not.
+   * Types into the already-focused modal search field and taps the matching
+   * result - retrying the type itself, not just waiting longer, since
+   * live-verified (2026-07-24) even typeViaAdb's real key events don't
+   * reliably trigger the list's search-as-you-type filter every time: the
+   * field can show the typed text correctly while the list stays completely
+   * unfiltered (e.g. "Miami" typed, but "Allentown, PA"/"Asheville, NC"/etc.
+   * still shown) - an intermittent app-level filter reactivity issue, not a
+   * typing-mechanism problem (typeViaAdb itself was already proven correct
+   * against the Login WebView fields). Clearing and retyping a few times
+   * resolves it faster than any single fixed timeout would.
+   */
+  private async typeAndSelectFromModal(searchTerm: string, resultLabel: string, maxAttempts = 3): Promise<void> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      await this.tap(this.modalSearchField);
+      const field = await this.driver.$(this.modalSearchField);
+      await field.clearValue().catch(() => {});
+      await this.typeViaAdb(searchTerm);
+      const resultEl = await this.driver.$(`~${resultLabel}`);
+      const filtered = await resultEl.waitForDisplayed({ timeout: 5_000 }).catch(() => false);
+      if (filtered) {
+        await resultEl.click();
+        return;
+      }
+    }
+    // Final attempt already exhausted - let the normal tap() surface a clear
+    // timeout error rather than silently trying a 4th time.
+    await this.tap(`~${resultLabel}`);
+  }
+
+  /**
+   * Taps the Operation field, then searches the resulting "Select operation"
+   * modal and taps the matching result by its exact content-desc (the
+   * option label, e.g. "Miami, FL"). See typeAndSelectFromModal for the
+   * retry behavior.
    */
   async selectOperation(searchTerm: string, resultLabel: string): Promise<void> {
     await this.tap(this.operationField);
-    await this.tap(this.modalSearchField);
-    await this.typeViaAdb(searchTerm);
-    await this.tap(`~${resultLabel}`);
+    await this.typeAndSelectFromModal(searchTerm, resultLabel);
   }
 
   /** Same pattern as selectOperation, for the "Select route" modal (e.g. "Route 010"). */
   async selectRoute(searchTerm: string, resultLabel: string): Promise<void> {
     await this.tap(this.routeField);
-    await this.tap(this.modalSearchField);
-    await this.typeViaAdb(searchTerm);
-    await this.tap(`~${resultLabel}`);
+    await this.typeAndSelectFromModal(searchTerm, resultLabel);
   }
 
   /**
