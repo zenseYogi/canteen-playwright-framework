@@ -410,6 +410,123 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
     }
   );
 
+  // TC220/TC221/TC222/TC223/TC225/TC226/TC227/TC230-TC241 (Vending
+  // "delivery - Sort", continuing from TC216/TC217 above) - live-verified
+  // 2026-07-30 (build 0.1.76, Route 103/YESTERDAY, "Aaron's" stop,
+  // "61241 - Lg Snacks" machine).
+  //
+  // Uses the SECOND Vending machine at this stop, same reasoning as the
+  // Filters test above: TC240 completes a real Continue submission, which
+  // would conflict with any other test that assumes this machine's Fills
+  // is still pending (or, if this ran first, would break its own TC240 if
+  // some other test had already submitted this same machine).
+  //
+  // Key live-verified discrepancies from the Excel (documented, not
+  // asserted as bugs):
+  // - TC222/TC227 "previously selected option highlighted on reopen" -
+  //   live-verified this IS a real visual signal (screenshotted: the
+  //   previously-applied option's row renders with a light-green
+  //   background) but, like several other visual-only states elsewhere
+  //   in this app (TC014's completion checkmark, TC063-TC065's legacy
+  //   layout), it carries NO accessible signal at all - the option
+  //   Button's own `selected`/`checked` attributes both read false
+  //   regardless of whether it's the currently-applied sort. Not
+  //   independently assertable; documented instead.
+  // - TC230-TC238 (Barcode Ascending/Barcode Descending sort options) -
+  //   not reproducible: live-verified this sheet's only five real
+  //   options are A to Z, Z to A, By Category, Newest First, and Oldest
+  //   First - there is no barcode-based sort anywhere on this screen.
+  // - TC241 "delivery tile highlighted green with a tick mark" - visual-
+  //   only signal with no accessible content-desc/selected/checked
+  //   change, same pattern as TC014/TC179/TC211 elsewhere in this file -
+  //   not assertable.
+  test(
+    'TC220-TC241: Sort order applies/reverses correctly, persists across reopen, and completing a sorted Fill',
+    { tag: (
+      ['TC220', 'TC221', 'TC222', 'TC223', 'TC225', 'TC226', 'TC227', 'TC230', 'TC231', 'TC232',
+        'TC235', 'TC236', 'TC237', 'TC238', 'TC240', 'TC241'
+      ].map((n) => `@Vending-${n}`)
+    ) },
+    async ({}, testInfo) => {
+      // fillAllProductDeliveryQuantities()'s scroll-and-fill loop can run
+      // to 40+ rounds on a "full service" machine with a large catalog -
+      // well beyond the 150s default budget (see TC117/TC165/TC168-TC180
+      // above, which needs the same allowance).
+      testInfo.setTimeout(400_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const vending = new VendingServiceScreen(driver);
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open the first stop's second Vending machine's Product fills", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openNthServiceStation('vending', 'second');
+        await vending.openFills();
+      });
+
+      // TC220 "apply A to Z" / TC221 "verify A to Z order".
+      await test.step('TC220/TC221: applying A to Z sorts the list alphabetically ascending', async () => {
+        await vending.selectSortOption('A to Z');
+        expect(await vending.isSortActive()).toBe(true);
+        const names = await vending.getFillProductNamesInOrder();
+        const sorted = [...names].sort((a, b) => a.localeCompare(b));
+        expect(names).toEqual(sorted);
+      });
+
+      // TC222 "persisted selection on reopen" - live: Clear sort order
+      // stays enabled (the real, accessible persistence signal); the
+      // option's own visual highlight has no accessible counterpart (see
+      // this test's own note above).
+      await test.step('TC222: reopening Sort after A to Z shows Clear sort order still enabled', async () => {
+        await vending.openSortSheet();
+        expect(await vending.isClearSortEnabled()).toBe(true);
+      });
+
+      // TC223 "clear sort from highlighted state" - same mechanism as
+      // TC217 above, re-confirmed here after a DIFFERENT sort (A to Z)
+      // was the one active.
+      await test.step('TC223: Clear sort order deactivates the icon after A to Z', async () => {
+        await vending.tapClearSort();
+        expect(await vending.isSortActive()).toBe(false);
+      });
+
+      // TC220/TC225 "apply Z to A" / TC221/TC226 "verify Z to A order" /
+      // TC227 "persist Z to A selection on reopen".
+      await test.step('TC225/TC226/TC227: applying Z to A sorts descending and persists on reopen', async () => {
+        await vending.selectSortOption('Z to A');
+        expect(await vending.isSortActive()).toBe(true);
+        const names = await vending.getFillProductNamesInOrder();
+        const sortedDesc = [...names].sort((a, b) => b.localeCompare(a));
+        expect(names).toEqual(sortedDesc);
+
+        await vending.openSortSheet();
+        expect(await vending.isClearSortEnabled()).toBe(true);
+        await vending.tapClearSort();
+        expect(await vending.isSortActive()).toBe(false);
+      });
+
+      // TC230-TC238 (Barcode Ascending/Descending) - not reproducible on
+      // this catalog/sheet (see this test's own note above); not
+      // exercised.
+
+      // TC240 "Continue with valid inputs navigates to the workflow
+      // summary screen" - reuses the already-proven
+      // fillAllProductDeliveryQuantities() scroll-and-fill loop against
+      // this machine's full (unsorted) catalog.
+      await test.step('TC240: filling every row\'s Delivery and continuing leaves Product fills', async () => {
+        await vending.fillAllProductDeliveryQuantities();
+        expect(await vending.isProductFillsTitleVisible()).toBe(false);
+      });
+
+      // TC241 - visual-only tile completion signal; not assertable (see
+      // this test's own note above).
+    }
+  );
+
   // TC117/TC165/TC168-TC180 (Vending "delivery - Product delivery") -
   // live-verified 2026-07-29 (build 0.1.76, Route 103/YESTERDAY, "Aaron's"
   // stop, "61241 - Lg Snacks"/"3247550" machines). See VendingServiceScreen's
