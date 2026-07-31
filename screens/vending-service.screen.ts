@@ -177,9 +177,22 @@ export class VendingServiceScreen extends BaseScreen {
       for (let i = 0; i < fields.length; i += 2) {
         const text = await fields[i].getText().catch(() => '');
         if (!text) {
+          // CORRECTED (live-verified): field.setValue() writes the
+          // widget's visible text directly without going through the
+          // custom keypad's own digit buttons - the row displays the
+          // right number, but the app's own internal delivery-quantity
+          // model never actually registers it (its validation is wired
+          // to the keypad's onClick handlers, not the EditText's
+          // text-changed listener), so Continue's later tap fails
+          // real submission with "Please fix validation errors before
+          // saving" even though every field LOOKS correctly filled.
+          // Tapping the real digit keys (same as a physical user) is
+          // required for the value to actually count.
           await fields[i].click();
-          await fields[i].clearValue().catch(() => {});
-          await fields[i].setValue(quantity);
+          for (const digit of quantity) {
+            await (await this.driver.$(`~${digit}`)).click();
+          }
+          await this.dismissNumericKeypad();
           filledAny = true;
           break;
         }
@@ -187,15 +200,6 @@ export class VendingServiceScreen extends BaseScreen {
       if (filledAny) {
         continue;
       }
-      // The last field written above leaves its custom keypad open -
-      // live-verified (on a short, filtered list where every row fits
-      // without a single scroll) that tapping Continue while it's still
-      // open is a silent no-op identical to the one documented on
-      // setEndFieldValue/dismissNumericKeypad - a larger, unfiltered
-      // catalog happens to scroll at least once after the last fill,
-      // which incidentally dismisses the keypad first, masking this on
-      // long lists.
-      await this.dismissNumericKeypad();
       const continueBtn = await this.driver.$(this.continueButton);
       if (await continueBtn.isEnabled().catch(() => false)) {
         await continueBtn.click();
@@ -465,6 +469,23 @@ export class VendingServiceScreen extends BaseScreen {
   //   Delivery" - confirmed true (see getDeliveryFieldValue/
   //   getDeliveryFieldHint), same field already covered by TC170's own
   //   label check above - not a separate field.
+  // - TC216 "Clear sort order enabled (grey) AND Apply sort order enabled
+  //   (green)" - live-verified there is NO separate "Apply sort order"
+  //   button anywhere on this sheet - only "Clear sort order" exists
+  //   (same as Market's own Sort sheet - see BaseScreen's own note above
+  //   openSortSheet/clearSortButton). Selecting an option (A to Z/Z to
+  //   A/By Category/Newest First/Oldest First) applies it immediately and
+  //   closes the sheet - there's nothing left to separately "Apply".
+  //   "Clear sort order" itself IS disabled with nothing selected and
+  //   becomes enabled once a sort is active, matching the Excel's own
+  //   "enabled after selection" framing for that one real button.
+  // - TC217 "clear sort after selection (no apply)" - since selecting an
+  //   option already applies it (see TC216's own note - there's no
+  //   unapplied intermediate state), this is really "reopen the sheet
+  //   after a sort is active and tap Clear sort order" - live-verified
+  //   true: the header icon's own `checked` state returns to false and
+  //   the product list reverts to its original (unsorted/Par-position)
+  //   order.
   private readonly planogramTitle = '~Planogram';
   private readonly fillProductRow = '//android.view.View[contains(@content-desc,"More info")]';
 
@@ -496,6 +517,17 @@ export class VendingServiceScreen extends BaseScreen {
     const desc = (await row.getAttribute('content-desc')) ?? '';
     const parts = desc.split('\n');
     return { name: parts[1] ?? '', par: Number(parts[4]) };
+  }
+
+  /** Excel TC216/TC217 (Vending "delivery - Sort") - every visible row's own name, in on-screen order, for asserting sort-order changes and Clear sort order's reset back to the default (Par-position) order. */
+  async getFillProductNamesInOrder(): Promise<string[]> {
+    const rows = await this.driver.$$(this.fillProductRow);
+    const names: string[] = [];
+    for (const row of rows) {
+      const desc = (await row.getAttribute('content-desc')) ?? '';
+      names.push(desc.split('\n')[1] ?? '');
+    }
+    return names;
   }
 
   /** Excel TC170 - the Delivery field's own accessible label, live-verified as the hint attribute rather than a separate text element. */
