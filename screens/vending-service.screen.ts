@@ -240,6 +240,60 @@ export class VendingServiceScreen extends BaseScreen {
     return this.isVisible('//android.widget.EditText[@hint="Bills"]');
   }
 
+  /**
+   * Excel TC268/TC269 (Vending "Money ops" - Bills count entry/
+   * validation) - live-verified 2026-07-30, same stop/machine as
+   * TC266/TC267/TC277 above.
+   *
+   * TC268 "enter counts for $5 and $10 denominations" - live-verified
+   * there is only the one generic Bills field (see this class's own
+   * note above isReplenishmentAmountExpanded) - adapted to entering a
+   * single count into it via the SAME digit-only keypad as Bag code.
+   *
+   * TC269 "enter -1 or 2.5 -> error and input rejected" - live-verified
+   * this field is ALSO the same digit-only keypad (no decimal key, "-"
+   * is a decrement stepper floored at 0, not a literal minus sign) - so
+   * neither value is reachable by real keypad interaction at all.
+   * Adapted: bypassing the keypad via setValue() shows the field
+   * silently STRIPS the invalid character rather than rejecting the
+   * whole entry with a banner - setValue('-1') leaves "1", setValue('2.5')
+   * leaves "25". No error banner exists, but the invalid character
+   * itself never survives.
+   */
+  async enterBillsCount(digits: string): Promise<void> {
+    const field = await this.driver.$(this.billsField);
+    await field.click();
+    for (const digit of digits) {
+      await (await this.driver.$(`~${digit}`)).click();
+    }
+    await this.dismissNumericKeypad();
+  }
+
+  async setBillsAmountRaw(value: string): Promise<void> {
+    const field = await this.driver.$(this.billsField);
+    await field.click();
+    await field.clearValue();
+    await field.setValue(value);
+    await this.driver.hideKeyboard().catch(() => {});
+  }
+
+  /**
+   * Excel TC270 (Vending "Money ops" - the Refund section) - live-
+   * verified 2026-07-30, same stop/machine as above. Same collapsible
+   * pattern as Replenishment Amount (see this class's own note above) -
+   * the Refund header toggles its own Amounts field's visibility, with
+   * no separate accessible expanded/collapsed signal of its own.
+   */
+  private readonly refundHeader = '~Refund\nprovide requested refunds';
+
+  async toggleRefundSection(): Promise<void> {
+    await this.tap(this.refundHeader);
+  }
+
+  async isRefundExpanded(): Promise<boolean> {
+    return this.isVisible('//android.widget.EditText[@hint="Amounts"]');
+  }
+
   /** Excel TC259/TC260 - tapping the "+" icon reveals a second "Additional code" field (own hint/placeholder confirmed live). */
   async openAdditionalBagCodeField(): Promise<void> {
     await this.tap(this.addBagCodeIcon);

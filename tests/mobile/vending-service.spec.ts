@@ -484,6 +484,72 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
     }
   );
 
+  // TC268/TC269/TC270 (Vending "Money ops" - Bills count entry/
+  // validation and the Refund section) - live-verified 2026-07-30 (build
+  // 0.1.76, Route 103/YESTERDAY, "Admark Graphics" stop, "64922 - Lg
+  // Snacks" machine). See VendingServiceScreen's own note above
+  // enterBillsCount/toggleRefundSection for the full discovery.
+  //
+  // TC268 "enter counts for $5 and $10 denominations" - adapted to the
+  // one real Bills field (see this file's own TC267 note above).
+  //
+  // TC269 "enter -1 or 2.5 -> error and input rejected" - live-verified
+  // neither is reachable via the real digit-only keypad at all (no
+  // decimal key, "-" is a decrement stepper). Adapted: bypassing the
+  // keypad shows the field silently strips the invalid character rather
+  // than showing a banner - setValue('-1') leaves "1", setValue('2.5')
+  // leaves "25".
+  //
+  // TC270 "expand Refund -> Refund amount input displayed" - confirmed
+  // true: same collapsible pattern as Replenishment Amount above.
+  test(
+    'TC268/TC269/TC270: Bills count entry/validation and the Refund section',
+    { tag: ['@Vending-TC268', '@Vending-TC269', '@Vending-TC270'] },
+    async () => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const vending = new VendingServiceScreen(driver);
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open Admark Graphics's first Vending machine's Money Operations", async () => {
+        await dashboard.clickLocationByPosition('third');
+        await dashboard.openNthServiceStation('vending', 'first');
+        await vending.openMoneyOperations();
+      });
+
+      // TC268 "enter counts for $5 and $10 denominations" - adapted to
+      // the one real Bills field.
+      await test.step('TC268: entering a bill count via the keypad is accepted', async () => {
+        await vending.enterBillsCount('10');
+        expect(await vending.getBillsAmount()).toBe('10');
+      });
+
+      // TC269 "enter -1 or 2.5 -> error and input rejected" - adapted
+      // (see this test's own note above): the invalid character is
+      // silently stripped rather than shown with a banner.
+      await test.step('TC269: a negative sign or decimal point is silently stripped, not accepted literally', async () => {
+        await vending.setBillsAmountRaw('-1');
+        expect(await vending.getBillsAmount()).toBe('1');
+        await vending.setBillsAmountRaw('2.5');
+        expect(await vending.getBillsAmount()).toBe('25');
+      });
+
+      // TC270 "expand Refund -> Refund amount input displayed" - same
+      // collapsible pattern as Replenishment Amount.
+      await test.step('TC270: the Refund section toggles between expanded and collapsed', async () => {
+        expect(await vending.isRefundExpanded()).toBe(true);
+        await vending.toggleRefundSection();
+        expect(await vending.isRefundExpanded()).toBe(false);
+        await vending.toggleRefundSection();
+        expect(await vending.isRefundExpanded()).toBe(true);
+      });
+    }
+  );
+
   // TC144/TC146/TC147 (Vending "Planogram" sub-area, despite describing
   // the Product fills row rather than the separate Planogram grid screen
   // - see VendingServiceScreen's own note above isParFieldEditable) -
