@@ -68,6 +68,70 @@ export class VendingServiceScreen extends BaseScreen {
   // other unlabeled icon buttons.
   private readonly bagCodeScannerIcon = '(//android.widget.EditText[@hint="Bag code"]/following-sibling::android.widget.ImageView)[1]';
 
+  // Excel TC261/TC262/TC263/TC265 (Vending "Money ops" - continuing the
+  // Bag code sub-flow above with MULTIPLE Additional code fields) - live-
+  // verified 2026-07-30 (build 0.1.76, Route 103/YESTERDAY, "Admark
+  // Graphics" stop, "64922 - Lg Snacks" machine).
+  //
+  // Key live-verified discrepancies from the Excel (documented, not
+  // asserted as bugs):
+  // - TC261 "scanner icon in Additional bag code" - confirmed true: every
+  //   Additional code field gets its own scanner icon, same as the
+  //   primary Bag code field.
+  // - TC262 "add another bag via + -> chip added" - live-verified FALSE,
+  //   same "no chip" pattern as TC256/TC258 above - the "+" icon simply
+  //   reveals ANOTHER plain "Additional code" EditText, not a chip.
+  // - TC263 "5+ bag codes -> 4 chips visible, remaining scrollable, no
+  //   limit" - adapted: there is no chip system to show "4 visible", but
+  //   live-verified true in spirit - tapping "+" repeatedly keeps adding
+  //   MORE Additional code fields with no observed cap (tested to 5
+  //   total, the icon stayed enabled throughout), and the whole form
+  //   sits inside a genuinely scrollable container (confirmed via a raw
+  //   page-source dump: the parent's own `scrollable="true"`).
+  // - TC265 "duplicate bag code -> inline error, chip not added" -
+  //   adapted like TC264: live-verified a real "Duplicate bag codes are
+  //   not allowed" banner appears on Continue when two bag code fields
+  //   share the same value, and Money Collection stays open (the
+  //   submission is genuinely blocked, not just a missing chip).
+  private readonly duplicateBagCodeError = '~Duplicate bag codes are not allowed';
+
+  private additionalCodeFieldAt(n: number): string {
+    return `(${this.additionalCodeField})[${n}]`;
+  }
+
+  private additionalCodeScannerIconAt(n: number): string {
+    return `(${this.additionalCodeField}/following-sibling::android.widget.ImageView)[${n}]`;
+  }
+
+  async isAdditionalCodeScannerIconVisible(n = 1): Promise<boolean> {
+    return this.isVisible(this.additionalCodeScannerIconAt(n));
+  }
+
+  /** Excel TC262/TC263 - taps the "+" icon to reveal one more Additional code field, beyond however many already exist (see this class's own note above - there is no observed cap). */
+  async tapAddBagCodeIcon(): Promise<void> {
+    await this.tap(this.addBagCodeIcon);
+  }
+
+  async getAdditionalCodeFieldCount(): Promise<number> {
+    const fields = await this.driver.$$(this.additionalCodeField);
+    return fields.length;
+  }
+
+  /** Excel TC262/TC265 - enters a bag code into the Nth Additional code field via the SAME digit-only keypad as the primary Bag code field. */
+  async enterAdditionalBagCode(n: number, digits: string): Promise<void> {
+    const field = await this.driver.$(this.additionalCodeFieldAt(n));
+    await field.click();
+    for (const digit of digits) {
+      await (await this.driver.$(`~${digit}`)).click();
+    }
+    await this.dismissNumericKeypad();
+  }
+
+  /** Excel TC265 (adapted - see this class's own note above) - the real validation banner shown when Continue is tapped with two bag code fields sharing the same value. */
+  async isDuplicateBagCodeErrorVisible(): Promise<boolean> {
+    return this.isVisible(this.duplicateBagCodeError);
+  }
+
   async isBagCodeFieldEnabled(): Promise<boolean> {
     const field = await this.driver.$(this.bagCodeField);
     return (await field.getAttribute('enabled').catch(() => 'false')) === 'true';
@@ -135,8 +199,8 @@ export class VendingServiceScreen extends BaseScreen {
     await this.waitFor(this.additionalCodeField);
   }
 
-  async getAdditionalCodeFieldText(): Promise<string> {
-    const field = await this.driver.$(this.additionalCodeField);
+  async getAdditionalCodeFieldText(n = 1): Promise<string> {
+    const field = await this.driver.$(this.additionalCodeFieldAt(n));
     return field.getText();
   }
 

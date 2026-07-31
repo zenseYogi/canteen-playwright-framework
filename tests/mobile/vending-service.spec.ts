@@ -247,16 +247,18 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
     }
   );
 
-  // TC250/TC251/TC253/TC254/TC256/TC257/TC259/TC260/TC264 (Vending "Money
-  // ops" - the Bag code sub-flow; TC250's own Excel row bundles most of
-  // these, TC257 is its own separate row on the same field) - live-
-  // verified 2026-07-30 (build 0.1.76, Route 103/YESTERDAY, "Admark
-  // Graphics" stop, "64922 - Lg Snacks" machine). See
-  // VendingServiceScreen's own extensive note above its Bag code locators
-  // for every discrepancy found relative to the Excel (TC250/TC251
-  // "disabled" claims, TC256/TC258 "chip" claim, TC257's "alphanumeric
-  // keyboard" claim vs the real digit-only keypad, TC264's adapted
-  // validation scenario) - not repeated here.
+  // TC250/TC251/TC253/TC254/TC256/TC257/TC259/TC260/TC261/TC262/TC263/
+  // TC264 (Vending "Money ops" - the Bag code sub-flow; TC250's own Excel
+  // row bundles most of these, TC257/TC261/TC262/TC263 are their own
+  // separate rows on the same field) - live-verified 2026-07-30 (build
+  // 0.1.76, Route 103/YESTERDAY, "Admark Graphics" stop, "64922 - Lg
+  // Snacks" machine). See VendingServiceScreen's own extensive note above
+  // its Bag code locators for every discrepancy found relative to the
+  // Excel (TC250/TC251 "disabled" claims, TC256/TC258/TC262 "chip"
+  // claims, TC257's "alphanumeric keyboard" claim vs the real digit-only
+  // keypad, TC263's "4 chips visible" claim vs a real scrollable
+  // container with no observed field cap, TC264's adapted validation
+  // scenario) - not repeated here.
   //
   // Does NOT submit Money Operations for real (no Continue-with-valid-
   // data step) - this test is scoped to the Bag code field's own
@@ -264,9 +266,9 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
   // Admark Graphics's FIRST machine (not "second", used by TC274/TC275)
   // to stay isolated from that test's real completion.
   test(
-    'TC250/TC251/TC253/TC254/TC256/TC257/TC259/TC260/TC264: Bag code field, scanner icon, Additional code, and its validation',
+    'TC250/TC251/TC253/TC254/TC256/TC257/TC259/TC260/TC261/TC262/TC263/TC264: Bag code field, scanner icon, Additional code fields, and validation',
     { tag: (
-      ['TC250', 'TC251', 'TC253', 'TC254', 'TC256', 'TC257', 'TC259', 'TC260', 'TC264'].map((n) => `@Vending-${n}`)
+      ['TC250', 'TC251', 'TC253', 'TC254', 'TC256', 'TC257', 'TC259', 'TC260', 'TC261', 'TC262', 'TC263', 'TC264'].map((n) => `@Vending-${n}`)
     ) },
     async () => {
       const prepTasks = new PrepTasksScreen(driver);
@@ -318,6 +320,12 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         expect((await vending.getAdditionalCodeFieldText()).length).toBe(0);
       });
 
+      // TC261 "scanner icon in Additional bag code" - confirmed true,
+      // same scanner icon as the primary Bag code field.
+      await test.step('TC261: the Additional code field shows its own scanner icon', async () => {
+        expect(await vending.isAdditionalCodeScannerIconVisible()).toBe(true);
+      });
+
       // TC264 (adapted - see this test's own note above) - clearing the
       // Bag code back to empty with the Additional code field present
       // and tapping Continue shows the real validation banner. Bills is
@@ -325,6 +333,10 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       // bills, or refund)" validation (live-verified elsewhere in this
       // file - see performMoneyOperations's own note) doesn't fire
       // instead and mask the bag-code-specific one being tested here.
+      // Run BEFORE TC262/TC263 below, while there's still only the one
+      // (empty) Additional code field - TC262 leaves a second field with
+      // a real value, which would no longer match this "both bag code
+      // fields empty" scenario.
       await test.step('TC264: Continue with both bag code fields empty shows the real validation banner', async () => {
         const bagField = await vending.getBagCodeFieldText();
         expect(bagField).toBe('1234');
@@ -332,6 +344,77 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         await vending.enterBillsAmount('50');
         await vending.tapContinue();
         expect(await vending.isBagCodeFieldsErrorVisible()).toBe(true);
+        expect(await vending.isVisible('~Money Collection')).toBe(true);
+      });
+
+      // TC262 "add another bag via + and enter a valid code -> chip
+      // added" - live-verified FALSE, same "no chip" pattern as
+      // TC256/TC258 above: the "+" icon reveals ANOTHER plain Additional
+      // code field, and the entered digits just stay as its text.
+      await test.step('TC262: tapping + again reveals a second Additional code field, entering a code leaves plain text', async () => {
+        const before = await vending.getAdditionalCodeFieldCount();
+        await vending.tapAddBagCodeIcon();
+        expect(await vending.getAdditionalCodeFieldCount()).toBe(before + 1);
+        await vending.enterAdditionalBagCode(2, '5678');
+        expect(await vending.getAdditionalCodeFieldText(2)).toBe('5678');
+      });
+
+      // TC263 "5+ bag codes -> 4 chips visible, remaining scrollable, no
+      // limit" - adapted (see this test's own note above): tapping "+"
+      // repeatedly keeps adding fields with no observed cap.
+      await test.step('TC263: the + icon keeps adding fields with no observed limit, up to 5+ total', async () => {
+        for (let i = 0; i < 3; i++) {
+          await vending.tapAddBagCodeIcon();
+        }
+        expect(await vending.getAdditionalCodeFieldCount()).toBe(5);
+        expect(await vending.isAddBagCodeIconEnabled()).toBe(true);
+      });
+    }
+  );
+
+  // TC265 (Vending "Money ops" - Bag code duplicate detection) - live-
+  // verified 2026-07-30 (build 0.1.76, Route 103/YESTERDAY, "Advocate
+  // Health Carolina Neurosurgery & Spine Association" stop, "97713 -
+  // Bottle Bev" machine).
+  //
+  // Uses a FOURTH, entirely separate stop (not "Aaron's" or "Admark
+  // Graphics") to get a clean two-field scenario: the test above (TC250-
+  // TC264) ends with 5 Additional code fields open, and adding a
+  // duplicate check there would either need clearing all of them back
+  // down first or risk the OTHER "All bag code fields must be filled in"
+  // validation (TC264) firing instead if any field is left empty -
+  // masking the specific duplicate-detection behavior this test targets.
+  //
+  // TC265 "duplicate bag code -> inline error, chip not added" - adapted
+  // like TC264 above: live-verified a real "Duplicate bag codes are not
+  // allowed" banner appears when the primary Bag code and one Additional
+  // code field share the same value, and Money Collection stays open -
+  // the submission is genuinely blocked, not just a missing chip.
+  test(
+    'TC265: entering a duplicate bag code shows a real validation error',
+    { tag: ['@Vending-TC265'] },
+    async () => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const vending = new VendingServiceScreen(driver);
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open the fourth stop's first Vending machine's Money Operations", async () => {
+        await dashboard.clickLocationByPosition('fourth');
+        await dashboard.openNthServiceStation('vending', 'first');
+        await vending.openMoneyOperations();
+      });
+
+      await test.step('TC265: a duplicate bag code shows the real validation banner and blocks Continue', async () => {
+        await vending.enterBagCode('1234');
+        await vending.openAdditionalBagCodeField();
+        await vending.enterAdditionalBagCode(1, '1234');
+        await vending.tapContinue();
+        expect(await vending.isDuplicateBagCodeErrorVisible()).toBe(true);
         expect(await vending.isVisible('~Money Collection')).toBe(true);
       });
     }
