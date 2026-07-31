@@ -193,6 +193,49 @@ export class VendingServiceScreen extends BaseScreen {
     await this.driver.hideKeyboard().catch(() => {});
   }
 
+  async getBillsAmount(): Promise<string> {
+    const bills = await this.driver.$(this.billsField);
+    return bills.getText();
+  }
+
+  /**
+   * Excel TC266/TC267/TC277 (Vending "Money ops" - the Replenishment
+   * Amount section) - live-verified 2026-07-30 (build 0.1.76, Route
+   * 103/YESTERDAY, "Advocate Health Carolina Neurosurgery & Spine
+   * Association" stop, "69153 - Lg Snacks" machine).
+   *
+   * TC266 "section renamed to Replenishment Amount" - already confirmed
+   * true via isMoneyCollectionScreenVisible's own field-presence check
+   * (see that test's own TC246 note).
+   *
+   * TC267 "expand Replenishment Amount -> see $5 and $10 bill inputs" -
+   * live-verified FALSE: there is only ONE generic Bills field (same one
+   * `billsField`/enterBillsAmount already use), not a $5/$10 denomination
+   * breakdown. The section genuinely IS collapsible/expandable though -
+   * tapping its header toggles the Bills field's own visibility, with no
+   * separate accessible expanded/collapsed signal (the header's own
+   * content-desc/attributes are byte-identical either way) - visibility
+   * of the Bills field itself is the only real signal.
+   */
+  private readonly replenishmentAmountHeader = '~Replenishment Amount\ncheck starting cash in machine';
+
+  async toggleReplenishmentAmountSection(): Promise<void> {
+    await this.tap(this.replenishmentAmountHeader);
+  }
+
+  /**
+   * CORRECTED: originally checked billsField (`EditText[2]`) directly,
+   * but that's a positional index - once the section collapses and the
+   * Bills EditText is removed from the tree entirely, the Refund
+   * field's own Amounts EditText shifts up to take index 2, making the
+   * positional check report "visible" (true) even while collapsed.
+   * hint="Bills" is stable regardless of how many EditTexts currently
+   * exist above it.
+   */
+  async isReplenishmentAmountExpanded(): Promise<boolean> {
+    return this.isVisible('//android.widget.EditText[@hint="Bills"]');
+  }
+
   /** Excel TC259/TC260 - tapping the "+" icon reveals a second "Additional code" field (own hint/placeholder confirmed live). */
   async openAdditionalBagCodeField(): Promise<void> {
     await this.tap(this.addBagCodeIcon);

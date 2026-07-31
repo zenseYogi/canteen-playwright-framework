@@ -420,6 +420,66 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
     }
   );
 
+  // TC266/TC267/TC277 (Vending "Money ops" - the Replenishment Amount
+  // section; TC267's own Excel row bundles TC277) - live-verified
+  // 2026-07-30 (build 0.1.76, Route 103/YESTERDAY, "Advocate Health
+  // Carolina Neurosurgery & Spine Association" stop, "69153 - Lg Snacks"
+  // machine). See VendingServiceScreen's own note above
+  // toggleReplenishmentAmountSection for the full discovery.
+  //
+  // TC266 "section renamed to Replenishment Amount" is already covered
+  // by the "verify the Money Collection screen fields" test above (its
+  // own TC246 field-presence check uses this exact section) - not
+  // repeated here.
+  //
+  // TC267 "expand Replenishment Amount -> see $5 and $10 bill inputs" -
+  // live-verified FALSE: there is only the one generic Bills field
+  // already covered elsewhere in this file, not a $5/$10 breakdown. The
+  // section genuinely does expand/collapse on tap though (the Bills
+  // field's own visibility is the only real signal - the header itself
+  // carries no accessible expanded/collapsed state).
+  //
+  // Uses the fourth stop's SECOND machine (not "first", used by TC265
+  // above) to stay isolated from that test's own draft edits.
+  test(
+    'TC267/TC277: Replenishment Amount expands/collapses and retains an entered amount',
+    { tag: ['@Vending-TC267', '@Vending-TC277'] },
+    async () => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const vending = new VendingServiceScreen(driver);
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open the fourth stop's second Vending machine's Money Operations", async () => {
+        await dashboard.clickLocationByPosition('fourth');
+        await dashboard.openNthServiceStation('vending', 'second');
+        await vending.openMoneyOperations();
+      });
+
+      // TC267 "expand Replenishment Amount" - expanded by default (Bills
+      // visible); tapping the header collapses it, tapping again
+      // re-expands it.
+      await test.step('TC267: the Replenishment Amount section toggles between expanded and collapsed', async () => {
+        expect(await vending.isReplenishmentAmountExpanded()).toBe(true);
+        await vending.toggleReplenishmentAmountSection();
+        expect(await vending.isReplenishmentAmountExpanded()).toBe(false);
+        await vending.toggleReplenishmentAmountSection();
+        expect(await vending.isReplenishmentAmountExpanded()).toBe(true);
+      });
+
+      // TC277 "user can update replenishment amount -> entered in amount
+      // field".
+      await test.step('TC277: an entered amount is retained in the Bills field', async () => {
+        await vending.enterBillsAmount('75');
+        expect(await vending.getBillsAmount()).toBe('75');
+      });
+    }
+  );
+
   // TC144/TC146/TC147 (Vending "Planogram" sub-area, despite describing
   // the Product fills row rather than the separate Planogram grid screen
   // - see VendingServiceScreen's own note above isParFieldEditable) -
