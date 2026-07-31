@@ -145,7 +145,7 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
 
   test(
     'verify the Money Collection screen fields',
-    { tag: ['@Vending-TC244', '@Vending-TC246', '@Vending-TC248'] },
+    { tag: ['@Vending-TC242', '@Vending-TC243', '@Vending-TC244', '@Vending-TC246', '@Vending-TC248'] },
     async () => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -161,10 +161,11 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         await dashboard.openNthServiceStation('vending', 'first');
       });
 
-      // TC244 "verify title" / TC246 "view all sections" (Skip Money Bag,
-      // bag code, Replenishment Bills, Refund - all four confirmed live) /
-      // TC248 "view the Skip Money Bag label".
-      await test.step('TC244/TC246/TC248: open Money Operations and verify all fields are present', async () => {
+      // TC242 "open Money operations" / TC244 "verify title" / TC246 "view
+      // all sections" (Skip Money Bag, bag code, Replenishment Bills,
+      // Refund - all four confirmed live) / TC248 "view the Skip Money Bag
+      // label".
+      await test.step('TC242/TC244/TC246/TC248: open Money Operations and verify all fields are present', async () => {
         await vending.openMoneyOperations();
         const fields = await vending.isMoneyCollectionScreenVisible();
         expect(fields.title).toBe(true);
@@ -172,6 +173,67 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         expect(fields.bagCode).toBe(true);
         expect(fields.bills).toBe(true);
         expect(fields.refund).toBe(true);
+      });
+
+      // TC243 "view route details & date" - same shared header component
+      // already proven elsewhere in this app (BaseScreen.isDateRouteHeaderVisible).
+      await test.step('TC243: the header shows both the date and route badges', async () => {
+        const header = await vending.isDateRouteHeaderVisible();
+        expect(header.date).toBe(true);
+        expect(header.route).toBe(true);
+      });
+    }
+  );
+
+  // TC274/TC275 (bundled inside TC242's own Excel row, Vending "Money ops")
+  // - live-verified 2026-07-30 (build 0.1.76, Route 103/YESTERDAY, "Admark
+  // Graphics" stop, "97624 - Bottle Bev" machine).
+  //
+  // Uses a DIFFERENT STOP entirely ("Admark Graphics", not "Aaron's") -
+  // not just a different machine position: several other tests in this
+  // file complete Money Operations on "Aaron's" own "first" machine as
+  // part of their own prerequisite flow (completeBeforePhotosMoneyOpsAndFills
+  // - see TC004-TC015 below), and live-verified elsewhere in this session
+  // that re-submitting an already-completed step is a silent no-op rather
+  // than an error - reusing any of "Aaron's" 3 machines here risked
+  // exactly that collision. "Admark Graphics" is a second, entirely
+  // separate stop with its own 2 Vending machines that no other test in
+  // this file touches.
+  //
+  // TC274 "tile shows green with a tick mark" - visual-only signal with
+  // no accessible content-desc/selected/checked change once Continue
+  // succeeds (confirmed live: the tile's content-desc and clickable=true
+  // state are byte-identical before and after completion) - same pattern
+  // as TC014/TC179/TC211/TC241 elsewhere in this file; not assertable.
+  test(
+    'TC274/TC275: completing Money Operations returns to the checklist and can be reopened',
+    { tag: ['@Vending-TC274', '@Vending-TC275'] },
+    async () => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const vending = new VendingServiceScreen(driver);
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open Admark Graphics's second Vending machine's checklist", async () => {
+        await dashboard.clickLocationByPosition('third');
+        await dashboard.openNthServiceStation('vending', 'second');
+      });
+
+      // TC274 "complete Money operations -> data saved, navigate to the
+      // workflow screen".
+      await test.step('TC274: submitting valid values returns to the machine checklist', async () => {
+        await vending.performMoneyOperations({ bagCode: 'A29389P', bills: '120', refund: '0.05' });
+        expect(await vending.isVisible('~Money Collection')).toBe(false);
+      });
+
+      // TC275 "open Money operations again".
+      await test.step('TC275: Money Operations can be reopened from the checklist', async () => {
+        await vending.openMoneyOperations();
+        expect(await vending.isVisible('~Money Collection')).toBe(true);
       });
     }
   );

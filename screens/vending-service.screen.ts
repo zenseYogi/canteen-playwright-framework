@@ -112,12 +112,30 @@ export class VendingServiceScreen extends BaseScreen {
     };
   }
 
+  /**
+   * CORRECTED (live-verified): the original version used BaseScreen's
+   * generic type() helper (setValue() with no preceding click()) on all
+   * three fields - it visually filled them, but Continue then failed
+   * with a real "Please enter at least one value (bag code, bills, or
+   * refund)" validation banner, because the app's own validation model
+   * never actually registered the values (same root cause as
+   * fillAllProductDeliveryQuantities()'s own setValue()-without-a-click
+   * bug elsewhere in this file). Clicking each field before setValue()
+   * fixes it - Continue then genuinely submits and returns to the
+   * checklist.
+   */
   async performMoneyOperations(values: { bagCode?: string; bills?: string; refund?: string } = {}): Promise<void> {
     await this.openMoneyOperations();
-    await this.type(this.bagCodeField, values.bagCode ?? '1234');
-    await this.type(this.billsField, values.bills ?? '120');
-    await this.pressKeyCode(66);
-    await this.type(this.refundField, values.refund ?? '0.05');
+    const bagCode = await this.driver.$(this.bagCodeField);
+    await bagCode.click();
+    await bagCode.setValue(values.bagCode ?? '1234');
+    const bills = await this.driver.$(this.billsField);
+    await bills.click();
+    await bills.setValue(values.bills ?? '120');
+    const refund = await this.driver.$(this.refundField);
+    await refund.click();
+    await refund.setValue(values.refund ?? '0.05');
+    await this.driver.hideKeyboard().catch(() => {});
     await this.tap(this.continueButton);
   }
 
