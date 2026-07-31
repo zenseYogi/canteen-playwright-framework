@@ -86,6 +86,23 @@ export class VendingServiceScreen extends BaseScreen {
     return this.isVisible(this.bagCodeScannerIcon);
   }
 
+  /**
+   * Excel TC257 - live-verified FALSE: tapping the Bag code field opens
+   * the SAME custom digit-only keypad as Product fills' Delivery/End
+   * fields (a "5" digit key becomes visible), not a real
+   * character/alphanumeric keyboard - see this class's own note above
+   * on why only digits are reachable through it. Dismisses the keypad
+   * afterward without entering anything, leaving the field untouched
+   * for callers that only want to check which keypad opened.
+   */
+  async isBagCodeDigitKeypadVisible(): Promise<boolean> {
+    const field = await this.driver.$(this.bagCodeField);
+    await field.click();
+    const isDigitKeypadVisible = await this.isVisible('~5');
+    await this.dismissNumericKeypad();
+    return isDigitKeypadVisible;
+  }
+
   /** Excel TC256 - drives the SAME custom digit-only keypad as Product fills' Delivery/End fields (see this class's own note above on why only digits are reachable). Dismisses the keypad afterward, matching the established pattern elsewhere in this file. */
   async enterBagCode(digits: string): Promise<void> {
     const field = await this.driver.$(this.bagCodeField);

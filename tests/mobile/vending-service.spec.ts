@@ -247,15 +247,16 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
     }
   );
 
-  // TC250/TC251/TC253/TC254/TC256/TC259/TC260/TC264 (Vending "Money ops" -
-  // the Bag code sub-flow, bundled inside TC250's own Excel row) - live-
+  // TC250/TC251/TC253/TC254/TC256/TC257/TC259/TC260/TC264 (Vending "Money
+  // ops" - the Bag code sub-flow; TC250's own Excel row bundles most of
+  // these, TC257 is its own separate row on the same field) - live-
   // verified 2026-07-30 (build 0.1.76, Route 103/YESTERDAY, "Admark
   // Graphics" stop, "64922 - Lg Snacks" machine). See
   // VendingServiceScreen's own extensive note above its Bag code locators
   // for every discrepancy found relative to the Excel (TC250/TC251
-  // "disabled" claims, TC256/TC258 "chip" claim, digit-only keypad vs
-  // alphanumeric test data, TC264's adapted validation scenario) - not
-  // repeated here.
+  // "disabled" claims, TC256/TC258 "chip" claim, TC257's "alphanumeric
+  // keyboard" claim vs the real digit-only keypad, TC264's adapted
+  // validation scenario) - not repeated here.
   //
   // Does NOT submit Money Operations for real (no Continue-with-valid-
   // data step) - this test is scoped to the Bag code field's own
@@ -263,9 +264,9 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
   // Admark Graphics's FIRST machine (not "second", used by TC274/TC275)
   // to stay isolated from that test's real completion.
   test(
-    'TC250/TC251/TC253/TC254/TC256/TC259/TC260/TC264: Bag code field, scanner icon, Additional code, and its validation',
+    'TC250/TC251/TC253/TC254/TC256/TC257/TC259/TC260/TC264: Bag code field, scanner icon, Additional code, and its validation',
     { tag: (
-      ['TC250', 'TC251', 'TC253', 'TC254', 'TC256', 'TC259', 'TC260', 'TC264'].map((n) => `@Vending-${n}`)
+      ['TC250', 'TC251', 'TC253', 'TC254', 'TC256', 'TC257', 'TC259', 'TC260', 'TC264'].map((n) => `@Vending-${n}`)
     ) },
     async () => {
       const prepTasks = new PrepTasksScreen(driver);
@@ -294,6 +295,13 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       await test.step('TC253/TC254: the Bag code field shows its placeholder and scanner icon', async () => {
         expect((await vending.getBagCodeFieldText()).length).toBe(0);
         expect(await vending.isBagCodeScannerIconVisible()).toBe(true);
+      });
+
+      // TC257 "character/alphanumeric keyboard opens on tap" - live:
+      // FALSE, the same custom digit-only keypad opens instead
+      // (documented discrepancy above).
+      await test.step('TC257: tapping the Bag code field opens the digit-only keypad, not an alphanumeric keyboard', async () => {
+        expect(await vending.isBagCodeDigitKeypadVisible()).toBe(true);
       });
 
       // TC256 "enter a bag code manually" - live: no chip forms, the
