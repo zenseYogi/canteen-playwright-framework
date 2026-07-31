@@ -204,9 +204,9 @@ export class VendingServiceScreen extends BaseScreen {
    * 103/YESTERDAY, "Advocate Health Carolina Neurosurgery & Spine
    * Association" stop, "69153 - Lg Snacks" machine).
    *
-   * TC266 "section renamed to Replenishment Amount" - already confirmed
-   * true via isMoneyCollectionScreenVisible's own field-presence check
-   * (see that test's own TC246 note).
+   * TC266 "section renamed to Replenishment Amount (from Imprest
+   * money)" - confirmed true: this exact content-desc is what's shown,
+   * with no trace of the old "Imprest money" label anywhere.
    *
    * TC267 "expand Replenishment Amount -> see $5 and $10 bill inputs" -
    * live-verified FALSE: there is only ONE generic Bills field (same one
@@ -218,6 +218,10 @@ export class VendingServiceScreen extends BaseScreen {
    * of the Bills field itself is the only real signal.
    */
   private readonly replenishmentAmountHeader = '~Replenishment Amount\ncheck starting cash in machine';
+
+  async isReplenishmentAmountLabelVisible(): Promise<boolean> {
+    return this.isVisible(this.replenishmentAmountHeader);
+  }
 
   async toggleReplenishmentAmountSection(): Promise<void> {
     await this.tap(this.replenishmentAmountHeader);

@@ -427,10 +427,9 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
   // machine). See VendingServiceScreen's own note above
   // toggleReplenishmentAmountSection for the full discovery.
   //
-  // TC266 "section renamed to Replenishment Amount" is already covered
-  // by the "verify the Money Collection screen fields" test above (its
-  // own TC246 field-presence check uses this exact section) - not
-  // repeated here.
+  // TC266 "section renamed to Replenishment Amount (from Imprest
+  // money)" - confirmed true: the section's own content-desc reads
+  // exactly "Replenishment Amount", with no trace of the old label.
   //
   // TC267 "expand Replenishment Amount -> see $5 and $10 bill inputs" -
   // live-verified FALSE: there is only the one generic Bills field
@@ -442,8 +441,8 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
   // Uses the fourth stop's SECOND machine (not "first", used by TC265
   // above) to stay isolated from that test's own draft edits.
   test(
-    'TC267/TC277: Replenishment Amount expands/collapses and retains an entered amount',
-    { tag: ['@Vending-TC267', '@Vending-TC277'] },
+    'TC266/TC267/TC277: Replenishment Amount is renamed, expands/collapses, and retains an entered amount',
+    { tag: ['@Vending-TC266', '@Vending-TC267', '@Vending-TC277'] },
     async () => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -458,6 +457,11 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         await dashboard.clickLocationByPosition('fourth');
         await dashboard.openNthServiceStation('vending', 'second');
         await vending.openMoneyOperations();
+      });
+
+      // TC266 "section renamed to Replenishment Amount".
+      await test.step('TC266: the section header reads "Replenishment Amount"', async () => {
+        expect(await vending.isReplenishmentAmountLabelVisible()).toBe(true);
       });
 
       // TC267 "expand Replenishment Amount" - expanded by default (Bills
