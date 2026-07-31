@@ -18,11 +18,115 @@ export class VendingServiceScreen extends BaseScreen {
   private readonly skipMoneyBagCheckbox = '//android.widget.CheckBox';
   // Vending's Money Collection has 3 EditTexts (bag code / Replenishment
   // Bills / Refund amount) - one fewer than Market's 4 (no separate coins
-  // field). None expose a hint/content-desc of their own; positional
-  // indexing is the only option, matching the existing Market pattern.
+  // field). CORRECTED: all three DO carry their own accessible hint
+  // ("Bag code"/"Bills"/"Amounts", live-verified via a raw page-source
+  // dump) - the original claim that none expose one was wrong; kept as
+  // positional indexing anyway since that's already proven working
+  // throughout this file and every other caller.
   private readonly bagCodeField = '//android.widget.EditText[1]';
   private readonly billsField = '//android.widget.EditText[2]';
   private readonly refundField = '//android.widget.EditText[3]';
+
+  // Excel TC250/TC251/TC253/TC254/TC256/TC259/TC260/TC264 (Vending "Money
+  // ops" - the Bag code sub-flow) - live-verified 2026-07-30 (build
+  // 0.1.76, Route 103/YESTERDAY, "Admark Graphics" stop, "97624 - Bottle
+  // Bev" machine).
+  //
+  // Key live-verified discrepancies from the Excel (documented, not
+  // asserted as bugs):
+  // - TC250/TC251 "Bag code field disabled" / "+ icon disabled" - both
+  //   live-verified FALSE: both are enabled/clickable from the moment
+  //   the screen opens, same "always enabled" pattern already documented
+  //   elsewhere in this app (Continue/Apply buttons).
+  // - TC256/TC258 "bag chip added" (after manual entry / after a scan) -
+  //   live-verified FALSE: there is no chip/tag UI at all - the code
+  //   simply stays as plain text inside the same EditText, same pattern
+  //   as every other field in this app.
+  // - Bag code is driven by the SAME custom digit-only keypad family
+  //   used throughout this app (0-9, a "-"/"+" stepper pair, backspace,
+  //   confirm) - there is no way to enter letters through it at all, so
+  //   the Excel's own alphanumeric test data ("A29389P", "CR5249Q2") and
+  //   TC264's "@@@@" (invalid characters) are both unreachable via real
+  //   keypad interaction; not asserted as-is.
+  // - TC258 (scan a bag code via the camera) - not exercised here, same
+  //   reasoning as every other real-camera flow in this app (see the
+  //   After Photos section's own note) - live-verified the scanner icon
+  //   opens the device camera, not exercised end-to-end.
+  // - TC264 "invalid bag code -> inline error, chip not added" - adapted
+  //   rather than reproduced verbatim: live-verified that once the
+  //   Additional code field exists (via the + icon) and BOTH bag code
+  //   fields are left empty, tapping Continue shows a real (if brief,
+  //   toast-like) banner - "All bag code fields must be filled in." -
+  //   and Money Collection stays open. This is the closest real
+  //   validation behavior to TC264's own intent.
+  private readonly addBagCodeIcon = '~section_header_add_cta';
+  private readonly additionalCodeField = '//android.widget.EditText[@hint="Additional code"]';
+  private readonly bagCodeFieldsError = '~All bag code fields must be filled in.';
+  // The Bag code field's own barcode-scanner icon - live-verified as an
+  // unlabeled ImageView immediately following the field itself (no
+  // content-desc of its own), same structural pattern as this file's
+  // other unlabeled icon buttons.
+  private readonly bagCodeScannerIcon = '(//android.widget.EditText[@hint="Bag code"]/following-sibling::android.widget.ImageView)[1]';
+
+  async isBagCodeFieldEnabled(): Promise<boolean> {
+    const field = await this.driver.$(this.bagCodeField);
+    return (await field.getAttribute('enabled').catch(() => 'false')) === 'true';
+  }
+
+  async isAddBagCodeIconEnabled(): Promise<boolean> {
+    return this.isEnabled(this.addBagCodeIcon);
+  }
+
+  async getBagCodeFieldText(): Promise<string> {
+    const field = await this.driver.$(this.bagCodeField);
+    return field.getText();
+  }
+
+  async isBagCodeScannerIconVisible(): Promise<boolean> {
+    return this.isVisible(this.bagCodeScannerIcon);
+  }
+
+  /** Excel TC256 - drives the SAME custom digit-only keypad as Product fills' Delivery/End fields (see this class's own note above on why only digits are reachable). Dismisses the keypad afterward, matching the established pattern elsewhere in this file. */
+  async enterBagCode(digits: string): Promise<void> {
+    const field = await this.driver.$(this.bagCodeField);
+    await field.click();
+    if (!digits) {
+      await field.clearValue();
+    } else {
+      for (const digit of digits) {
+        await (await this.driver.$(`~${digit}`)).click();
+      }
+    }
+    await this.dismissNumericKeypad();
+  }
+
+  async tapContinue(): Promise<void> {
+    await this.tap(this.continueButton);
+  }
+
+  /** Fills only the Bills field - lets callers isolate the Bag code fields' own validation (see isBagCodeFieldsErrorVisible's own note) from the "enter at least one value" validation that fires when Bills/Refund are ALSO both empty. */
+  async enterBillsAmount(value: string): Promise<void> {
+    const bills = await this.driver.$(this.billsField);
+    await bills.click();
+    await bills.setValue(value);
+    await this.driver.hideKeyboard().catch(() => {});
+  }
+
+  /** Excel TC259/TC260 - tapping the "+" icon reveals a second "Additional code" field (own hint/placeholder confirmed live). */
+  async openAdditionalBagCodeField(): Promise<void> {
+    await this.tap(this.addBagCodeIcon);
+    await this.waitFor(this.additionalCodeField);
+  }
+
+  async getAdditionalCodeFieldText(): Promise<string> {
+    const field = await this.driver.$(this.additionalCodeField);
+    return field.getText();
+  }
+
+  /** Excel TC264 (adapted - see this class's own note above) - the real validation banner shown when Continue is tapped with the Additional code field present but both bag code fields empty. */
+  async isBagCodeFieldsErrorVisible(): Promise<boolean> {
+    return this.isVisible(this.bagCodeFieldsError);
+  }
 
   // Excel TC004-TC015 (Vending "After Photos") - live-verified 2026-07-29
   // (build 0.1.76, Route 103/YESTERDAY, "Aaron's" stop, "11333 - Bottle

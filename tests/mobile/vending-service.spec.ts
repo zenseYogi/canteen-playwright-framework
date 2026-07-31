@@ -238,6 +238,88 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
     }
   );
 
+  // TC250/TC251/TC253/TC254/TC256/TC259/TC260/TC264 (Vending "Money ops" -
+  // the Bag code sub-flow, bundled inside TC250's own Excel row) - live-
+  // verified 2026-07-30 (build 0.1.76, Route 103/YESTERDAY, "Admark
+  // Graphics" stop, "64922 - Lg Snacks" machine). See
+  // VendingServiceScreen's own extensive note above its Bag code locators
+  // for every discrepancy found relative to the Excel (TC250/TC251
+  // "disabled" claims, TC256/TC258 "chip" claim, digit-only keypad vs
+  // alphanumeric test data, TC264's adapted validation scenario) - not
+  // repeated here.
+  //
+  // Does NOT submit Money Operations for real (no Continue-with-valid-
+  // data step) - this test is scoped to the Bag code field's own
+  // behavior, already covered end-to-end by TC274/TC275 above. Reuses
+  // Admark Graphics's FIRST machine (not "second", used by TC274/TC275)
+  // to stay isolated from that test's real completion.
+  test(
+    'TC250/TC251/TC253/TC254/TC256/TC259/TC260/TC264: Bag code field, scanner icon, Additional code, and its validation',
+    { tag: (
+      ['TC250', 'TC251', 'TC253', 'TC254', 'TC256', 'TC259', 'TC260', 'TC264'].map((n) => `@Vending-${n}`)
+    ) },
+    async () => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const vending = new VendingServiceScreen(driver);
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open Admark Graphics's first Vending machine's Money Operations", async () => {
+        await dashboard.clickLocationByPosition('third');
+        await dashboard.openNthServiceStation('vending', 'first');
+        await vending.openMoneyOperations();
+      });
+
+      // TC250/TC251 "Bag code field disabled" / "+ icon disabled" - live:
+      // both enabled from the start (documented discrepancy above).
+      await test.step('TC250/TC251: the Bag code field and + icon are both enabled', async () => {
+        expect(await vending.isBagCodeFieldEnabled()).toBe(true);
+        expect(await vending.isAddBagCodeIconEnabled()).toBe(true);
+      });
+
+      // TC253 "placeholder text visible" / TC254 "scanner icon displayed".
+      await test.step('TC253/TC254: the Bag code field shows its placeholder and scanner icon', async () => {
+        expect((await vending.getBagCodeFieldText()).length).toBe(0);
+        expect(await vending.isBagCodeScannerIconVisible()).toBe(true);
+      });
+
+      // TC256 "enter a bag code manually" - live: no chip forms, the
+      // digits just stay in the field (documented discrepancy above).
+      await test.step('TC256: entering a bag code via the keypad leaves it in the field, not a chip', async () => {
+        await vending.enterBagCode('1234');
+        expect(await vending.getBagCodeFieldText()).toBe('1234');
+      });
+
+      // TC259/TC260 "Additional bag code field is displayed, with its own
+      // placeholder".
+      await test.step('TC259/TC260: the + icon reveals an Additional code field with its own placeholder', async () => {
+        await vending.openAdditionalBagCodeField();
+        expect((await vending.getAdditionalCodeFieldText()).length).toBe(0);
+      });
+
+      // TC264 (adapted - see this test's own note above) - clearing the
+      // Bag code back to empty with the Additional code field present
+      // and tapping Continue shows the real validation banner. Bills is
+      // filled first so the OTHER "enter at least one value (bag code,
+      // bills, or refund)" validation (live-verified elsewhere in this
+      // file - see performMoneyOperations's own note) doesn't fire
+      // instead and mask the bag-code-specific one being tested here.
+      await test.step('TC264: Continue with both bag code fields empty shows the real validation banner', async () => {
+        const bagField = await vending.getBagCodeFieldText();
+        expect(bagField).toBe('1234');
+        await vending.enterBagCode('');
+        await vending.enterBillsAmount('50');
+        await vending.tapContinue();
+        expect(await vending.isBagCodeFieldsErrorVisible()).toBe(true);
+        expect(await vending.isVisible('~Money Collection')).toBe(true);
+      });
+    }
+  );
+
   // TC144/TC146/TC147 (Vending "Planogram" sub-area, despite describing
   // the Product fills row rather than the separate Planogram grid screen
   // - see VendingServiceScreen's own note above isParFieldEditable) -
