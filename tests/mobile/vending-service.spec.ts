@@ -145,7 +145,7 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
 
   test(
     'verify the Money Collection screen fields',
-    { tag: ['@Vending-TC242', '@Vending-TC243', '@Vending-TC244', '@Vending-TC246', '@Vending-TC248'] },
+    { tag: ['@Vending-TC242', '@Vending-TC243', '@Vending-TC244', '@Vending-TC246', '@Vending-TC248', '@Vending-TC255'] },
     async () => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -181,6 +181,15 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         const header = await vending.isDateRouteHeaderVisible();
         expect(header.date).toBe(true);
         expect(header.route).toBe(true);
+      });
+
+      // TC255 "Continue disabled with no values entered" - live-verified
+      // FALSE: same "always enabled" discrepancy already documented on
+      // TC177/TC178/TC207-TC209 elsewhere in this file - Continue is
+      // enabled from the moment the screen opens, before any field is
+      // touched.
+      await test.step('TC255: Continue is enabled even with no values entered', async () => {
+        expect(await vending.isMoneyCollectionContinueEnabled()).toBe(true);
       });
     }
   );

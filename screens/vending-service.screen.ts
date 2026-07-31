@@ -738,6 +738,11 @@ export class VendingServiceScreen extends BaseScreen {
     return this.isEnabled(this.continueButton);
   }
 
+  /** Excel TC255 - same shared Continue button as Fills' own isFillsContinueEnabled, aliased here for clarity when asserting from the Money Collection screen. */
+  async isMoneyCollectionContinueEnabled(): Promise<boolean> {
+    return this.isEnabled(this.continueButton);
+  }
+
   /** Excel TC117 - opens Planogram from the Product fills header's own planogram icon. */
   async openPlanogram(): Promise<void> {
     await this.tap(this.planogramCta);
