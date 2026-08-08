@@ -1,6 +1,7 @@
 import { test, expect } from '../../fixtures/appium.fixture';
-import { loginAndWaitForMfa } from '../../utils/login-flow';
+import { loginAndEnsureRoute } from '../../utils/login-flow';
 import { HomeScreen } from '../../screens/home.screen';
+import { mobileConfig } from '../../config/mobile.config';
 
 // PBI 622025 (Azure DevOps): "Home Page: Dynamic data with functionality" -
 // 1) System date populates on the navigation bar.
@@ -21,6 +22,14 @@ import { HomeScreen } from '../../screens/home.screen';
 // compare against) - each is tagged to its own Excel-documented PBI, not
 // folded into 622025.
 test.describe('Home / Dashboard - dynamic data (PBI 622025)', () => {
+  // Same reasoning as the rest of this suite: every test here leaves the
+  // app wherever the last step landed under KEEP_APP_SESSION - return to
+  // Dashboard after each so no test inherits a stale screen from whichever
+  // ran before it.
+  test.afterEach(async ({ driver }) => {
+    await new HomeScreen(driver).returnToHome().catch(() => {});
+  });
+
   test(
     'view the system date, route badge, and dynamic Deliveries/LOB counts',
     { tag: ['@StartOfDay-TC007', '@StartOfDay-TC012', '@StartOfDay-TC013', '@StartOfDay-TC014', '@StartOfDay-TC015'] },
@@ -28,7 +37,7 @@ test.describe('Home / Dashboard - dynamic data (PBI 622025)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in', async () => {
-        await loginAndWaitForMfa(driver);
+        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
       });
 
       // TC007 "view the System Date" - the badge shows one of
@@ -81,7 +90,7 @@ test.describe('Home / Dashboard - dynamic data (PBI 622025)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in', async () => {
-        await loginAndWaitForMfa(driver);
+        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
       });
 
       // TC018 "view Schedule" / TC020 "navigate to Edit schedule order

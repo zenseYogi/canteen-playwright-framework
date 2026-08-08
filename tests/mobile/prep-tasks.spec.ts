@@ -1,6 +1,7 @@
 import { test, expect } from '../../fixtures/appium.fixture';
-import { loginAndWaitForMfa, switchRoute } from '../../utils/login-flow';
+import { loginAndEnsureRoute, loginToFreshStartDayRoute } from '../../utils/login-flow';
 import { PrepTasksScreen } from '../../screens/prep-tasks.screen';
+import { HomeScreen } from '../../screens/home.screen';
 import { mobileConfig } from '../../config/mobile.config';
 
 // Traceability to Optimized_TCs_V_2.0.xlsx: TC numbers cited per assertion
@@ -9,6 +10,15 @@ import { mobileConfig } from '../../config/mobile.config';
 // Every locator used here was live-verified against build 0.1.73 - see
 // docs/rf-to-playwright-reuse.md's "Live verification session" section.
 test.describe('Prep Tasks / Start of Day', () => {
+  // Same reasoning as market-service.spec.ts/market-fill-screen.spec.ts's
+  // own afterEach: leaves the app wherever the last step landed (Prep Tasks
+  // list, a sub-screen, etc.) under KEEP_APP_SESSION - return to Dashboard
+  // after each test so no test inherits a stale screen from whichever ran
+  // before it.
+  test.afterEach(async ({ driver }) => {
+    await new HomeScreen(driver).returnToHome().catch(() => {});
+  });
+
   test(
     'view all prep categories, then complete the full Start Day flow',
     { tag: ['@StartOfDay-TC071', '@StartOfDay-TC072', '@StartOfDay-TC079', '@StartOfDay-TC168', '@StartOfDay-TC184', '@StartOfDay-TC203'] },
@@ -16,7 +26,7 @@ test.describe('Prep Tasks / Start of Day', () => {
       const prepTasks = new PrepTasksScreen(driver);
 
       await test.step('Log in', async () => {
-        await loginAndWaitForMfa(driver);
+        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
       });
 
       // TC071 "I am able to view all prep categories"
@@ -55,8 +65,15 @@ test.describe('Prep Tasks / Start of Day', () => {
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
 
-      await test.step('Log in', async () => {
-        await loginAndWaitForMfa(driver);
+      // Needs a genuinely FRESH (not-yet-Start-Day-completed) Prep Tasks
+      // screen - Additional Prep's tile isn't reachable at all once
+      // complete (see PrepTasksScreen.ensureFullDayPrepComplete's own
+      // note). Tries TODAY first, only falls back to TOMORROW if TODAY
+      // already turns out complete (e.g. this same file's own full-
+      // completion test ran first today) - see loginToFreshStartDayRoute's
+      // doc comment.
+      await test.step('Log in to a fresh (not yet Start-Day-completed) day', async () => {
+        await loginToFreshStartDayRoute(driver, mobileConfig.defaultRoute);
       });
 
       // TC198 "view the Skip and Complete buttons on the pop-up" - this is
@@ -80,24 +97,40 @@ test.describe('Prep Tasks / Start of Day', () => {
   // row bundles TC080/TC083/TC089/TC110 together (same Action/Outcome
   // pattern repeated for re-opening the flow a second time - TC083/TC089
   // are literal duplicates of TC075/TC080, not separately addressable).
-  // Uses Charlotte/103 explicitly (not the plain defaultRoute login) since
-  // Miami/010 needs BA data prep - consistent with adhoc-scheduling.spec.ts.
+  //
+  // CORRECTED (live-verified 2026-08-07): this test used to switch Dashboard
+  // to Charlotte/103 (vendingRoute) on the theory that Miami/010 always
+  // needed BA data prep. Exhaustively tested that theory today (ad-hoc-
+  // bootstrapping a delivery onto Charlotte/103's empty TOMORROW, opening
+  // its service station, tapping through every "Start day" gate the app
+  // offers) and found the REAL mechanism: Prep Tasks/Start Day is tied to
+  // the account's actual underlying route, NOT whatever route Dashboard is
+  // currently displaying via the route switcher - confirmed by switching
+  // Dashboard to Route 103 and immediately opening Prep Tasks via the SAME
+  // hamburger menu, which showed "Start day, Route 10" regardless. Every
+  // Charlotte/103 dead-end (tiles never rendering, the circular Start-day
+  // loop) was this same disconnect, not a data or navigation bug. Prep
+  // Tasks is ALWAYS effectively Route 10 - so this now uses defaultRoute
+  // directly with the same TODAY-first/TOMORROW-fallback helper the TC198
+  // test above already uses successfully, rather than a route switch that
+  // was never actually reaching Prep Tasks at all.
   test(
     'view the Add product (+) icon, open Add product, and add a product with a quantity',
     { tag: ['@StartOfDay-TC075', '@StartOfDay-TC080', '@StartOfDay-TC110'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
 
-      await test.step('Log in, then switch to Charlotte/103 (Miami/010 needs BA data prep)', async () => {
-        await loginAndWaitForMfa(driver);
-        await switchRoute(driver, mobileConfig.vendingRoute);
+      await test.step('Log in to a fresh (not yet Start-Day-completed) day', async () => {
+        await loginToFreshStartDayRoute(driver, mobileConfig.defaultRoute);
       });
 
       // TC075 "view Add product (+) icon"
+      let beforeLines: string[] = [];
       await test.step('TC075: open Product Collection and verify the Add product (+) icon is visible', async () => {
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.openProductCollection();
         expect(await prepTasks.isAddProductButtonVisible()).toBe(true);
+        beforeLines = await prepTasks.getProductCollectionSummaryLines();
       });
 
       // TC080 "open Add product screen"
@@ -113,10 +146,30 @@ test.describe('Prep Tasks / Start of Day', () => {
       // so this asserts on the qty actually entered (5) appearing in the
       // returned list's per-category summary, not on which exact product
       // got selected by position.
+      //
+      // CORRECTED (live-verified 2026-08-07): asserting a summary line
+      // ends with the literal submitted qty (e.g. "\n5") assumed every
+      // category starts the day at 0 - false once Route 10 has real
+      // seeded par data (observed live: "CANDY\n38" before, since Snickers
+      // is a CANDY item with 38 already counted). Compares each category's
+      // own count before vs. after instead - the real, data-independent
+      // signal that submitting qty 5 actually added 5, whatever the
+      // starting count was.
       await test.step('TC110: search "Snickers", enter qty 5, submit, and verify the count updates', async () => {
         await prepTasks.fillAndSubmitAddProduct('Snickers', '5');
-        const summaryLines = await prepTasks.getProductCollectionSummaryLines();
-        expect(summaryLines.some((line) => line.endsWith('\n5'))).toBe(true);
+        const afterLines = await prepTasks.getProductCollectionSummaryLines();
+        const parseLine = (line: string) => {
+          const [category, countText] = line.split('\n');
+          return { category, count: Number(countText) };
+        };
+        const before = beforeLines.map(parseLine);
+        const after = afterLines.map(parseLine);
+        const increasedByFive = after.some((a) => {
+          const priorEntry = before.find((b) => b.category === a.category);
+          const priorCount = priorEntry ? priorEntry.count : 0;
+          return a.count === priorCount + 5;
+        });
+        expect(increasedByFive).toBe(true);
       });
     }
   );
@@ -133,8 +186,7 @@ test.describe('Prep Tasks / Start of Day', () => {
       const prepTasks = new PrepTasksScreen(driver);
 
       await test.step('Log in, then switch to Route 10/TODAY', async () => {
-        await loginAndWaitForMfa(driver);
-        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
       });
 
       await test.step('TC169: open Money operations and verify the header (date + route) is visible', async () => {
@@ -173,8 +225,7 @@ test.describe('Prep Tasks / Start of Day', () => {
       const prepTasks = new PrepTasksScreen(driver);
 
       await test.step('Log in, then switch to Route 10/TODAY', async () => {
-        await loginAndWaitForMfa(driver);
-        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
       });
 
       // TC171 "view available checklist items"

@@ -19,6 +19,10 @@ export class HomeScreen extends BaseScreen {
   private readonly currentDateBadge =
     '//android.view.View[starts-with(@content-desc,"Today") or starts-with(@content-desc,"Yesterday") or starts-with(@content-desc,"Tomorrow")]';
   private readonly routeBadge = '//android.view.View[starts-with(@content-desc,"Route")]';
+  // The "Select a day" bottom sheet's own TODAY card (content-desc packs
+  // the label and date together, e.g. "TODAY\nAugust 7, 2026") - used by
+  // returnToHome() to dismiss this sheet if left open.
+  private readonly selectADaySheetTodayOption = '//android.view.View[starts-with(@content-desc,"TODAY")]';
   // Live-verified: each LOB's "X/Y" count badge and its name label are
   // siblings in two separate groups under the same parent (all counts
   // first, then all labels), in the SAME per-LOB order - e.g. Market's
@@ -152,6 +156,11 @@ export class HomeScreen extends BaseScreen {
     return !(await this.isEnabled(this.startDayButton));
   }
 
+  /** TC026 - the "+" icon (Schedule Ad-hoc Delivery's own primary CTA) is visible before it's tapped. */
+  async isAdhocDeliveryButtonVisible(): Promise<boolean> {
+    return this.isVisible(this.addAdhocDeliveryButton);
+  }
+
   /** TC027/TC028 - opens the Ad-hoc delivery creation screen via the "+" icon. */
   async openAdhocDeliveryCreation(): Promise<void> {
     await this.tap(this.addAdhocDeliveryButton);
@@ -165,6 +174,19 @@ export class HomeScreen extends BaseScreen {
   // press re-triggers the identical dialog, looping forever and never
   // making progress. Must tap "Discard" explicitly instead.
   private readonly discardChangesButton = '~Discard';
+  // A SECOND, differently-worded variant of the same dialog class - live-
+  // verified 2026-08-05 on Market's Removals & Returns "Document product"
+  // screen: "Save Changes / Do you want to save your changes? / No / Save"
+  // (not "Discard"/"Save"). Same looping-forever risk as discardChangesButton
+  // if not handled explicitly.
+  private readonly saveChangesNoButton = '~No';
+  // A THIRD variant, live-verified 2026-08-06 on Coffee's Pre-sales summary
+  // screen ("Complete Pre-sale! Do you want to complete the pre-sale for
+  // this service? / Skip pre-sale / Complete") - tapping "Skip pre-sale"
+  // leaves the order as already saved (this dialog is about completing the
+  // SERVICE, not discarding the order) and continues navigating back,
+  // matching returnToHome's intent of leaving state alone.
+  private readonly skipPresaleButton = '~Skip pre-sale';
 
   /**
    * Navigates back to Dashboard from wherever the app currently is - used to
@@ -185,6 +207,16 @@ export class HomeScreen extends BaseScreen {
    * rather than continuing to guess with more back-presses. Also handles the
    * "Save Changes" dialog (see discardChangesButton) by tapping Discard
    * instead of pressing BACK again, which would otherwise loop forever.
+   *
+   * CORRECTED (live-verified 2026-08-06): the hardware BACK button
+   * (pressKeyCode(4)) is a no-op on at least one screen (Coffee's
+   * Pre-sales summary) - it neither navigates nor opens the confirm
+   * dialog below, so a loop that only ever presses hardware BACK gets
+   * stuck there for all maxBackPresses attempts. The on-screen back arrow
+   * (BaseScreen.backButton) reliably triggers the real in-app back action
+   * on that same screen. Now prefers tapping it when visible, falling
+   * back to hardware BACK only when it isn't (e.g. genuinely no back
+   * arrow on screen).
    */
   async returnToHome(maxBackPresses = 10): Promise<void> {
     let reachedHamburger = false;
@@ -195,6 +227,32 @@ export class HomeScreen extends BaseScreen {
       }
       if (await this.isVisible(this.discardChangesButton)) {
         await this.tap(this.discardChangesButton);
+      } else if (await this.isVisible(this.saveChangesNoButton)) {
+        await this.tap(this.saveChangesNoButton);
+      } else if (await this.isVisible(this.skipPresaleButton)) {
+        await this.tap(this.skipPresaleButton);
+      } else if (await this.isVisible(this.skipButton)) {
+        // Prep Tasks' own back-press Skip/Complete popup (see
+        // PrepTasksScreen.isBackPressPopupVisible) - live-verified
+        // 2026-08-07: without this, tapping the sub-screen's back arrow
+        // just opens this popup, and neither hardware BACK nor a repeat
+        // backButton tap reliably dismisses it (observed oscillating
+        // between the popup and the checklist screen for the full
+        // maxBackPresses budget, never reaching the hamburger). Skip is
+        // the same "leave without completing" semantics this loop wants.
+        await this.tap(this.skipButton);
+      } else if (await this.isVisible(this.selectADaySheetTodayOption)) {
+        // The date badge's own "Select a day" bottom sheet (TODAY/
+        // YESTERDAY/TOMORROW cards) - live-verified 2026-08-07: hardware
+        // BACK does not dismiss it, leaving the loop stuck for the full
+        // maxBackPresses budget. Tapping TODAY re-confirms whichever day
+        // is already selected in the common case and simply closes the
+        // sheet - a safe, idempotent way out regardless of which day the
+        // caller actually wanted (a real day switch, if needed, happens
+        // separately via RouteSetupScreen/switchRoute).
+        await this.tap(this.selectADaySheetTodayOption);
+      } else if (await this.isVisible(this.backButton)) {
+        await this.tap(this.backButton);
       } else {
         await this.pressKeyCode(4);
       }

@@ -18,6 +18,7 @@ export type DaySelection = 'TODAY' | 'YESTERDAY' | 'TOMORROW';
  */
 export class RouteSetupScreen extends BaseScreen {
   private readonly settingsMenuItem = '~Settings, Collapsed';
+  private readonly settingsExpandedMarker = '~Settings, Expanded';
   private readonly routeSetupMenuItem = '~Route setup';
   private readonly screenTitle = '~Route Setup';
   private readonly operationField = '(//android.view.View[@clickable="true"])[1]';
@@ -35,6 +36,34 @@ export class RouteSetupScreen extends BaseScreen {
     await this.tap(this.settingsMenuItem);
     await this.tap(this.routeSetupMenuItem);
     await this.waitFor(this.screenTitle);
+  }
+
+  /**
+   * Excel TC009 - opens the hamburger menu and expands Settings (without
+   * tapping Route setup), then reports whether the "Route setup" menu item
+   * is present at all. Live-verified 2026-08-05: a genuine RouteDriver
+   * persona account (unlike the shared MPY01 test account used everywhere
+   * else in this suite, which is NOT RouteDriver and does show Route setup)
+   * has Settings expand to only Scanner support/Dex support/Device
+   * info/Export Data/Sign off - no Route setup item at all. Confirms this
+   * is a real persona-based restriction, not a stale/wrong TC.
+   */
+  async isRouteSetupOptionVisible(): Promise<boolean> {
+    // Idempotent, same rationale as DashboardScreen.clickLob(): a resumed
+    // KEEP_APP_SESSION session can land with the drawer already open and/or
+    // Settings already expanded (live-verified 2026-08-05) - tapping either
+    // again would close it instead of opening it.
+    const alreadyOpen = await this.isVisible(this.settingsMenuItem);
+    if (!alreadyOpen) {
+      const expanded = await this.isVisible(this.settingsExpandedMarker);
+      if (!expanded) {
+        await this.tap(this.hamburgerIcon);
+      }
+    }
+    if (!(await this.isVisible(this.settingsExpandedMarker))) {
+      await this.tap(this.settingsMenuItem);
+    }
+    return this.isVisible(this.routeSetupMenuItem);
   }
 
   /**

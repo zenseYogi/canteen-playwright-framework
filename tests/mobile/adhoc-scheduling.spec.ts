@@ -1,5 +1,5 @@
 import { test, expect } from '../../fixtures/appium.fixture';
-import { loginAndWaitForMfa, switchRoute } from '../../utils/login-flow';
+import { loginAndEnsureRoute, ensureOnRoute } from '../../utils/login-flow';
 import { HomeScreen } from '../../screens/home.screen';
 import { AdhocDeliveryScreen } from '../../screens/adhoc-delivery.screen';
 import { mobileConfig } from '../../config/mobile.config';
@@ -32,8 +32,8 @@ import { mobileConfig } from '../../config/mobile.config';
 // every day.
 test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
   test(
-    'TC027/TC019/TC052: navigate to the Ad-hoc delivery creation screen',
-    { tag: ['@StartOfDay-TC027', '@StartOfDay-TC019', '@StartOfDay-TC052'] },
+    'TC027/TC019/TC052/TC026: navigate to the Ad-hoc delivery creation screen',
+    { tag: ['@StartOfDay-TC027', '@StartOfDay-TC019', '@StartOfDay-TC052', '@StartOfDay-TC026'] },
     async ({ driver }) => {
       const home = new HomeScreen(driver);
       const adhoc = new AdhocDeliveryScreen(driver);
@@ -53,21 +53,28 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
       // field completely empty and nothing else filled in. Same class of
       // confirmed Excel-vs-app discrepancy as TC077/TC173 (see
       // prep-tasks.spec.ts) - not an assumption.
-      await test.step('Log in, then switch to Charlotte/103 (Miami/010 needs BA data prep)', async () => {
-        await loginAndWaitForMfa(driver);
-        await switchRoute(driver, mobileConfig.vendingRoute);
+      await test.step('Log in, ensure Charlotte/103 (Miami/010 needs BA data prep)', async () => {
+        await loginAndEnsureRoute(driver, mobileConfig.vendingRoute);
       });
 
       // Live-verified: this "+" icon is reachable regardless of whether the
       // current day is empty or has real deliveries, and regardless of
       // which route/LOB is active (also confirmed on Charlotte/103, a
       // Vending-only route).
+      await test.step('TC026: the "+" icon (Schedule Ad-hoc Delivery\'s primary CTA) is visible', async () => {
+        expect(await home.isAdhocDeliveryButtonVisible()).toBe(true);
+      });
+
       await test.step('TC027/TC019/TC052: tap "+" and verify the Add Delivery screen opens', async () => {
         await home.openAdhocDeliveryCreation();
         expect(await adhoc.isTitleVisible()).toBe(true);
         expect(await adhoc.isCustomerFieldVisible()).toBe(true);
         expect(await adhoc.isAddDeliveryButtonVisible()).toBe(true);
         expect(await adhoc.isAddAnotherDeliveryButtonVisible()).toBe(true);
+      });
+
+      await test.step('Return to Home', async () => {
+        await home.returnToHome();
       });
     }
   );
@@ -78,15 +85,27 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
     async ({ driver }) => {
       const home = new HomeScreen(driver);
 
-      await test.step('Log in, then switch to Charlotte/103 (Miami/010 needs BA data prep)', async () => {
-        await loginAndWaitForMfa(driver);
-        await switchRoute(driver, mobileConfig.vendingRoute);
+      // CORRECTED (live-verified 2026-08-07): the data situation has
+      // flipped since this test was written against vendingRoute (Charlotte/
+      // 103) - that route's seeded deliveries have since rotated out of
+      // range (0 across Yesterday/Today/Tomorrow), while defaultRoute
+      // (Miami/010, the "needs BA data prep" route this test used to avoid)
+      // now has real data (4 deliveries) across all three days. Same
+      // recurring rotating-seed-data issue flagged elsewhere in this suite -
+      // switched back to defaultRoute rather than leave this permanently
+      // broken on a route that's gone stale.
+      await test.step('Log in, ensure Miami/010 (defaultRoute currently has real data; vendingRoute has since gone empty)', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
       });
 
       await test.step('TC029: verify a real delivery count and no empty-state message', async () => {
         const count = await home.getDeliveriesCount();
         expect(count).toBeGreaterThan(0);
         expect(await home.isDeliveriesEmptyStateVisible()).toBe(false);
+      });
+
+      await test.step('Return to Home', async () => {
+        await home.returnToHome();
       });
     }
   );
@@ -98,9 +117,8 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
       const home = new HomeScreen(driver);
       const adhoc = new AdhocDeliveryScreen(driver);
 
-      await test.step('Log in, then switch to the dedicated empty test route (Miami / Route 001)', async () => {
-        await loginAndWaitForMfa(driver);
-        await switchRoute(driver, { ...mobileConfig.emptyRoute, day: 'TODAY' });
+      await test.step('Log in, ensure the dedicated empty test route (Miami / Route 001)', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.emptyRoute, day: 'TODAY' });
       });
 
       await test.step('TC025: verify 0 Delivery, the empty-state message, and Start day disabled', async () => {
@@ -113,6 +131,10 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
         await home.openAdhocDeliveryCreation();
         expect(await adhoc.isTitleVisible()).toBe(true);
       });
+
+      await test.step('Return to Home', async () => {
+        await home.returnToHome();
+      });
     }
   );
 
@@ -122,15 +144,27 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
     async ({ driver }) => {
       const home = new HomeScreen(driver);
 
-      await test.step('Log in', async () => {
-        await loginAndWaitForMfa(driver);
+      await test.step('Log in, ensure the dedicated empty test route (Miami / Route 001) on the first day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.emptyRoute, day: 'YESTERDAY' });
       });
 
       // Live-verified: Miami / Route 001 is empty on all three days the
       // in-app day picker offers (past/current/future relative to today).
+      // CORRECTED (live-verified 2026-08-08): there is no lightweight,
+      // route-untouched day picker reachable from Home at all - the Home
+      // date badge is not even clickable (confirmed via page-source dump
+      // and a raw adb coordinate tap, both no-ops), and the "Select a day"
+      // sheet only ever appears as the tail end of Route Setup's full
+      // change-route flow (RouteSetupScreen.changeRouteAndSelectDay,
+      // after the 60-90s resync). HomeScreen.selectDay() was built on a
+      // wrong assumption and has been removed. ensureOnRoute() is the
+      // correct tool here: same isOnRoute guard loginAndEnsureRoute uses,
+      // so the redundant first-iteration switch (already YESTERDAY from
+      // the login step above) is skipped, and only genuine day changes
+      // (TODAY, TOMORROW) pay for a real switchRoute() resync.
       for (const day of ['YESTERDAY', 'TODAY', 'TOMORROW'] as const) {
         await test.step(`TC028: switch to ${day} and verify the empty state + Ad-hoc option`, async () => {
-          await switchRoute(driver, { ...mobileConfig.emptyRoute, day });
+          await ensureOnRoute(driver, { ...mobileConfig.emptyRoute, day });
           expect(await home.getDeliveriesCount()).toBe(0);
           expect(await home.isDeliveriesEmptyStateVisible()).toBe(true);
           expect(await home.isStartDayDisabled()).toBe(true);
@@ -138,8 +172,6 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
           const adhoc = new AdhocDeliveryScreen(driver);
           await home.openAdhocDeliveryCreation();
           expect(await adhoc.isTitleVisible()).toBe(true);
-          // Return to a hamburger-accessible screen so the next iteration's
-          // switchRoute() (which navigates via Settings) can reach it.
           await home.returnToHome();
         });
       }

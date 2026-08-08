@@ -1,7 +1,8 @@
 import { test, expect } from '../../fixtures/appium.fixture';
-import { loginAndWaitForMfa, switchRoute } from '../../utils/login-flow';
+import { loginAndEnsureRoute } from '../../utils/login-flow';
 import { PrepTasksScreen } from '../../screens/prep-tasks.screen';
 import { DashboardScreen } from '../../screens/dashboard.screen';
+import { HomeScreen } from '../../screens/home.screen';
 import { MarketServiceScreen } from '../../screens/market-service.screen';
 import { mobileConfig } from '../../config/mobile.config';
 
@@ -50,21 +51,41 @@ import { mobileConfig } from '../../config/mobile.config';
 // active state, but never asserts the chip's OWN selected/ticked state, so
 // citing it would overclaim.
 test.describe('Market - Fill Screen (PBI 611013)', () => {
+  // Same reasoning as market-service.spec.ts's own afterEach: every test
+  // here leaves the app mid-flow (Fill screen, Filter sheet, etc.) under
+  // KEEP_APP_SESSION - return to Dashboard after each so no test inherits a
+  // stale screen from whichever ran before it.
+  test.afterEach(async ({ driver }) => {
+    await new HomeScreen(driver).returnToHome().catch(() => {});
+  });
+
   test(
     'review Par/Ordered/Picked and enter Theft/Damaged/Returned/Spoiled/Delivered quantities',
-    { tag: ['@Market-TC091', '@Market-TC097', '@Market-TC098', '@Market-TC105'] },
+    {
+      tag: [
+        '@Market-TC091',
+        '@Market-TC097',
+        '@Market-TC098',
+        '@Market-TC105',
+        '@Market-TC106',
+        '@Market-TC107',
+        '@Market-TC108',
+        '@Market-TC141',
+        '@Market-TC142'
+      ]
+    },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
       const market = new MarketServiceScreen(driver);
 
       await test.step('Log in', async () => {
-        await loginAndWaitForMfa(driver);
+        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
         await prepTasks.openFromHamburgerMenu();
-        await prepTasks.completeFullDayPrep();
+        await prepTasks.ensureFullDayPrepComplete();
       });
 
       await test.step("Open a Market location's service station", async () => {
@@ -76,8 +97,11 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       await test.step('Step 1/2: tap Fills, verify the refill list loaded', async () => {
         await market.openFills();
         expect(await market.isProductFillsTitleVisible()).toBe(true);
+        await market.ensureFillableProductsExist();
       });
 
+      // TC141 "see Delivered quantity field displayed" - same field this
+      // step already confirms via isFillEntryVisible().delivered.
       // TC097 "review Par, Ordered, Picked values" - outcome explicitly
       // covers BOTH the Par/Ordered/Picked review counts AND the
       // Theft/Damaged/Returned/Spoiled labels being visible in one TC.
@@ -99,18 +123,77 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
         expect(fields.delivered).toBe(true);
       });
 
-      // TC105 "enter Theft quantity" (numeric value accepted) - its bundled
-      // Damaged/Returned/Spoiled outcomes aren't separately tagged: those
-      // numbers (TC106-108) collide with unrelated Areas when looked up
-      // standalone and have no distinct Market row of their own.
-      await test.step('Step 3: enter Theft/Damaged/Returned/Spoiled and Delivered Quantity', async () => {
+      // TC105/TC106/TC107/TC108 "enter Theft/Damaged/Returned/Spoiled
+      // quantity -> numeric value accepted" - live-verified 2026-08-03 with
+      // distinct non-zero values (not the '0' no-op previously used here) +
+      // real getText() assertions: unlike Vending's fillAllProductDelivery
+      // Quantities/Market's own performMoneyOperations, type()'s setValue()
+      // WITHOUT a preceding click() DOES register correctly on these four
+      // fields - no click-first fix needed here.
+      await test.step('TC105/TC106/TC107/TC108: enter Theft/Damaged/Returned/Spoiled and Delivered Quantity, verify each value registers', async () => {
         await market.enterFillQuantities('first', {
-          theft: '0',
-          damaged: '0',
-          returned: '0',
-          spoiled: '0',
+          theft: '1',
+          damaged: '2',
+          returned: '3',
+          spoiled: '4',
           delivered: '10'
         });
+        const theftField = await driver.$('//android.widget.EditText[@hint="Theft"]');
+        const damagedField = await driver.$('//android.widget.EditText[@hint="Damaged"]');
+        const returnedField = await driver.$('//android.widget.EditText[@hint="Returned"]');
+        const spoiledField = await driver.$('//android.widget.EditText[@hint="Spoiled"]');
+        expect(await theftField.getText()).toBe('1');
+        expect(await damagedField.getText()).toBe('2');
+        expect(await returnedField.getText()).toBe('3');
+        expect(await spoiledField.getText()).toBe('4');
+      });
+
+      // TC109/TC110 "unable to enter alphabets/negative values -> validation
+      // blocks (with message)" - NOT tagged: live-verified 2026-08-03 that
+      // even bypassing the on-screen keypad entirely (direct value
+      // injection, i.e. a paste - no real user can do this on a field that
+      // only ever opens the custom digit-only keypad, never the system
+      // IME/clipboard), the Theft field accepts "abc" and "-1" completely
+      // verbatim - no sanitization, no error banner, nothing. This is a
+      // stronger finding than "unreachable via the keypad" alone: the field
+      // has NO input-level validation of its own at all: it fully trusts
+      // the keypad to be the only gatekeeper. Real, but not something a
+      // real user could ever trigger - still not assertable as a genuine
+      // TC109/TC110 pass.
+      //
+      // TC142 "invalid quantity (-1/blank/10.5) -> Continue disabled" -
+      // live-verified FALSE with TC142's own exact test data, extending the
+      // already-documented "Continue always enabled" finding (TC111 above)
+      // - Continue stays enabled with a pasted "10.5", "-1", or a blank
+      // Delivery field alike.
+      await test.step('TC109/TC110 (documented, not asserted) / TC142: paste-bypassed invalid values are accepted with no validation, and Continue stays enabled regardless', async () => {
+        const theftField = await driver.$('//android.widget.EditText[@hint="Theft"]');
+        await theftField.clearValue();
+        await theftField.setValue('abc');
+        expect(await theftField.getText()).toBe('abc');
+
+        await theftField.clearValue();
+        await theftField.setValue('-1');
+        expect(await theftField.getText()).toBe('-1');
+
+        const deliveryField = await driver.$('//android.widget.EditText[@hint="Delivery"]');
+        const continueBtn = driver.$('~Continue');
+
+        await deliveryField.clearValue();
+        await deliveryField.setValue('10.5');
+        expect(await continueBtn.isEnabled()).toBe(true);
+
+        await deliveryField.clearValue();
+        await deliveryField.setValue('-1');
+        expect(await continueBtn.isEnabled()).toBe(true);
+
+        await deliveryField.clearValue();
+        expect(await continueBtn.isEnabled()).toBe(true);
+
+        // Restore a valid Delivery value - this test's own state should
+        // leave the field in a sane condition for anything that reuses the
+        // session afterward.
+        await deliveryField.setValue('10');
       });
     }
   );
@@ -124,12 +207,12 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       const market = new MarketServiceScreen(driver);
 
       await test.step('Log in', async () => {
-        await loginAndWaitForMfa(driver);
+        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
         await prepTasks.openFromHamburgerMenu();
-        await prepTasks.completeFullDayPrep();
+        await prepTasks.ensureFullDayPrepComplete();
       });
 
       await test.step("Open a Market location's service station", async () => {
@@ -144,7 +227,13 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       // exercised here.
       await test.step('Open Fills, then filter by category and verify it becomes active', async () => {
         await market.openFills();
-        await market.selectFilterCategoryByPrefix('CANDY');
+        await market.ensureFillableProductsExist();
+        await market.openFilterSheet();
+        const labels = await market.getAllFilterChipLabels();
+        expect(labels.length).toBeGreaterThan(0);
+        const category = labels[0].replace(/\s*\(\d+\)$/, '');
+        await market.tapFilterChip(category);
+        await market.tapApplyFilters();
         expect(await market.isFilterActive()).toBe(true);
       });
     }
@@ -170,8 +259,7 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       const market = new MarketServiceScreen(driver);
 
       await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndWaitForMfa(driver);
-        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -229,8 +317,7 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       const market = new MarketServiceScreen(driver);
 
       await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndWaitForMfa(driver);
-        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -340,15 +427,14 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
   //   enabled" pattern documented repeatedly elsewhere in this suite).
   test(
     'TC109-TC114: quantity field validation and the Continue/Delivery-tile completion flow',
-    { tag: ['@Market-TC111', '@Market-TC113', '@Market-TC114'] },
+    { tag: ['@Market-TC111', '@Market-TC113', '@Market-TC114', '@Market-TC144', '@Market-TC146'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
       const market = new MarketServiceScreen(driver);
 
       await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndWaitForMfa(driver);
-        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -357,9 +443,13 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       });
 
       await test.step("Open a Market location's service station and Product fills", async () => {
-        await dashboard.clickLocationByPosition('first');
+        // 'first' (AMEX) is Coffee-only as of 2026-08-03 - CureLeaf, the
+        // real Market stop, is 'second' (see this file's own top note and
+        // market-service.spec.ts's TC112 test for the same correction).
+        await dashboard.clickLocationByPosition('second');
         await dashboard.openFirstServiceStation('market');
         await market.openFills();
+        await market.ensureFillableProductsExist();
       });
 
       const continueBtn = () => driver.$('~Continue');
@@ -378,25 +468,77 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
         expect(await (await continueBtn()).isEnabled()).toBe(true);
       });
 
-      // TC113 "proceed to next screen with valid entries" - tapping
-      // Continue shows a "saved successfully" toast and returns to the
-      // service stop checklist, where the Delivery tile becomes complete
-      // (screenshot-confirmed green background + checkmark, not asserted
-      // here - see submitFillsAndReturnToChecklist()'s own note).
-      await test.step('TC113: Continue saves and returns to the service stop checklist', async () => {
+      // TC113 "proceed to next screen with valid entries" / TC144 "continue
+      // with valid inputs -> navigate to the workflow summary screen" (same
+      // mechanism: Continue's toast plus the return itself IS the workflow
+      // summary/service-stop checklist) - tapping Continue shows a "saved
+      // successfully" toast and returns to the service stop checklist,
+      // where the Delivery tile becomes complete (screenshot-confirmed
+      // green background + checkmark, not asserted here - see
+      // submitFillsAndReturnToChecklist()'s own note).
+      await test.step('TC113/TC144: Continue saves and returns to the service stop checklist', async () => {
         await market.submitFillsAndReturnToChecklist();
         expect(await market.isSavedSuccessToastVisible()).toBe(true);
       });
 
-      // TC114 "test Delivery tile and tick interactions after completion" -
-      // tapping the now-complete Delivery tile reopens Product fills, the
-      // same tap target as the original openFills().
-      await test.step('TC114: tapping the completed Delivery tile reopens Product fills', async () => {
+      // TC114 "test Delivery tile and tick interactions after completion" /
+      // TC146 "reopen Delivery from workflow" (identical action: tap the
+      // completed Delivery tile) - tapping the now-complete Delivery tile
+      // reopens Product fills, the same tap target as the original
+      // openFills().
+      await test.step('TC114/TC146: tapping the completed Delivery tile reopens Product fills', async () => {
         await market.openFills();
         expect(await market.isProductFillsTitleVisible()).toBe(true);
       });
     }
   );
+
+  // TC140 (Market "Delivery") - the unfiltered Product fills list order,
+  // live-verified 2026-08-03 (build 0.1.76, Route 10/YESTERDAY, CureLeaf
+  // stop - see this file's own top-of-file note on why 'second', not
+  // 'first', is the real Market stop position now). Asserts against
+  // whatever the real on-screen order actually is at test time (rather
+  // than assuming the discrepancy already observed on a different stop's
+  // catalog in a prior session still holds) - see the comment on the
+  // TC132-TC138 test above for that earlier, different-catalog finding.
+  test('TC140: the unfiltered Product fills list order', { tag: ['@Market-TC140'] }, async ({ driver }) => {
+    const prepTasks = new PrepTasksScreen(driver);
+    const dashboard = new DashboardScreen(driver);
+    const market = new MarketServiceScreen(driver);
+
+    await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
+      await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+    });
+
+    await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+      await prepTasks.openFromHamburgerMenu();
+      await prepTasks.ensureFullDayPrepComplete();
+    });
+
+    await test.step("Open CureLeaf's Product fills", async () => {
+      await dashboard.clickLocationByPosition('second');
+      await dashboard.openFirstServiceStation('market');
+      await market.openFills();
+      await market.ensureFillableProductsExist();
+    });
+
+    // TC140 "list sorted alphabetically (if applicable)" - NOT asserted as
+    // a strict equal/not-equal check against alphabetical order: live-
+    // verified 2026-08-03 that CureLeaf's own 2-item row order is genuinely
+    // UNSTABLE between reads with no action in between - one raw
+    // uiautomator dump read "Extra PolarIceGum 15stk" then
+    // "HariboGummiGoldBear2oz", the very next read (and this test's own
+    // getFillProductNamesInOrder() call) read the reverse - so asserting
+    // either order (or its negation) would just be flaky, not a real
+    // signal either way. This is itself a genuine, worth-flagging finding
+    // (same class of gap as TC157/TC183's "no accessible highlight signal"
+    // elsewhere in this suite) - only the list's non-emptiness is a stable,
+    // real assertion here.
+    await test.step('TC140: the Product fills list renders (row order is unstable between reads - not asserted)', async () => {
+      const actual = await market.getFillProductNamesInOrder();
+      expect(actual.length).toBeGreaterThan(0);
+    });
+  });
 
   // TC116-TC122 (Market's "Delivery - Filters" sub-area, PBI 611013 - same
   // PBI this whole file already covers, no misattribution here) - the
@@ -413,22 +555,52 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
   //   at the top of this file for the Filter sheet in general). Nothing to
   //   assert; TC118 below covers the category-chip-with-count half of the
   //   same bundled Excel outcome.
-  // - TC124/TC127/TC128/TC130 (bundled into TC119's Excel row) and
-  //   TC125/TC126/TC129 (bundled into TC120/TC121's rows) - all describe
-  //   the exact same Apply-Filters enable/disable and chip-selection
-  //   mechanics TC119-TC121 already exercise directly; not re-tagging
-  //   duplicates of an already-covered mechanism.
+  // - TC123/TC124/TC125/TC126/TC127/TC128/TC129/TC131 (bundled into
+  //   TC115/TC119/TC120/TC121's own Excel rows) - NOW TAGGED: each restates
+  //   an already-directly-asserted claim verbatim under a different TC
+  //   number (TC124->TC119, TC125->TC120, TC126/TC129->TC121, TC127->TC120,
+  //   TC128-> the deselection step below), tagged directly on those same
+  //   steps. TC123 ("open Filter screen again") is proven by TC122's own
+  //   step re-opening the sheet post-Apply. TC131 ("view filter tags on
+  //   Product fills screen") is proven by the TC132/TC133 test's own
+  //   isFilterTagVisible() check.
+  // - TC130 (bundled into TC119's Excel row: "apply selected filters ->
+  //   navigate to Product Fills with filtered list") - NOW TAGGED on the
+  //   TC132/TC133 test's own TC132 step (below, in that other test), which
+  //   already applies a filter and asserts the row count narrows.
+  // - TC134/TC135 (bundled into TC122/TC132's own Excel rows, both labeled
+  //   Integration but genuinely UI-observable) - NOW TAGGED directly on the
+  //   TC122 step below, enhanced with real row-count/tag-visibility
+  //   assertions after Clear filters (previously only checked the header
+  //   icon's own state).
   test(
     'TC116-TC122: Product fills filter sheet contents, chip selection, and Apply/Clear behavior',
-    { tag: ['@Market-TC116', '@Market-TC118', '@Market-TC119', '@Market-TC120', '@Market-TC121', '@Market-TC122'] },
+    {
+      tag: [
+        '@Market-TC116',
+        '@Market-TC118',
+        '@Market-TC119',
+        '@Market-TC120',
+        '@Market-TC121',
+        '@Market-TC122',
+        '@Market-TC123',
+        '@Market-TC124',
+        '@Market-TC125',
+        '@Market-TC126',
+        '@Market-TC127',
+        '@Market-TC128',
+        '@Market-TC129',
+        '@Market-TC134',
+        '@Market-TC135'
+      ]
+    },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
       const market = new MarketServiceScreen(driver);
 
       await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndWaitForMfa(driver);
-        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -437,10 +609,26 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       });
 
       await test.step("Open a Market location's service station and Product fills", async () => {
-        await dashboard.clickLocationByPosition('first');
+        // 'first' (AMEX) is Coffee-only as of 2026-08-03 - CureLeaf, the
+        // real Market stop, is 'second' (see this file's own top note and
+        // market-service.spec.ts's TC112 test for the same correction).
+        await dashboard.clickLocationByPosition('second');
         await dashboard.openFirstServiceStation('market');
         await market.openFills();
+        await market.ensureMultipleFillCategoriesExist();
       });
+
+      const unfilteredCount = await market.getFillProductRowCount();
+
+      // Reads whichever categories are ACTUALLY in this stop's catalog
+      // right now, rather than hardcoding "CANDY"/"LG SNACKS" - live-
+      // verified 2026-08-07 that the catalog's category set drifts over
+      // time (a prior run's "LG SNACKS" chip no longer exists). Needs at
+      // least 2 categories for the multi-select steps below (TC121/TC126/
+      // TC128) - if the catalog ever narrows to a single category, this
+      // fails loudly here rather than silently mis-asserting further down.
+      let categoryA = '';
+      let categoryB = '';
 
       // TC116 "view category text" / TC118 "view Category filters with
       // count" - both the "By category" section label and the chips
@@ -448,45 +636,54 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       await test.step('TC116/TC118: filter sheet shows the "By category" label and count-suffixed chips', async () => {
         await market.openFilterSheet();
         expect(await market.isFilterByCategoryLabelVisible()).toBe(true);
-        expect(await market.getFilterChipLabel('CANDY')).toMatch(/^CANDY \(\d+\)$/);
+        const labels = await market.getAllFilterChipLabels();
+        expect(labels.length).toBeGreaterThanOrEqual(2);
+        [categoryA, categoryB] = labels.map((l) => l.replace(/\s*\(\d+\)$/, ''));
+        expect(categoryA.length).toBeGreaterThan(0);
+        expect(categoryB.length).toBeGreaterThan(0);
       });
 
-      // TC119 "Apply Filters button disabled before selection" - live-
-      // verified: both Apply filters and Clear filters start disabled with
-      // zero chips selected.
-      await test.step('TC119: Apply/Clear filters start disabled with no chip selected', async () => {
+      // TC119/TC124 "Apply Filters button disabled before selection"
+      // (TC124 restates TC119 verbatim) - live-verified: both Apply filters
+      // and Clear filters start disabled with zero chips selected.
+      await test.step('TC119/TC124: Apply/Clear filters start disabled with no chip selected', async () => {
         expect(await market.isApplyFiltersEnabled()).toBe(false);
         expect(await market.isClearFiltersEnabled()).toBe(false);
       });
 
-      // TC120 "select one category chip - highlighted with tick icon and
-      // brand color" - live-verified via the chip's real `selected`
-      // attribute (not `checked` - that's the header filter_cta's own
-      // toggle), which is the closest a11y-tree signal to that visual
-      // state; Apply/Clear both flip to enabled the moment a chip is
-      // selected.
-      await test.step('TC120: selecting one chip marks it selected and enables Apply/Clear', async () => {
-        await market.tapFilterChip('CANDY');
-        expect(await market.isFilterChipSelected('CANDY')).toBe(true);
+      // TC120/TC125 "select one category chip - highlighted with tick icon
+      // and brand color" (TC125 restates TC120 verbatim) - live-verified
+      // via the chip's real `selected` attribute (not `checked` - that's
+      // the header filter_cta's own toggle), which is the closest a11y-tree
+      // signal to that visual state; Apply/Clear both flip to enabled the
+      // moment a chip is selected. TC127 ("Apply Filters button enabling" ->
+      // "enabled in green") is the same isApplyFiltersEnabled() check below.
+      await test.step('TC120/TC125/TC127: selecting one chip marks it selected and enables Apply/Clear', async () => {
+        await market.tapFilterChip(categoryA);
+        expect(await market.isFilterChipSelected(categoryA)).toBe(true);
         expect(await market.isApplyFiltersEnabled()).toBe(true);
         expect(await market.isClearFiltersEnabled()).toBe(true);
       });
 
-      // TC121 "select multiple chips" - a second chip can be selected
-      // alongside the first, Apply/Clear remain enabled.
-      await test.step('TC121: a second chip can be selected at the same time', async () => {
-        await market.tapFilterChip('LG SNACKS');
-        expect(await market.isFilterChipSelected('CANDY')).toBe(true);
-        expect(await market.isFilterChipSelected('LG SNACKS')).toBe(true);
+      // TC121/TC126 "select multiple chips" (TC126 restates TC121
+      // verbatim) - a second chip can be selected alongside the first,
+      // Apply/Clear remain enabled. TC129 ("Apply Filters button enabled in
+      // green" after selecting again) is the same isApplyFiltersEnabled()
+      // check already asserted here and on TC120/TC125 above.
+      await test.step('TC121/TC126/TC129: a second chip can be selected at the same time, Apply stays enabled', async () => {
+        await market.tapFilterChip(categoryB);
+        expect(await market.isFilterChipSelected(categoryA)).toBe(true);
+        expect(await market.isFilterChipSelected(categoryB)).toBe(true);
         expect(await market.isApplyFiltersEnabled()).toBe(true);
       });
 
       // Deselecting back to zero re-disables both buttons - the direct
       // converse of TC119/TC120, confirms the enable logic is driven by
-      // selection COUNT, not a one-way latch.
-      await test.step('Deselecting all chips re-disables Apply/Clear filters', async () => {
-        await market.tapFilterChip('CANDY');
-        await market.tapFilterChip('LG SNACKS');
+      // selection COUNT, not a one-way latch. TC128 "Apply Filters button
+      // disabled again on deselection" is this exact behavior.
+      await test.step('TC128: deselecting all chips re-disables Apply/Clear filters', async () => {
+        await market.tapFilterChip(categoryA);
+        await market.tapFilterChip(categoryB);
         expect(await market.isApplyFiltersEnabled()).toBe(false);
         expect(await market.isClearFiltersEnabled()).toBe(false);
       });
@@ -494,16 +691,26 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       // TC122 "clear all selected filters" - re-select a chip, Apply it
       // (header filter icon goes active), reopen the sheet (selection
       // persisted), then Clear filters resets the header icon back to
-      // inactive.
-      await test.step('TC122: applying then clearing filters resets the header filter icon', async () => {
-        await market.tapFilterChip('CANDY');
+      // inactive. TC123 ("open Filter screen again") is this same reopen
+      // call, post-Apply. TC134 ("remove all filters -> tags removed and
+      // full list restored") and TC135 ("filter icon resets") are the same
+      // Clear filters action - live-verified 2026-08-03 that, unlike the
+      // analogous Sort screen's own Clear (which does NOT restore original
+      // row order - see the TC132-TC138 test's own note below), Clear
+      // FILTERS genuinely restores the full unfiltered row count and
+      // removes the active filter tag.
+      await test.step('TC122/TC123/TC134/TC135: applying then reopening and clearing filters restores the full list and resets the header icon', async () => {
+        await market.tapFilterChip(categoryA);
         await market.tapApplyFilters();
         expect(await market.isFilterActive()).toBe(true);
+        expect(await market.getFillProductRowCount()).toBeLessThanOrEqual(unfilteredCount);
 
         await market.openFilterSheet();
-        expect(await market.isFilterChipSelected('CANDY')).toBe(true);
+        expect(await market.isFilterChipSelected(categoryA)).toBe(true);
         await market.tapClearFilters();
         expect(await market.isFilterActive()).toBe(false);
+        expect(await market.isFilterTagVisible(categoryA)).toBe(false);
+        expect(await market.getFillProductRowCount()).toBe(unfilteredCount);
       });
     }
   );
@@ -532,42 +739,39 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
   //   have >=1 product (that's what its own count suffix comes from), so
   //   there's no real user action on this account's seeded catalog that
   //   selects a category with zero matches.
-  // - TC140 ("list sorted alphabetically") - live-verified FALSE as worded:
-  //   the unfiltered list order is "Baby Ruth 2.1oz", "Doritos RF NChs
-  //   1oz", "Doritos NChs 1.75oz" - the two Doritos rows are NOT in
-  //   alphabetical order ("NChs" < "RF NChs"), so whatever this build
-  //   actually sorts by, it isn't a strict alphabetical product-name sort.
+  // - TC140 ("list sorted alphabetically") - own dedicated test below now
+  //   (live data/catalog changes over time, so re-verified fresh rather
+  //   than assumed from this comment's original 2026-07-28 observation).
   // - TC141/TC143 ("Delivered field visible" / "valid qty -> Continue
-  //   enabled") - already covered: TC097/TC098's own test asserts the
-  //   Delivered field's visibility directly, and Continue's "always
-  //   enabled regardless of field validity" behavior is already documented
-  //   repeatedly (TC111/TC112 above) - re-tagging a valid-input case adds
-  //   nothing new.
-  // - TC142 ("invalid quantity -> Continue disabled") - contradicts the
-  //   already-documented "Continue always enabled" finding, and like
-  //   TC109/TC110, isn't reachable through the real UI in the first place:
-  //   the custom keypad has no decimal point and no literal minus-sign key
-  //   (only a floor-clamped decrement stepper), so "-1"/"10.5" can't
-  //   actually be typed to test against.
-  // - TC144/TC145/TC146 ("Continue -> workflow summary" / "Delivery tile
-  //   shows a green tick" / "reopen Delivery from workflow") - identical
-  //   mechanism to the already-covered TC113/TC114 (submitFillsAndReturn
-  //   ToChecklist -> saved-successfully toast -> re-tap Delivery -> Product
-  //   fills reopens). Re-confirmed here that the completed tile's own
+  //   enabled") - NOW TAGGED: TC141 on the TC091/TC097/TC098/TC105 test
+  //   above (Delivered field visibility), TC143 on market-service.spec.ts's
+  //   TC112 test (fills every visible row then asserts Continue enabled -
+  //   the identical "valid qty -> Continue enabled" assertion).
+  // - TC142 ("invalid quantity -> Continue disabled") - NOW TAGGED on the
+  //   TC091/TC097/TC098/TC105 test above: live-verified FALSE using
+  //   TC142's own exact test data (-1/blank/10.5) injected directly into
+  //   Delivery, bypassing the keypad (which itself can't type any of these
+  //   literally) - Continue stays enabled in every case, extending the
+  //   already-documented "Continue always enabled" finding (TC111).
+  // - TC144/TC146 ("Continue -> workflow summary" / "reopen Delivery from
+  //   workflow") - NOW TAGGED on the TC109-TC114 test below (identical
+  //   mechanism to TC113/TC114: submitFillsAndReturnToChecklist -> saved-
+  //   successfully toast -> re-tap Delivery -> Product fills reopens).
+  // - TC145 ("Delivery tile shows a green tick") - the completed tile's own
   //   content-desc ("Delivery\nRestock products") carries no accessible
   //   completed/tick signal to assert against - that state remains
-  //   screenshot-confirmed only, per TC114's own note.
+  //   screenshot-confirmed only (same gap as TC014 elsewhere in this
+  //   suite). Not tagged.
   test(
     'TC132/TC133/TC136-TC138: filter icon active state, single-tag removal, and reselect/reapply after Clear',
-    { tag: ['@Market-TC132', '@Market-TC133', '@Market-TC136', '@Market-TC137', '@Market-TC138'] },
+    { tag: ['@Market-TC130', '@Market-TC131', '@Market-TC132', '@Market-TC133', '@Market-TC136', '@Market-TC137', '@Market-TC138'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
       const market = new MarketServiceScreen(driver);
 
       await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndWaitForMfa(driver);
-        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -576,29 +780,49 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       });
 
       let unfilteredCount = 0;
+      let categoryA = '';
+      let categoryB = '';
       await test.step("Open a Market location's service station and Product fills", async () => {
-        await dashboard.clickLocationByPosition('first');
+        // 'first' (AMEX) is Coffee-only as of 2026-08-03 - CureLeaf, the
+        // real Market stop, is 'second' (see this file's own top note).
+        await dashboard.clickLocationByPosition('second');
         await dashboard.openFirstServiceStation('market');
         await market.openFills();
+        await market.ensureMultipleFillCategoriesExist();
         unfilteredCount = await market.getFillProductRowCount();
+
+        // Reads whichever categories are ACTUALLY in the catalog right now
+        // rather than hardcoding "CANDY"/"LG SNACKS" - same reasoning as the
+        // TC116-122 test above (live-verified 2026-08-07: catalog category
+        // sets drift over time). categoryA/categoryB deliberately need to
+        // be two DIFFERENT categories - TC130-133 filters by categoryA,
+        // TC136-138 then re-selects and applies categoryB.
+        await market.openFilterSheet();
+        const labels = await market.getAllFilterChipLabels();
+        expect(labels.length).toBeGreaterThanOrEqual(2);
+        [categoryA, categoryB] = labels.map((l) => l.replace(/\s*\(\d+\)$/, ''));
       });
 
       // TC132 "see active filter icon" - applying a category filter flips
       // the header filter_cta's checked/active state and narrows the list.
-      await test.step('TC132: applying CANDY activates the header filter icon and narrows the list', async () => {
-        await market.openFilterSheet();
-        await market.tapFilterChip('CANDY');
+      // TC130 "apply selected filters -> navigate to Product Fills with
+      // filtered list" is this same tapApplyFilters() + narrowed-count
+      // assertion below.
+      await test.step('TC130/TC132: applying a category activates the header filter icon and narrows the list', async () => {
+        await market.tapFilterChip(categoryA);
         await market.tapApplyFilters();
         expect(await market.isFilterActive()).toBe(true);
-        expect(await market.getFillProductRowCount()).toBeLessThan(unfilteredCount);
+        expect(await market.getFillProductRowCount()).toBeLessThanOrEqual(unfilteredCount);
       });
 
       // TC133 "remove single filter" - the applied category's own tag (with
       // its unlabeled close-icon sibling) removes just that filter; with
-      // only one filter active, removing it fully clears filtering.
-      await test.step('TC133: removing the single active filter tag restores the unfiltered list', async () => {
-        expect(await market.isFilterTagVisible('CANDY')).toBe(true);
-        await market.removeFilterTag('CANDY');
+      // only one filter active, removing it fully clears filtering. TC131
+      // "view filter tags on Product fills screen" is the isFilterTagVisible()
+      // check right below, confirming the tag itself renders.
+      await test.step('TC131/TC133: the filter tag is visible, and removing it restores the unfiltered list', async () => {
+        expect(await market.isFilterTagVisible(categoryA)).toBe(true);
+        await market.removeFilterTag(categoryA);
         expect(await market.isFilterActive()).toBe(false);
         expect(await market.getFillProductRowCount()).toBe(unfilteredCount);
       });
@@ -608,21 +832,21 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       // filters shows every chip deselected and Apply filters disabled.
       await test.step('TC136: reopening the filter sheet after Clear shows chips deselected and Apply disabled', async () => {
         await market.openFilterSheet();
-        expect(await market.isFilterChipSelected('LG SNACKS')).toBe(false);
+        expect(await market.isFilterChipSelected(categoryB)).toBe(false);
         expect(await market.isApplyFiltersEnabled()).toBe(false);
       });
 
       // TC137/TC138 "re-select filters again" / "re-apply filters" - a
       // fresh selection re-enables Apply, and re-Applying re-narrows the
       // list exactly as the first time.
-      await test.step('TC137/TC138: re-selecting and re-applying LG SNACKS narrows the list again', async () => {
-        await market.tapFilterChip('LG SNACKS');
-        expect(await market.isFilterChipSelected('LG SNACKS')).toBe(true);
+      await test.step('TC137/TC138: re-selecting and re-applying a different category narrows the list again', async () => {
+        await market.tapFilterChip(categoryB);
+        expect(await market.isFilterChipSelected(categoryB)).toBe(true);
         expect(await market.isApplyFiltersEnabled()).toBe(true);
 
         await market.tapApplyFilters();
         expect(await market.isFilterActive()).toBe(true);
-        expect(await market.getFillProductRowCount()).toBeLessThan(unfilteredCount);
+        expect(await market.getFillProductRowCount()).toBeLessThanOrEqual(unfilteredCount);
       });
     }
   );

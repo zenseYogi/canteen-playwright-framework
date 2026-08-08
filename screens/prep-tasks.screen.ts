@@ -345,6 +345,37 @@ export class PrepTasksScreen extends BaseScreen {
     await this.completeFullDayPrep();
   }
 
+  /**
+   * Taps THIS screen's own "Start day" button (bottom CTA, titled "Start
+   * day, Route X" - distinct from Dashboard's OWN "Start day" CTA one level
+   * up). Live-verified 2026-08-07: a day that has NEVER had Start Day
+   * initiated renders this exact bare-button/no-tiles state - identical in
+   * shape to the ALREADY-COMPLETE state ensureFullDayPrepComplete() handles
+   * above, but with the opposite real effect - tapping it here actually
+   * BEGINS the day, revealing the four category tiles for real
+   * interaction, rather than exiting because there's nothing left to do.
+   * Only call this for a day confirmed genuinely fresh (e.g. right after
+   * bootstrapping its first delivery) - calling it on an actually-complete
+   * day would incorrectly expect tiles that will never appear.
+   */
+  async tapStartDayButton(): Promise<void> {
+    await this.tap(this.startDayButton);
+  }
+
+  /**
+   * Whether Start Day is already server-tracked complete for the CURRENT
+   * route/day - same "no category tiles, just a bare Start day button"
+   * signal ensureFullDayPrepComplete() checks internally, exposed publicly
+   * for callers that need a genuinely FRESH (not-yet-started) day rather
+   * than one that tolerates completion (e.g. TC198's back-press-popup test
+   * and TC075/080/110's Add Product test both need live category tiles to
+   * interact with, not just "Start day" to tap). Assumes Prep Tasks is
+   * already open (call after openFromHamburgerMenu()).
+   */
+  async isStartDayAlreadyComplete(): Promise<boolean> {
+    return !(await this.isVisible(this.productCollection));
+  }
+
   async completeFullDayPrep(): Promise<void> {
     await this.waitFor(this.productCollection);
     await this.tap(this.productCollection);

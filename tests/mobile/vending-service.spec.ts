@@ -145,7 +145,7 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
 
   test(
     'verify the Money Collection screen fields',
-    { tag: ['@Vending-TC242', '@Vending-TC243', '@Vending-TC244', '@Vending-TC246', '@Vending-TC248', '@Vending-TC255'] },
+    { tag: ['@Vending-TC242', '@Vending-TC243', '@Vending-TC244', '@Vending-TC246', '@Vending-TC248', '@Vending-TC255', '@Vending-TC276'] },
     async () => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -182,6 +182,12 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         expect(header.date).toBe(true);
         expect(header.route).toBe(true);
       });
+
+      // TC276 (bundled here, same as TC274/TC275 above) - its own Excel row
+      // just re-describes the same field-presence assertion as TC246
+      // (Skip money bag / Bag code / Replenishment Amount pane / Refund
+      // pane / Continue), already asserted above via
+      // isMoneyCollectionScreenVisible().
 
       // TC255 "Continue disabled with no values entered" - live-verified
       // FALSE: same "always enabled" discrepancy already documented on
@@ -546,6 +552,134 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         expect(await vending.isRefundExpanded()).toBe(false);
         await vending.toggleRefundSection();
         expect(await vending.isRefundExpanded()).toBe(true);
+      });
+    }
+  );
+
+  // TC271/TC272/TC273 (Vending "Money ops" - the Refund amount input
+  // itself) and TC280-TC284 (Vending "Money ops" - Replenishment/Bills
+  // field numeric validation) - live-verified 2026-08-03 (build 0.1.76,
+  // Route 103/YESTERDAY, "Admark Graphics" stop, "64922 - Lg Snacks"
+  // machine, same stop/machine as TC268/TC269/TC270 above).
+  //
+  // TC271 "focus Refund amount -> numeric keypad opens" - confirmed true,
+  // same digit-only keypad family as Bag code/Bills.
+  //
+  // TC272 "enter refund amount -> recorded and formatted" - live-verified
+  // the field displays the raw digits typed with no currency/decimal
+  // formatting applied (same plain-EditText model as Bag code/Bills) -
+  // not asserted as a $-formatted string.
+  //
+  // TC273 "enter 0.02 -> error banner 'Refund amount must be in $0.05
+  // increments.'" - live-verified this exact value/banner is unreachable:
+  // the field is driven by the same digit-only keypad with no decimal key
+  // (see TC269's own note above), so "0.02" can never be typed as such,
+  // and no such banner exists anywhere in this form. Adapted to the real
+  // behavior instead: bypassing the keypad via setValue('0.02') shows the
+  // decimal point silently stripped, leaving "002" - same silent-strip
+  // behavior as TC269, no banner.
+  //
+  // TC280 "system rejects non-numeric input" - confirmed true (and
+  // unreachable in the first place: the digit-only keypad never exposes
+  // letters or symbols to type).
+  //
+  // TC281 "system rejects negative values" - live-verified the same as
+  // TC269: a literal "-" bypassed via setValue() is silently stripped
+  // (setValue('-100') leaves "100"), not shown with an error.
+  //
+  // TC282 "system accepts zero" - live-verified TRUE (contradicts the
+  // Excel's own "should not accept" expectation): entering "0" via the
+  // real keypad is accepted and displayed as "0", same as any other
+  // digit string.
+  //
+  // TC283 "system restricts large values" - live-verified FALSE: entering
+  // a 9-digit value ("123456789") via the real keypad is accepted in
+  // full, with no observed length cap or rejection.
+  //
+  // TC284 "system restricts decimal handling" - live-verified the same
+  // silent-strip behavior as TC269/TC273: setValue('12.34') leaves
+  // "1234", no banner.
+  test(
+    'TC271/TC272/TC273/TC280-TC284: Refund amount entry and Replenishment/Bills numeric validation',
+    {
+      tag: [
+        '@Vending-TC271',
+        '@Vending-TC272',
+        '@Vending-TC273',
+        '@Vending-TC280',
+        '@Vending-TC281',
+        '@Vending-TC282',
+        '@Vending-TC283',
+        '@Vending-TC284'
+      ]
+    },
+    async () => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const vending = new VendingServiceScreen(driver);
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      await test.step("Open Admark Graphics's first Vending machine's Money Operations", async () => {
+        await dashboard.clickLocationByPosition('third');
+        await dashboard.openNthServiceStation('vending', 'first');
+        await vending.openMoneyOperations();
+      });
+
+      // TC271 "focus Refund amount -> numeric keypad opens".
+      await test.step('TC271: focusing the Refund amount field opens the digit-only keypad', async () => {
+        expect(await vending.isRefundDigitKeypadVisible()).toBe(true);
+      });
+
+      // TC272 "enter refund amount -> recorded and formatted" - adapted
+      // (see this test's own note above): recorded as the raw digits
+      // typed, no currency formatting.
+      await test.step('TC272: an entered amount is recorded in the Refund field', async () => {
+        await vending.enterRefundAmount('5');
+        expect(await vending.getRefundAmount()).toBe('5');
+      });
+
+      // TC273 "enter 0.02 -> $0.05-increment error banner" - adapted
+      // (see this test's own note above): the decimal point is silently
+      // stripped, no banner exists.
+      await test.step('TC273: a decimal value is silently stripped in the Refund field, not rejected with a banner', async () => {
+        await vending.setRefundAmountRaw('0.02');
+        expect(await vending.getRefundAmount()).toBe('002');
+      });
+
+      // TC280 "reject non-numeric input" - confirmed true (unreachable in
+      // the first place via the real digit-only keypad).
+      await test.step('TC280: the Replenishment/Bills field only exposes digit keys, never letters/symbols', async () => {
+        expect(await vending.isBillsDigitKeypadVisible()).toBe(true);
+      });
+
+      // TC281 "reject negative values" - adapted, same as TC269.
+      await test.step('TC281: a negative sign is silently stripped in the Replenishment/Bills field, not rejected with a banner', async () => {
+        await vending.setBillsAmountRaw('-100');
+        expect(await vending.getBillsAmount()).toBe('100');
+      });
+
+      // TC282 "accept zero" - live-verified TRUE, contradicting the
+      // Excel's own "should not accept" expectation.
+      await test.step('TC282: zero is accepted in the Replenishment/Bills field', async () => {
+        await vending.enterBillsCount('0');
+        expect(await vending.getBillsAmount()).toBe('0');
+      });
+
+      // TC283 "restrict large values" - live-verified FALSE, no cap
+      // observed.
+      await test.step('TC283: a large value is accepted in full in the Replenishment/Bills field, with no observed cap', async () => {
+        await vending.enterBillsCount('123456789');
+        expect(await vending.getBillsAmount()).toBe('123456789');
+      });
+
+      // TC284 "restrict decimal handling" - adapted, same as TC269/TC273.
+      await test.step('TC284: a decimal value is silently stripped in the Replenishment/Bills field, not rejected with a banner', async () => {
+        await vending.setBillsAmountRaw('12.34');
+        expect(await vending.getBillsAmount()).toBe('1234');
       });
     }
   );

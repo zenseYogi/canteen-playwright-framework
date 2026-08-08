@@ -163,8 +163,23 @@ export class CoffeeServiceScreen extends BaseScreen {
     await this.waitFor(this.presalesEmptyStateHeading);
   }
 
+  /**
+   * Same "Add presale" checklist tile, but tolerant of a pre-existing
+   * order from an earlier run against this same account/day (live-
+   * verified 2026-08-06: Pre-sales orders persist server-side same as
+   * Coffee's equipment cards do) - lands on either the empty state or the
+   * existing order's own summary screen, and doesn't wait for either.
+   */
+  async tapAddPresaleTrigger(): Promise<void> {
+    await this.tap(this.addPresaleTrigger);
+  }
+
   async isPresalesEmptyStateVisible(): Promise<boolean> {
     return this.isVisible(this.presalesEmptyStateHeading);
+  }
+
+  async isPresalesSummaryVisible(): Promise<boolean> {
+    return this.isVisible(this.presalesSummaryTitle);
   }
 
   /** Excel TC147/TC148 - opens "Add Pre-sales order" from the empty-state's own "Add order" button. */
@@ -237,9 +252,21 @@ export class CoffeeServiceScreen extends BaseScreen {
     await this.confirmDatePickerSelection();
   }
 
-  /** Opens the "Search product" bottom sheet from the Add product field. */
+  /**
+   * Opens the "Search product" bottom sheet from the Add product field.
+   *
+   * CORRECTED (live-verified 2026-08-06, FedEx/Route 10/Today): the sheet
+   * does NOT appear on tap alone, no matter how long you wait afterwards -
+   * it only opens once at least one character is typed into the
+   * now-focused inline field, at which point the app navigates to the
+   * sheet (its own search field starts genuinely empty - the triggering
+   * keystroke does not carry over, confirmed via the sheet's own
+   * EditText's `text` attribute being ""). A single throwaway keystroke is
+   * enough to trigger that navigation.
+   */
   async openAddProductSearch(): Promise<void> {
     await this.tap(this.addProductField);
+    await this.driver.keys('a');
     await this.waitFor(this.searchProductSheetTitle);
   }
 
@@ -393,10 +420,27 @@ export class CoffeeServiceScreen extends BaseScreen {
   private readonly deliveryAddProductSearchField =
     '//android.view.View[@content-desc="Search product"]/following-sibling::android.widget.EditText[1]';
 
+  /**
+   * CORRECTED (live-verified 2026-08-06, FedEx/Route 10/Today): this used
+   * to return right after setValue() with no wait for the filtered result
+   * list to actually render - under real-device timing, a caller's very
+   * next action (selectDeliveryProductOption's tap) can then land before
+   * any row exists, silently matching nothing. Reproduced the exact
+   * TC206 failure this way (getVisibleDeliveryProductCount() staying 0
+   * after a search+select that visually looked fine moments later) and
+   * confirmed the search/filter itself works correctly once given time to
+   * render - waits for at least one result row here instead of leaving
+   * that race to the caller. Deliberately lowercase "pkg:" - live-
+   * verified the SEARCH SHEET's own rows use that casing ("... - pkg: 1"),
+   * distinct from the capitalized "(Pkg: 1)" the DELIVERY LIST'S rows use
+   * once added (see getVisibleDeliveryProductCount below) - easy to
+   * conflate since they look identical at a glance.
+   */
   async searchDeliveryProductOption(term: string): Promise<void> {
     const field = await this.driver.$(this.deliveryAddProductSearchField);
     await field.click();
     await field.setValue(term);
+    await this.waitFor('//android.view.View[contains(@content-desc,"pkg:")]');
   }
 
   async selectDeliveryProductOption(term: string): Promise<void> {
@@ -427,11 +471,19 @@ export class CoffeeServiceScreen extends BaseScreen {
     return this.isEnabled(this.clearSortOrderButton);
   }
 
-  /** Excel TC209 - types into the Deliveries screen's own Search product field, filtering the already-added list. */
+  /**
+   * Excel TC209 - types into the Deliveries screen's own Search product
+   * field, filtering the already-added list. Same render-timing race as
+   * searchDeliveryProductOption above - a short settle pause here since
+   * there's no simple "wait for count to change" primitive to wait on
+   * instead (the filtered-down state is still a valid, populated list,
+   * not an absence/presence signal waitFor can key off).
+   */
   async searchDeliveriesList(term: string): Promise<void> {
     const field = await this.driver.$(this.deliveriesSearchField);
     await field.click();
     await field.setValue(term);
+    await this.driver.pause(800);
   }
 
   // A row's own content-desc is "{Name} (Pkg: N)\nOrdered\n{value}" - it
@@ -441,6 +493,37 @@ export class CoffeeServiceScreen extends BaseScreen {
   async getVisibleDeliveryProductCount(): Promise<number> {
     const rows = await this.driver.$$('//android.view.View[contains(@content-desc,"Pkg:")]');
     return rows.length;
+  }
+
+  /**
+   * Deletes every product currently on the Deliveries list - live-verified
+   * 2026-08-07: swiping a row left reveals a trash icon (the row's own
+   * following-sibling Button, same swipe-reveals-a-child-Button pattern as
+   * BaseScreen.swipeAndDelete), which opens a "Delete Product... Yes/No"
+   * confirm dialog (NOT the "~Delete" button BaseScreen.swipeAndDelete
+   * expects, hence a dedicated method here rather than reusing it).
+   * Re-queries the first remaining row each iteration since indices shift
+   * after every deletion. Exists so tests that build up delivery fixture
+   * data (which persists server-side with no other reset mechanism - see
+   * the TC206 test's own idempotency note) can start from a guaranteed
+   * empty list instead of tracking deltas against unbounded prior state.
+   */
+  async deleteAllDeliveryProducts(): Promise<void> {
+    const rowSelector = '//android.view.View[contains(@content-desc,"Pkg:")]';
+    for (;;) {
+      const remaining = await this.driver.$$(rowSelector);
+      const count = await remaining.length;
+      if (count === 0) {
+        break;
+      }
+      const row = await this.driver.$(rowSelector);
+      const loc = await row.getLocation();
+      const size = await row.getSize();
+      await this.swipe(loc.x + size.width - 10, loc.y + size.height / 2, loc.x + 10, loc.y + size.height / 2);
+      await this.tap(`${rowSelector}/android.widget.Button`);
+      await this.tap('~Yes');
+      await this.driver.pause(600);
+    }
   }
 
   async isDeliveryProductVisible(name: string): Promise<boolean> {
@@ -504,8 +587,28 @@ export class CoffeeServiceScreen extends BaseScreen {
     return this.isVisible(this.costSummaryTable);
   }
 
-  /** Excel TC216 - opens the dedicated signature-capture screen from the Signing Order summary's own trigger. */
+  /**
+   * Excel TC216 - opens the dedicated signature-capture screen from the
+   * Signing Order summary's own trigger.
+   *
+   * CORRECTED (live-verified 2026-08-07): the signOffTrigger is the LAST
+   * element on this page, below the Delivery/Cost summary tables - with
+   * few line items it happened to already be on-screen, but once the
+   * Delivery summary grows tall enough (observed with 6 accumulated
+   * products on one order), it renders below the fold and reports
+   * not-displayed even though it exists in the tree (confirmed via page
+   * source - present, just off-screen), causing tap()'s waitForDisplayed
+   * to time out. What looked like "Continue" being permanently disabled
+   * was actually this - Continue only enables once Sign Off itself is
+   * completed further down the SAME page. Scrolls into view first.
+   */
   async openSignOff(): Promise<void> {
+    for (let i = 0; i < 5; i++) {
+      if (await this.isVisible(this.signOffTrigger)) {
+        break;
+      }
+      await this.scrollDown();
+    }
     await this.tap(this.signOffTrigger);
     await this.waitFor('~Customer signature here:');
   }
@@ -545,8 +648,22 @@ export class CoffeeServiceScreen extends BaseScreen {
    * and this signature sub-screen share that exact same title, so it alone
    * can't distinguish having actually navigated back.
    */
+  /**
+   * CORRECTED (live-verified 2026-08-07): same off-screen issue as
+   * openSignOff's own note, mirrored - after signing off, the page is
+   * still scrolled to wherever openSignOff left it (near the bottom, to
+   * reach the Sign Off box), so the "Delivery summary" anchor near the
+   * TOP of this same scrollable page can itself be off-screen and not
+   * "displayed" yet. Scrolls back up first.
+   */
   async submitSignOff(): Promise<void> {
     await this.tap(this.signOffButton);
+    for (let i = 0; i < 5; i++) {
+      if (await this.isVisible(this.deliverySummaryTable)) {
+        break;
+      }
+      await this.scrollUp();
+    }
     await this.waitFor(this.deliverySummaryTable);
   }
 
@@ -737,6 +854,36 @@ export class CoffeeServiceScreen extends BaseScreen {
   async getEquipmentCardCount(): Promise<number> {
     const cards = await this.driver.$$('//android.view.View[contains(@content-desc,"Model:")]');
     return cards.length;
+  }
+
+  /**
+   * Deletes every equipment card currently listed - live-verified
+   * 2026-08-07: swiping a card left reveals a trash icon (the card's own
+   * child android.widget.Button, same structural pattern as Deliveries'
+   * own swipe-reveal), and tapping it deletes IMMEDIATELY - no "Yes/No"
+   * confirm dialog here (unlike deleteAllDeliveryProducts's Delete
+   * Product popup). Re-queries the first remaining card each iteration
+   * since indices shift after every deletion. Exists so tests that build
+   * up equipment fixture data (which persists server-side, same as
+   * Deliveries) can start from a guaranteed empty audit instead of the
+   * tolerant pre-existing-card branch the TC001 test used before this was
+   * found.
+   */
+  async deleteAllEquipment(): Promise<void> {
+    const cardSelector = '//android.view.View[contains(@content-desc,"Model:")]';
+    for (;;) {
+      const remaining = await this.driver.$$(cardSelector);
+      const count = await remaining.length;
+      if (count === 0) {
+        break;
+      }
+      const card = await this.driver.$(cardSelector);
+      const loc = await card.getLocation();
+      const size = await card.getSize();
+      await this.swipe(loc.x + size.width - 10, loc.y + size.height / 2, loc.x + 10, loc.y + size.height / 2);
+      await this.tap(`${cardSelector}/android.widget.Button`);
+      await this.driver.pause(600);
+    }
   }
 
   /**

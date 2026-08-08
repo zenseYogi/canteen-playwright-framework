@@ -351,6 +351,26 @@ export class BaseScreen {
     return (await el.getAttribute('content-desc')) ?? '';
   }
 
+  /**
+   * Reads every category chip's own content-desc ("<NAME> (<count>)")
+   * without assuming which categories exist - the seeded catalog's category
+   * set for a given stop isn't stable over time (live-verified 2026-08-07:
+   * a spec hardcoding "CANDY"/"LG SNACKS" broke once that stop's catalog no
+   * longer had an "LG SNACKS" chip at all). Matches on the "(<count>)"
+   * suffix every real category chip carries, which also excludes the
+   * sheet's Apply/Clear filters buttons (same element type, no such
+   * suffix). Call after openFilterSheet().
+   */
+  async getAllFilterChipLabels(): Promise<string[]> {
+    const chips = await this.driver.$$('//android.widget.Button[contains(@content-desc,"(") and contains(@content-desc,")")]');
+    const labels: string[] = [];
+    for (const chip of chips) {
+      const label = await chip.getAttribute('content-desc');
+      if (label) labels.push(label);
+    }
+    return labels;
+  }
+
   /** The chip's own selected/ticked state - distinct from isChecked (the header filter_cta toggle). */
   async isFilterChipSelected(labelPrefix: string): Promise<boolean> {
     const el = await this.driver.$(this.filterChipSelector(labelPrefix));
@@ -755,6 +775,20 @@ export class BaseScreen {
         width: opts.width ?? 300,
         height: opts.height ?? 600,
         direction: 'down',
+        percent: opts.percent ?? 1.0
+      }
+    ]);
+  }
+
+  /** Same as scrollDown, direction reversed - needed by any flow that scrolls down to reach a lower element, then must scroll back up to find one nearer the top again (e.g. CoffeeServiceScreen's Signing Order page). */
+  async scrollUp(opts: { left?: number; top?: number; width?: number; height?: number; percent?: number } = {}): Promise<void> {
+    await this.driver.executeScript('mobile: scrollGesture', [
+      {
+        left: opts.left ?? 100,
+        top: opts.top ?? 100,
+        width: opts.width ?? 300,
+        height: opts.height ?? 600,
+        direction: 'up',
         percent: opts.percent ?? 1.0
       }
     ]);

@@ -260,6 +260,15 @@ export class VendingServiceScreen extends BaseScreen {
    * leaves "25". No error banner exists, but the invalid character
    * itself never survives.
    */
+  /** Excel TC280 - same digit-only keypad signal as isBagCodeDigitKeypadVisible/isRefundDigitKeypadVisible, applied to the Replenishment/Bills field. */
+  async isBillsDigitKeypadVisible(): Promise<boolean> {
+    const field = await this.driver.$(this.billsField);
+    await field.click();
+    const isDigitKeypadVisible = await this.isVisible('~5');
+    await this.dismissNumericKeypad();
+    return isDigitKeypadVisible;
+  }
+
   async enterBillsCount(digits: string): Promise<void> {
     const field = await this.driver.$(this.billsField);
     await field.click();
@@ -292,6 +301,52 @@ export class VendingServiceScreen extends BaseScreen {
 
   async isRefundExpanded(): Promise<boolean> {
     return this.isVisible('//android.widget.EditText[@hint="Amounts"]');
+  }
+
+  /**
+   * Excel TC271/TC272/TC273 (Vending "Money ops" - the Refund amount
+   * input itself, inside the already-expanded Refund section) - live-
+   * verified 2026-08-03 (build 0.1.76, Route 103/YESTERDAY). The Refund
+   * "Amounts" field is driven by the SAME digit-only custom keypad family
+   * as Bag code/Bills (no decimal key of its own) - same pattern already
+   * documented above for those two fields.
+   *
+   * TC271 "focus Refund amount -> numeric keypad opens" - confirmed true,
+   * same `~5` digit-key signal used elsewhere in this file.
+   *
+   * TC272 "enter refund amount -> recorded and formatted" - the field
+   * displays the raw digit string typed (e.g. "5" for a nickel), with no
+   * currency formatting ($/decimal) applied - same "plain EditText" model
+   * as Bag code/Bills, not asserted as a $-formatted string.
+   */
+  async isRefundDigitKeypadVisible(): Promise<boolean> {
+    const field = await this.driver.$(this.refundField);
+    await field.click();
+    const isDigitKeypadVisible = await this.isVisible('~5');
+    await this.dismissNumericKeypad();
+    return isDigitKeypadVisible;
+  }
+
+  async enterRefundAmount(digits: string): Promise<void> {
+    const field = await this.driver.$(this.refundField);
+    await field.click();
+    for (const digit of digits) {
+      await (await this.driver.$(`~${digit}`)).click();
+    }
+    await this.dismissNumericKeypad();
+  }
+
+  async getRefundAmount(): Promise<string> {
+    const field = await this.driver.$(this.refundField);
+    return field.getText();
+  }
+
+  async setRefundAmountRaw(value: string): Promise<void> {
+    const field = await this.driver.$(this.refundField);
+    await field.click();
+    await field.clearValue();
+    await field.setValue(value);
+    await this.driver.hideKeyboard().catch(() => {});
   }
 
   /** Excel TC259/TC260 - tapping the "+" icon reveals a second "Additional code" field (own hint/placeholder confirmed live). */

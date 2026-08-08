@@ -1,8 +1,9 @@
 import { test, expect } from '../../fixtures/appium.fixture';
-import { loginAndWaitForMfa, switchRoute } from '../../utils/login-flow';
+import { loginAndEnsureRoute, ensureCoffeeDeliveryExists } from '../../utils/login-flow';
 import { PrepTasksScreen } from '../../screens/prep-tasks.screen';
 import { DashboardScreen } from '../../screens/dashboard.screen';
 import { CoffeeServiceScreen } from '../../screens/coffee-service.screen';
+import { HomeScreen } from '../../screens/home.screen';
 import { mobileConfig } from '../../config/mobile.config';
 
 // Traceability: this is the same shared/LOB-agnostic Skip-photo component
@@ -40,10 +41,19 @@ test.describe('Coffee - Before Photos / Skip photo', () => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
       const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
 
-      await test.step('Log in, switch to Route 10/TODAY (only day with live Prep Tasks + schedule data)', async () => {
-        await loginAndWaitForMfa(driver);
-        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      await test.step('Log in, ensure Route 10/TODAY (only day with live Prep Tasks + schedule data)', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      });
+
+      // Precondition (live-verified 2026-08-06): this route's TODAY data can
+      // be seeded Market-only with no Coffee stop at all - see
+      // ensureCoffeeDeliveryExists's doc comment for how that's detected/
+      // fixed via an ad-hoc "OCS/Pantry" delivery against FedEx, the same
+      // account this spec already navigates to below.
+      await test.step("Ensure today's route has a Coffee delivery", async () => {
+        await ensureCoffeeDeliveryExists(driver, 'FedEx');
       });
 
       // Start Day may already be server-tracked complete from an earlier
@@ -55,7 +65,10 @@ test.describe('Coffee - Before Photos / Skip photo', () => {
       });
 
       await test.step("Open the day's Coffee service stop", async () => {
-        await dashboard.clickLocationByPosition('second');
+        // By name, not position - live-verified 2026-08-06 that Route 10's
+        // stop order/count drifts (an unrelated stop can appear alongside
+        // FedEx), same rationale as ensureCoffeeDeliveryExists's own note.
+        await dashboard.clickLocationByName('FedEx');
         await dashboard.openFirstServiceStation('coffee');
       });
 
@@ -93,6 +106,10 @@ test.describe('Coffee - Before Photos / Skip photo', () => {
         await coffee.confirmSkipPhoto();
         expect(await coffee.isSkipPhotoReasonSheetVisible()).toBe(false);
       });
+
+      await test.step('Return to Home', async () => {
+        await home.returnToHome();
+      });
     }
   );
 });
@@ -114,10 +131,16 @@ test.describe('Coffee - Before Photos / Skip photo', () => {
 // equipment-card locators for the live-verified field combination used.
 //
 // NOT independently asserted (documented instead):
-// - TC013/TC018/TC019 (Add equipment verification screen reached via a
-//   search-no-match precursor, with prefilling) - this test reaches
-//   "Equipment detail" by reopening an already-known card, not via a
-//   search-no-match path - that precursor search flow itself is TC020-029.
+// - TC013/TC019 (Add equipment reached via a search-no-match precursor,
+//   with prefilling / a "Search equipment" screen with search field +
+//   scanner) - re-verified live 2026-08-03 via BOTH real entry points
+//   (the empty-state's own "Add equipment" button AND the header's
+//   section_header_add_cta icon): both open the exact same blank Add
+//   equipment form directly, with no intermediate "Search equipment"
+//   screen and no prefilled values. This precursor flow does not exist in
+//   this build via either reachable trigger. TC018 is NOW TAGGED
+//   separately (see TC035 below - "Add equipment button... grey" is the
+//   same disabled-state check already asserted there).
 // - TC020-TC029 (search field icons/label/placeholder/typing/highlight/
 //   no-results within the equipment list) - live-verified the header shows
 //   no separate Search icon even with equipment cards present (only
@@ -144,6 +167,7 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
         '@Coffee-TC015',
         '@Coffee-TC016',
         '@Coffee-TC017',
+        '@Coffee-TC018',
         '@Coffee-TC030',
         '@Coffee-TC033',
         '@Coffee-TC034',
@@ -156,9 +180,8 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
       const dashboard = new DashboardScreen(driver);
       const coffee = new CoffeeServiceScreen(driver);
 
-      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndWaitForMfa(driver);
-        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      await test.step('Log in, ensure Route 10/YESTERDAY (skips the route switch if already there)', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -167,7 +190,12 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
       });
 
       await test.step("Open the day's Coffee service stop", async () => {
-        await dashboard.clickLocationByPosition('second');
+        // Route 10/Yesterday's Coffee stop keeps drifting position (same
+        // recurring issue as market-service.spec.ts's TC112 note) - live-
+        // verified again 2026-08-06: now 3 stops (CureLeaf/Market,
+        // FedEx/Market, White & Case LLP/Coffee), Coffee at 'third', not
+        // 'first' as of the last correction.
+        await dashboard.clickLocationByPosition('third');
         await dashboard.openFirstServiceStation('coffee');
       });
 
@@ -202,6 +230,25 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
         expect(actions.back).toBe(true);
         expect(actions.addEquipment).toBe(true);
       });
+
+      // Idempotency guard (live-verified 2026-08-06/2026-08-07, same class
+      // of issue as the TC147/TC206 tests' own notes): this test builds its
+      // own fixture data (adds a "Cafection" equipment card, then drives it
+      // through Verified -> Equipment does not exist) and never tore it
+      // down, so re-running it against the same account/day found Cafection
+      // already on the card list, breaking the empty-state assertion below.
+      //
+      // CORRECTED (live-verified 2026-08-07): an earlier version of this
+      // guard branched around a pre-existing card (normalizing its state
+      // instead of re-running the creation TCs) because no reset mechanism
+      // was known. One exists: swiping a card left reveals a trash icon (a
+      // child android.widget.Button), and tapping it deletes IMMEDIATELY -
+      // no confirm dialog, unlike Deliveries' own delete flow. See
+      // CoffeeServiceScreen.deleteAllEquipment(). Clearing first restores
+      // the test to its original, simplest form.
+      if ((await coffee.getEquipmentCardCount()) > 0) {
+        await coffee.deleteAllEquipment();
+      }
 
       // TC004's own empty-state (documented as the live behavior on a
       // zero-equipment stop) - heading, explanatory message, and both
@@ -239,8 +286,12 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
       });
 
       // TC035 "confirm Add equipment button initial state" - disabled grey
-      // before any input.
-      await test.step('TC035: Add equipment starts disabled', async () => {
+      // before any input. TC018 "Add equipment button visible... Enabled
+      // with grey" is the same button/state - "grey" is the disabled
+      // color throughout this app (same convention documented elsewhere in
+      // this suite), so "Enabled" in the Excel's own wording is a likely
+      // data-entry error, not a distinct state to prove.
+      await test.step('TC018/TC035: Add equipment starts disabled (grey)', async () => {
         expect(await coffee.isAddEquipmentSubmitEnabled()).toBe(false);
       });
 
@@ -299,11 +350,20 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
       // the equipment LIST screen triggers the same "Equipment Audit - Do
       // you want to complete equipment audit!" confirmation this file's
       // earlier TC134/TC136-TC138 test already covers - confirm with Yes.
+      //
+      // CORRECTED (live-verified 2026-08-06): that confirmation is only
+      // shown when there's an actual unsaved change to prompt about - on
+      // the pre-existing-card path above, resetting the checkbox back to
+      // its already-current state left nothing "dirty", so back landed
+      // directly on the checklist (already showing "Equipment audit" with
+      // its complete checkmark) with no dialog at all. Tolerates either.
       await test.step('TC011: the Verified card persists after navigating away and back', async () => {
         await coffee.pressKeyCode(4);
         await driver.pause(500);
-        await coffee.tap('~Yes');
-        await driver.pause(500);
+        if (await coffee.isVisible('~Yes')) {
+          await coffee.tap('~Yes');
+          await driver.pause(500);
+        }
         await coffee.openEquipmentAudit();
         const card = await coffee.getEquipmentCardSummary('Cafection');
         expect(card.status).toBe('Verified');
@@ -331,6 +391,10 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
         const card = await coffee.getEquipmentCardSummary('Cafection');
         expect(card.status).toBe('Equipment does not exist');
       });
+
+      await test.step('Return to Home', async () => {
+        await new HomeScreen(driver).returnToHome();
+      });
     }
   );
 
@@ -347,14 +411,20 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
   // - TC088 ("scan a valid barcode") - not reproducible: no real camera/
   //   barcode to scan against in this environment.
   // - TC103/TC110/TC113/TC124 (Photos row's own Skip-photo confirmation
-  //   modal / Skip stop bottom sheet / capture / attach) - live-verified
-  //   the Photos row on THIS form goes straight into a native camera
-  //   capture screen with no intermediate "Add supporting photo" modal at
-  //   all (unlike Before/After Photos elsewhere in this suite, which do
-  //   have that modal) - there is no accessible "Skip photo" control to
-  //   assert against, and the camera view itself exposes no accessibility
-  //   tree (confirmed via a raw page-source dump: an entirely empty
-  //   hierarchy). Not reproducible without a real device camera.
+  //   modal / Skip stop bottom sheet / capture / attach) - re-verified live
+  //   2026-08-03: the Photos row on THIS form goes straight into a native
+  //   camera capture screen with no intermediate "Add supporting photo"
+  //   modal at all (unlike Before/After Photos elsewhere in this suite,
+  //   which do have that modal) - pressing back cancels straight out with
+  //   no Skip confirmation of any kind, contradicting TC103/TC110's own
+  //   claim. Additionally tried tapping the real shutter button (found via
+  //   its own bounds in a raw page-source dump - the camera view's
+  //   elements all carry empty content-desc, but the elements themselves
+  //   DO exist, unlike a prior session's "entirely empty hierarchy" note)
+  //   to test TC113/TC124's capture/attach claim directly: the tap
+  //   produced zero hierarchy change (identical dump before/after,
+  //   confirmed via checksum) - capture does not appear to function in
+  //   this emulator environment at all, so TC113/TC124 remain unconfirmed.
   // - TC139 ("Equipment Audit tile shows a green tick") - this exact Yes-
   //   confirmation flow is already exercised (see the TC011 step above,
   //   which taps Yes to get back to the checklist) - live-verified via
@@ -370,10 +440,10 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
       const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
 
-      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndWaitForMfa(driver);
-        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      await test.step('Log in, ensure Route 10/YESTERDAY (skips the route switch if already there)', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -382,7 +452,10 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
       });
 
       await test.step("Open the day's Coffee service stop, Equipment audit, and a fresh Add Equipment form", async () => {
-        await dashboard.clickLocationByPosition('second');
+        // Same recurring Route 10/Yesterday stop-position drift as the
+        // TC001 test above - live-verified 2026-08-06, Coffee is at
+        // 'third' (White & Case LLP), not 'second'.
+        await dashboard.clickLocationByPosition('third');
         await dashboard.openFirstServiceStation('coffee');
         await coffee.openEquipmentAudit();
         await coffee.openAddEquipmentFromEmptyState();
@@ -445,6 +518,10 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
         const barcodeField = await driver.$('//android.widget.EditText[starts-with(@hint,"Barcode")]');
         expect(await barcodeField.getAttribute('text')).toBe('629104873561');
       });
+
+      await test.step('Return to Home', async () => {
+        await home.returnToHome();
+      });
     }
   );
 });
@@ -476,10 +553,21 @@ test.describe('Coffee - Presales order (Add Pre-sales order)', () => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
       const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
 
-      await test.step('Log in, switch to Route 10/TODAY (the Coffee Presales stop is seeded on TODAY only)', async () => {
-        await loginAndWaitForMfa(driver);
-        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      await test.step('Log in, ensure Route 10/TODAY (the Coffee Presales stop is seeded on TODAY only)', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      });
+
+      // Precondition (same as the Skip-photo TODAY test above) - the
+      // ad-hoc Coffee delivery this test's Coffee stop depends on isn't
+      // guaranteed to persist from a previous run/session (live-verified
+      // 2026-08-06: it was gone on a later, independent run against the
+      // same account after having been present earlier), so each TODAY
+      // test re-asserts it exists rather than assuming another test's run
+      // already did.
+      await test.step("Ensure today's route has a Coffee delivery", async () => {
+        await ensureCoffeeDeliveryExists(driver, 'FedEx');
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -488,15 +576,33 @@ test.describe('Coffee - Presales order (Add Pre-sales order)', () => {
       });
 
       await test.step("Open the day's Coffee service stop", async () => {
-        await dashboard.clickLocationByPosition('first');
+        // Route 10/Today's Coffee stop is FedEx (ad-hoc-scheduled via
+        // ensureCoffeeDeliveryExists above), not the original manually-
+        // seeded stop this test was written against - opened by name, not
+        // position, since Route 10's stop order/count drifts (live-
+        // verified 2026-08-06, same rationale as ensureCoffeeDeliveryExists's
+        // own note).
+        await dashboard.clickLocationByName('FedEx');
         await dashboard.openFirstServiceStation('coffee');
       });
 
       // TC147 "open Add a Pre-sale order screen" - via the checklist's
       // Optional "Add presale" tile, then its own empty-state Add order.
-      await test.step('TC147: Add presale opens the Pre-sales empty state, then Add Pre-sales order', async () => {
-        await coffee.openAddPresaleFromChecklist();
-        expect(await coffee.isPresalesEmptyStateVisible()).toBe(true);
+      //
+      // Idempotency guard (live-verified 2026-08-06, same class of issue
+      // as the TC001 Equipment audit test's own note): a Pre-sales order
+      // saved by an earlier run against this same FedEx/Today stop
+      // persists server-side, so the checklist tile can land on the
+      // order's own summary screen instead of the empty state. Either way,
+      // the summary's "+"/"Add order" trigger (openAddPresalesOrder, same
+      // locator used by both states) opens a fresh "Add Pre-sales order"
+      // form - only the empty-state assertion itself is conditional.
+      await test.step('TC147: Add presale opens the Pre-sales empty state (or an existing summary), then Add Pre-sales order', async () => {
+        await coffee.tapAddPresaleTrigger();
+        const onSummary = await coffee.isPresalesSummaryVisible();
+        if (!onSummary) {
+          expect(await coffee.isPresalesEmptyStateVisible()).toBe(true);
+        }
         await coffee.openAddPresalesOrder();
         expect(await coffee.isAddPresalesOrderTitleVisible()).toBe(true);
       });
@@ -563,6 +669,10 @@ test.describe('Coffee - Presales order (Add Pre-sales order)', () => {
         expect(itemsText).toContain('Items');
         expect(await coffee.isPresalesContinueVisible()).toBe(true);
       });
+
+      await test.step('Return to Home', async () => {
+        await home.returnToHome();
+      });
     }
   );
 });
@@ -603,10 +713,17 @@ test.describe('Coffee - Delivery (add product, sort/search, sign-off)', () => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
       const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
 
-      await test.step('Log in, switch to Route 10/TODAY (the Coffee Delivery stop is seeded on TODAY only)', async () => {
-        await loginAndWaitForMfa(driver);
-        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      await test.step('Log in, ensure Route 10/TODAY (the Coffee Delivery stop is seeded on TODAY only)', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      });
+
+      // Precondition (see the Skip-photo TODAY test's own note) - this
+      // test's Coffee stop (FedEx) isn't guaranteed to already have a
+      // Coffee delivery from a previous run/session.
+      await test.step("Ensure today's route has a Coffee delivery", async () => {
+        await ensureCoffeeDeliveryExists(driver, 'FedEx');
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -614,19 +731,51 @@ test.describe('Coffee - Delivery (add product, sort/search, sign-off)', () => {
         await prepTasks.ensureFullDayPrepComplete();
       });
 
+      // Idempotency guard (live-verified 2026-08-07, same class of issue as
+      // the TC001 Equipment audit and TC147 Presales tests' own notes): a
+      // Delivery submitted by an earlier run's completed Sign Off persists
+      // for the rest of the day, so this stop's Deliveries list can already
+      // be non-empty.
+      //
+      // CORRECTED (live-verified 2026-08-07): earlier versions of this guard
+      // tried to tolerate a non-empty starting list - first via baseline+N
+      // deltas, then via presence/relative-count checks - both needed
+      // because product search is non-deterministic and can coincidentally
+      // match an already-present row. Both became unnecessary once a real
+      // reset was found: swiping a Deliveries row left reveals a trash
+      // icon (a child android.widget.Button of the row), which opens a
+      // "Delete Product... Yes/No" confirm dialog - see
+      // CoffeeServiceScreen.deleteAllDeliveryProducts(). Clearing the list
+      // first restores the test to its original, simplest form: exact
+      // counts against a guaranteed-empty start, no delta math needed.
       await test.step("Open the day's Coffee service stop and the Delivery tile", async () => {
-        await dashboard.clickLocationByPosition('first');
+        // FedEx (the ad-hoc-scheduled Coffee stop), opened by name rather
+        // than position - Route 10's stop order/count drifts (live-
+        // verified 2026-08-06, same rationale as ensureCoffeeDeliveryExists's
+        // own note).
+        await dashboard.clickLocationByName('FedEx');
         await dashboard.openFirstServiceStation('coffee');
         await coffee.openDelivery();
+        if (!(await coffee.isDeliveriesEmptyStateVisible())) {
+          await coffee.deleteAllDeliveryProducts();
+        }
         expect(await coffee.isDeliveriesEmptyStateVisible()).toBe(true);
       });
 
       // TC206 "add a product to the delivery screen"
+      //
+      // CORRECTED (live-verified 2026-08-07): getVisibleDeliveryProductCount()
+      // right after selectDeliveryProductOption() can read the list mid-
+      // transition (the "Search product" sheet is still closing/the row
+      // hasn't rendered yet), intermittently observed as a spurious 0 -
+      // expect.poll() retries the read instead of trusting a single
+      // snapshot, same fix applied to every count check in this test that
+      // follows an action which mutates the list asynchronously.
       await test.step('TC206: add a product via the header + icon', async () => {
         await coffee.openAddDeliveryProduct();
         await coffee.searchDeliveryProductOption('coffee');
         await coffee.selectDeliveryProductOption('Coffee');
-        expect(await coffee.getVisibleDeliveryProductCount()).toBe(1);
+        await expect.poll(() => coffee.getVisibleDeliveryProductCount()).toBe(1);
       });
 
       // TC207 "open the sort screen" - options + Clear sort order visible.
@@ -642,10 +791,10 @@ test.describe('Coffee - Delivery (add product, sort/search, sign-off)', () => {
         await coffee.openAddDeliveryProduct();
         await coffee.searchDeliveryProductOption('sugar');
         await coffee.selectDeliveryProductOption('Sugar');
-        expect(await coffee.getVisibleDeliveryProductCount()).toBe(2);
+        await expect.poll(() => coffee.getVisibleDeliveryProductCount()).toBe(2);
 
         await coffee.searchDeliveriesList('sugar');
-        expect(await coffee.getVisibleDeliveryProductCount()).toBe(1);
+        await expect.poll(() => coffee.getVisibleDeliveryProductCount()).toBe(1);
       });
 
       // TC211/TC212 "zero Ending Inventory blocks proceeding, No keeps the
@@ -658,7 +807,7 @@ test.describe('Coffee - Delivery (add product, sort/search, sign-off)', () => {
         expect(await coffee.isDeliveryConfirmDialogVisible()).toBe(true);
         await coffee.dismissDeliveryConfirmDialog();
         expect(await coffee.isDeliveriesEmptyStateVisible()).toBe(false);
-        expect(await coffee.getVisibleDeliveryProductCount()).toBe(1);
+        await expect.poll(() => coffee.getVisibleDeliveryProductCount()).toBe(1);
       });
 
       // TC210/TC213/TC214 "Yes navigates to Signing Order; its own fields
@@ -684,6 +833,10 @@ test.describe('Coffee - Delivery (add product, sort/search, sign-off)', () => {
         await coffee.submitSignOff();
         expect(await coffee.isDeliveryContinueEnabled()).toBe(true);
       });
+
+      await test.step('Return to Home', async () => {
+        await home.returnToHome();
+      });
     }
   );
 });
@@ -705,10 +858,17 @@ test.describe('Coffee - After Photos / Skip photo', () => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
       const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
 
-      await test.step('Log in, switch to Route 10/TODAY (the Coffee stop is seeded on TODAY only)', async () => {
-        await loginAndWaitForMfa(driver);
-        await switchRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      await test.step('Log in, ensure Route 10/TODAY (the Coffee stop is seeded on TODAY only)', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      });
+
+      // Precondition (see the Skip-photo TODAY test's own note) - this
+      // test's Coffee stop (FedEx) isn't guaranteed to already have a
+      // Coffee delivery from a previous run/session.
+      await test.step("Ensure today's route has a Coffee delivery", async () => {
+        await ensureCoffeeDeliveryExists(driver, 'FedEx');
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -717,7 +877,11 @@ test.describe('Coffee - After Photos / Skip photo', () => {
       });
 
       await test.step("Open the day's Coffee service stop", async () => {
-        await dashboard.clickLocationByPosition('first');
+        // FedEx (the ad-hoc-scheduled Coffee stop), opened by name rather
+        // than position - Route 10's stop order/count drifts (live-
+        // verified 2026-08-06, same rationale as ensureCoffeeDeliveryExists's
+        // own note).
+        await dashboard.clickLocationByName('FedEx');
         await dashboard.openFirstServiceStation('coffee');
       });
 
@@ -745,6 +909,10 @@ test.describe('Coffee - After Photos / Skip photo', () => {
       await test.step('TC278: submit the reason and return to the service stop screen', async () => {
         await coffee.confirmSkipPhoto();
         expect(await coffee.isSkipPhotoReasonSheetVisible()).toBe(false);
+      });
+
+      await test.step('Return to Home', async () => {
+        await home.returnToHome();
       });
     }
   );

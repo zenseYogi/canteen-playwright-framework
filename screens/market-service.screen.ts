@@ -28,6 +28,14 @@ export class MarketServiceScreen extends BaseScreen {
   // openPhotoTrigger/openSkipPhotoReasonSheet) - only the trigger locator
   // is LOB-specific.
   private readonly beforePhotos = '//android.view.View[starts-with(@content-desc,"Before Photos")]';
+  // Excel TC274/TC277/TC278 ("After Photo" sub-area) - same shared
+  // component as beforePhotos above (BaseScreen's openPhotoTrigger/
+  // openSkipPhotoReasonSheet), live-verified 2026-08-03 on CureLeaf. Unlike
+  // Before Photos, this tile starts split into two non-clickable elements
+  // (title + subtitle) until Before Photos, Removals & Returns, Delivery,
+  // AND Audit are ALL completed first - same gated-tile pattern already
+  // documented for Vending's own After Photos.
+  private readonly afterPhotos = '//android.view.View[starts-with(@content-desc,"After Photos")]';
 
   // Excel TC301/TC302 (Market to Market Transfer, PBI 739293) - live-
   // verified 2026-07-28: the "Market Transfers\n{N} Transfers" checklist
@@ -218,6 +226,37 @@ export class MarketServiceScreen extends BaseScreen {
     return this.isVisible(this.savedSuccessToast);
   }
 
+  /** Excel TC112 (Market "Delivery") - whether Product fills' own Continue button is currently enabled. */
+  async isFillsContinueEnabled(): Promise<boolean> {
+    return this.isEnabled(this.continueButton);
+  }
+
+  /**
+   * Excel TC112 "enter valid data in all visible rows -> Continue enabled" -
+   * expands and fills the Delivery field of every CURRENTLY RENDERED
+   * product row (not the whole, possibly virtualized, catalog - unlike
+   * Vending's fillAllProductDeliveryQuantities, no scroll-and-repeat loop
+   * here since this is scoped to "visible rows" per the Excel's own
+   * wording) using the same keypad-digit-tap approach already proven by
+   * tapKeypadDigit (setValue() bypasses the app's real validation wiring).
+   */
+  async fillAllVisibleDeliveryQuantities(quantity = '5'): Promise<void> {
+    const rowCount = await this.getFillProductRowCount();
+    const positions: Position[] = ['first', 'second', 'third', 'fourth'];
+    // Position only models up to 'fourth' - callers with a larger visible
+    // row count should use a market stop with 4 or fewer catalog items.
+    for (let i = 0; i < Math.min(rowCount, positions.length); i++) {
+      const position = positions[i];
+      await this.expandProductFill(position);
+      const field = await this.driver.$(this.fillFieldByHint(position, 'Delivery'));
+      await field.click();
+      for (const digit of quantity) {
+        await this.tapKeypadDigit(digit);
+      }
+      await this.driver.hideKeyboard().catch(() => {});
+    }
+  }
+
   async clickServiceLocation(position: Position): Promise<void> {
     await this.selectServiceLocation(this.marketLob, position);
   }
@@ -235,6 +274,11 @@ export class MarketServiceScreen extends BaseScreen {
   /** Opens the Before Photos step's "Add supporting photo" modal - see BaseScreen's openPhotoTrigger/isPhotoModalVisible/openSkipPhotoReasonSheet for the shared skip-photo flow beyond this. */
   async openBeforePhotos(): Promise<void> {
     await this.openPhotoTrigger(this.beforePhotos);
+  }
+
+  /** Opens the After Photos step's "Add supporting photo" modal - see this class's own note above afterPhotos on the tiles that must be completed first, and BaseScreen's openPhotoTrigger/isPhotoModalVisible/openSkipPhotoReasonSheet for the shared skip-photo flow beyond this. */
+  async openAfterPhotos(): Promise<void> {
+    await this.openPhotoTrigger(this.afterPhotos);
   }
 
   async isProductFillsTitleVisible(): Promise<boolean> {
@@ -479,6 +523,22 @@ export class MarketServiceScreen extends BaseScreen {
     await this.waitFor(this.addProductQtyField);
   }
 
+  /**
+   * Reads the FIRST result row's own content-desc ("{Name} ({size}) - pkg:
+   * {N}\nSKU: {sku}") without assuming any specific product/SKU - seed data
+   * for a given search term (e.g. "Snickers") isn't stable across
+   * environments/time (live-verified 2026-08-07: pkg size/SKU for the same
+   * search term had already changed since this suite was first written).
+   * Callers that need a specific row to select or a SKU to search by should
+   * derive it from this rather than hardcoding either.
+   */
+  async getFirstSearchResultContentDesc(): Promise<string> {
+    const row = await this.driver.$(
+      '(//android.view.View[contains(@content-desc,"pkg:") and contains(@content-desc,"SKU:")])[1]'
+    );
+    return (await row.getAttribute('content-desc')) ?? '';
+  }
+
   /** Excel TC163 - the Add product details Qty field's `hint` packs the selected product's name/SKU/Pkg together with the "Qty" label (e.g. "Snickers 1.86oz\nSKU: 19515\nPkg: 1\nQty"). */
   async getAddProductSummary(): Promise<{ name: string; sku: string; pkg: string }> {
     const el = await this.driver.$(this.addProductQtyField);
@@ -514,6 +574,81 @@ export class MarketServiceScreen extends BaseScreen {
     await this.waitFor(this.fillsTitle);
   }
 
+  /**
+   * Precondition for any test that needs Product fills to have SOME rows
+   * (e.g. Sort/Filter tests) - guarantees this by adding one via the real
+   * Add Product flow for each name in seedProductNames, but ONLY when the
+   * list is currently empty. Live-verified 2026-08-07: this stop's Fill
+   * list can genuinely run empty (repeated live test runs against the same
+   * day's seeded data consume/complete those par items server-side) - a
+   * bare assertion on row count then fails for a data reason, not a code
+   * reason. Never adds anything when rows already exist - re-seeding on
+   * top of real data would corrupt whatever a previous run intentionally
+   * left in place, and duplicate rows aren't the point of this precondition.
+   * Call from Product fills, before reading any row/category count.
+   */
+  async ensureFillableProductsExist(seedProductNames: string[] = ['Snickers', 'Doritos', 'Cheetos']): Promise<void> {
+    if ((await this.getFillProductRowCount()) > 0) return;
+    for (const name of seedProductNames) {
+      if (await this.addFirstSearchResultProduct(name)) return;
+    }
+  }
+
+  /**
+   * Same precondition as ensureFillableProductsExist, but for tests that
+   * specifically need at least `minCategories` distinct filter categories
+   * (e.g. the multi-select filter tests) - a bare row-count check isn't
+   * enough for those: live-verified 2026-08-07 that a stop can have exactly
+   * 1 row/1 category (e.g. left behind by ensureFillableProductsExist's own
+   * single-product top-up in an earlier run) which satisfies "not empty"
+   * but not "has 2+ categories to choose between". Only adds MORE products
+   * if the category count actually falls short - re-checks after each add
+   * rather than adding the whole seed list blindly, so a catalog that
+   * already has enough categories is left untouched.
+   */
+  async ensureMultipleFillCategoriesExist(
+    seedProductNames: string[] = ['Snickers', 'Doritos', 'Cheetos', 'Baby Ruth', 'Skittles'],
+    minCategories = 2
+  ): Promise<number> {
+    let categoryCount = await this.currentFilterCategoryCount();
+    for (const name of seedProductNames) {
+      if (categoryCount >= minCategories) break;
+      if (await this.addFirstSearchResultProduct(name)) {
+        categoryCount = await this.currentFilterCategoryCount();
+      }
+    }
+    return categoryCount;
+  }
+
+  /** Opens the filter sheet, reads the category count, then closes it again (BACK dismisses the bottom sheet without applying) - leaves the caller back on Product fills exactly as found. */
+  private async currentFilterCategoryCount(): Promise<number> {
+    await this.openFilterSheet();
+    const count = (await this.getAllFilterChipLabels()).length;
+    await this.driver.back();
+    await this.waitFor(this.fillsTitle);
+    return count;
+  }
+
+  /** Searches for `name` via Add Product and adds the FIRST result if any match; returns whether a product was actually added. */
+  private async addFirstSearchResultProduct(name: string): Promise<boolean> {
+    await this.openAddProduct();
+    await this.searchProduct(name);
+    const noResults = await this.isNoSearchResultsVisible().catch(() => false);
+    if (noResults) {
+      await this.cancelAddProduct().catch(() => {});
+      return false;
+    }
+    const contentDesc = await this.getFirstSearchResultContentDesc();
+    if (!contentDesc) {
+      await this.cancelAddProduct().catch(() => {});
+      return false;
+    }
+    const label = contentDesc.split('\n')[0] ?? '';
+    await this.selectSearchResult(label);
+    await this.confirmAddProduct();
+    return true;
+  }
+
   /** Excel TC301 - taps the "Market Transfers" checklist tile; live-verified this environment always has only one market, so this consistently lands on the TC302 info popup rather than the real Transfers screen. */
   async openMarketTransfers(): Promise<void> {
     await this.tap(this.marketTransfersTile);
@@ -529,9 +664,21 @@ export class MarketServiceScreen extends BaseScreen {
   }
 
   /** Opens Money Operations without filling/submitting anything - lets callers assert field presence before performMoneyOperations() commits values. */
+  /** Not every Market stop's checklist has a Money Operations tile (e.g. CuraLeaf doesn't, FedEx/Breakroom does) - check before deciding whether it must be completed for Continue to enable. */
+  async isMoneyOperationsVisible(): Promise<boolean> {
+    return this.isVisible(this.moneyOperations);
+  }
+
   async openMoneyOperations(): Promise<void> {
     await this.tap(this.moneyOperations);
     await this.waitFor(this.skipMoneyBagCheckbox);
+  }
+
+  /** Checks "Skip money bag" and continues - simpler alternative to performMoneyOperations() when the actual bag code/coins/bills/refund values don't matter for the flow being exercised. */
+  async skipMoneyOperations(): Promise<void> {
+    await this.openMoneyOperations();
+    await this.tap(this.skipMoneyBagCheckbox);
+    await this.tap(this.continueButton);
   }
 
   async performMoneyOperations(
@@ -549,6 +696,95 @@ export class MarketServiceScreen extends BaseScreen {
   async performDelivery(): Promise<void> {
     await this.openProductFills();
     await this.tap(this.continueButton);
+  }
+
+  /** Excel TC109/TC110 - opens Removals & Returns and searches/selects a product, stopping right before the Theft/Damaged/Returned/Spoiled fields would normally be filled with valid data - lets a caller inject a value into one of those fields directly and read it back. */
+  async openRemovalsAndReturnsForProduct(searchTerm: string): Promise<void> {
+    await this.tap(this.removalsAndReturns);
+    await this.searchAndSelect(searchTerm);
+    await this.waitFor(this.documentProductTitle);
+  }
+
+  private removalsFieldSelector(field: 'spoiled' | 'damaged' | 'theft' | 'truckReturns'): string {
+    return {
+      spoiled: this.removalsSpoiledField,
+      damaged: this.removalsDamagedField,
+      theft: this.removalsTheftField,
+      truckReturns: this.removalsTruckReturnsField
+    }[field];
+  }
+
+  /** Excel TC109/TC110 - types a raw value directly into a Removals & Returns field (bypassing whatever on-screen keyboard the real field uses) so the field's OWN validation logic can be exercised regardless of keypad constraints - same reasoning as this suite's other keypad-bypass TCs. Assumes openRemovalsAndReturnsForProduct() already ran. */
+  async typeIntoRemovalsField(field: 'spoiled' | 'damaged' | 'theft' | 'truckReturns', value: string): Promise<void> {
+    const selector = this.removalsFieldSelector(field);
+    const el = await this.driver.$(selector);
+    await el.click();
+    await el.setValue(value);
+  }
+
+  /** Excel TC109/TC110 - taps Cancel on the Document product screen, discarding whatever was injected via typeIntoRemovalsField() without a "Save Changes?" prompt - leaves the app back on the outer checklist for whatever test runs next. */
+  async cancelDocumentProduct(): Promise<void> {
+    await this.tap('~Cancel');
+  }
+
+  /** Reads back a Removals & Returns field's current text - lets a caller confirm whether an injected invalid value (typeIntoRemovalsField) was actually accepted into the field or silently rejected/reverted. */
+  async getRemovalsFieldValue(field: 'spoiled' | 'damaged' | 'theft' | 'truckReturns'): Promise<string> {
+    const el = await this.driver.$(this.removalsFieldSelector(field));
+    return (await el.getText()) ?? '';
+  }
+
+  /**
+   * Removals & Returns has no products to remove on a fresh machine - its
+   * own empty state ("Record Removed Items & Truck Returns") has a Done
+   * button, enabled by default with nothing scanned/logged - live-verified
+   * 2026-08-03 on CureLeaf, same empty-state pattern already documented for
+   * Vending's own completeRemovalsAndReturns.
+   */
+  async completeRemovalsAndReturns(): Promise<void> {
+    await this.tap(this.removalsAndReturns);
+    await this.tap(this.doneButton);
+  }
+
+  /** Opens Audit without searching/continuing - lets callers assert the search field/scanner icon first. Assumes the tile is already enabled (see this class's own note above afterPhotos on Audit's own prerequisites - Before Photos, Removals & Returns, and Delivery). */
+  async openAudit(): Promise<void> {
+    await this.tap(this.audit);
+    await this.waitFor(this.audit);
+  }
+
+  /** Excel TC244 - opens Audit and searches/selects a product, stopping right before Continue - lets a caller inspect whatever quantity-entry control appears (e.g. the shared numeric keypad) before committing. */
+  async selectAuditProduct(searchTerm: string): Promise<void> {
+    await this.tap(this.audit);
+    await this.waitFor(this.audit);
+    await this.searchAndSelect(searchTerm);
+  }
+
+  /** Excel TC244 - whether a given key (e.g. "." for decimal) exists at all on the shared numeric keypad currently on screen - same keypad component used by Delivery/Add Product/Audit quantity entry. */
+  async isKeypadKeyVisible(key: string): Promise<boolean> {
+    return this.isVisible(this.numericKeypadDigit(key));
+  }
+
+  /** Excel TC244 - taps an arbitrary key on the shared numeric keypad by its own content-desc (e.g. "." for decimal) - for keys with no dedicated tapKeypadX wrapper. */
+  async tapKeypadKey(key: string): Promise<void> {
+    await this.tap(this.numericKeypadDigit(key));
+  }
+
+  /** Reads the numeric keypad's target field's current text - generic readback for whatever field the keypad is currently editing (e.g. Audit's quantity field). */
+  async getKeypadTargetValue(fieldSelector: string): Promise<string> {
+    const el = await this.driver.$(fieldSelector);
+    return (await el.getText().catch(() => el.getAttribute('text'))) ?? '';
+  }
+
+  /**
+   * Excel TC232 ("Audit" sub-area) - the scanner icon on Audit's own
+   * product search field, live-verified 2026-08-03 present as the same
+   * unlabeled-ImageView-following-the-field pattern used throughout this
+   * app (see e.g. isSearchScannerIconVisible above). Not exercised end-to-
+   * end (no real barcode to scan against in this environment, same
+   * reasoning as TC160's own note elsewhere in this file) - only the tap
+   * target's presence is asserted.
+   */
+  async isAuditScannerIconVisible(): Promise<boolean> {
+    return this.isVisible(`${this.searchField}/following-sibling::android.widget.ImageView[2]`);
   }
 
   async performAudit(searchTerm: string): Promise<void> {
