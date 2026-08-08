@@ -5,3 +5,13 @@ test-results/
 *.log
 .env
 recordings/
+nexus-app-0.1.73/nexus-app-0.1.73.apk
+nexus-app-0.1.73/nexus-app-qa-debug-220726.apk
+Optimized_TCs_V_2.0.xlsx
+docs/session-log-2026-07-21.md
+docs/session-log-2026-07-23.md
+.DS_Store
+.claude/settings.json
+docs/evidence/product-collection-no-photo-step-1-before-continue.png
+docs/evidence/product-collection-no-photo-step-2-after-continue.png
+nexus-app-0.1.78/nexus-app-0.1.78.apk

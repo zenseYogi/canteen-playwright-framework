@@ -1,17 +1,268 @@
 import { BaseScreen } from './base.screen';
+import type { Lob } from '../utils/lob';
 
 /**
  * Home / dashboard screen - lands here after successful login + MFA.
  */
 export class HomeScreen extends BaseScreen {
-  private readonly navMenuButton = '//*[@content-desc="Open navigation menu"]';
-  private readonly startDayButton = '//*[@content-desc="Start day"]';
+  // Ported from dashboard.yaml's title_deliveries - the specific element RF's
+  // "Validate user is on the dashboard page" keyword waits on. Matches the
+  // "Deliver" stem rather than "Deliveries" - live-verified the dashboard
+  // shows singular "1 Delivery" (not "1 Deliveries") when only one stop is
+  // scheduled, and "Deliveries" is not a substring of "Delivery".
+  private readonly deliveriesTitle = '//android.view.View[contains(@content-desc, "Deliver")]';
+
+  // PBI 622025 "Home Page: Dynamic data with functionality" - live-verified
+  // against build 0.1.76 (Miami/010). The day badge's content-desc is the
+  // whole string (e.g. "Yesterday, Thu 23 Jul") - matched by its one of
+  // three fixed prefixes, since the day/date portion changes daily.
+  private readonly currentDateBadge =
+    '//android.view.View[starts-with(@content-desc,"Today") or starts-with(@content-desc,"Yesterday") or starts-with(@content-desc,"Tomorrow")]';
+  private readonly routeBadge = '//android.view.View[starts-with(@content-desc,"Route")]';
+  // The "Select a day" bottom sheet's own TODAY card (content-desc packs
+  // the label and date together, e.g. "TODAY\nAugust 7, 2026") - used by
+  // returnToHome() to dismiss this sheet if left open.
+  private readonly selectADaySheetTodayOption = '//android.view.View[starts-with(@content-desc,"TODAY")]';
+  // Live-verified: each LOB's "X/Y" count badge and its name label are
+  // siblings in two separate groups under the same parent (all counts
+  // first, then all labels), in the SAME per-LOB order - e.g. Market's
+  // count and Coffee's count both precede both labels. Confirmed only
+  // "X/Y"-shaped counts contain "/" on this screen, so lobCountBadge is
+  // safe without also scoping to a specific container.
+  private readonly lobCountBadge = '//android.view.View[contains(@content-desc,"/")]';
+  private readonly lobLabels = '//android.view.View[@content-desc="Market" or @content-desc="Coffee" or @content-desc="Vending"]';
+  // TC036 "view Edit schedule order screen" / TC018/TC020 "navigate to Edit
+  // schedule order screen" (PBI 611763/630328) - live-verified: opens a
+  // sheet titled "Edit Schedule Order" listing every stop's name+address.
+  private readonly editScheduleButton = '~Edit schedule';
+  private readonly editScheduleTitle = '~Edit Schedule Order';
 
   async isLoaded(): Promise<boolean> {
-    return this.isVisible(this.navMenuButton);
+    return this.isVisible(this.hamburgerIcon);
+  }
+
+  /** Ported from dashboard_keywords.robot's "Validate user is on the dashboard page". */
+  async waitForDashboardLoaded(): Promise<void> {
+    await this.waitFor(this.deliveriesTitle);
   }
 
   async tapStartDay(): Promise<void> {
     await this.tap(this.startDayButton);
+  }
+
+  /** TC007 "view the System Date" - the day/date badge in the navigation bar (e.g. "Yesterday, Thu 23 Jul"). */
+  async getCurrentDateText(): Promise<string> {
+    const el = await this.driver.$(this.currentDateBadge);
+    return (await el.getAttribute('content-desc')) ?? '';
+  }
+
+  /** TC012 "view route badge" - e.g. "Route 103". */
+  async getRouteBadgeText(): Promise<string> {
+    const el = await this.driver.$(this.routeBadge);
+    return (await el.getAttribute('content-desc')) ?? '';
+  }
+
+  /** TC013 "view Deliveries" / TC014 "view remaining deliveries" (PBI 622025) - parsed from the shared "N Delivery/Deliveries" text. */
+  async getDeliveriesCount(): Promise<number> {
+    const el = await this.driver.$(this.deliveriesTitle);
+    const desc = (await el.getAttribute('content-desc')) ?? '';
+    return Number(/(\d+)/.exec(desc)?.[1]);
+  }
+
+  /**
+   * TC015 "view Vending counter" (and the equivalent Market/Coffee counts,
+   * part of PBI 622025's "dynamic" claim) - returns whichever LOBs actually
+   * have a card rendered today (this screen only shows a LOB's badge when it
+   * has scheduled stops - e.g. Miami/010 shows Market+Coffee, never Vending).
+   */
+  async getLobCounts(): Promise<Partial<Record<Lob, string>>> {
+    const labelEls = await this.driver.$$(this.lobLabels);
+    const countEls = await this.driver.$$(this.lobCountBadge);
+    const result: Partial<Record<Lob, string>> = {};
+    const labelCount = await labelEls.length;
+    for (let i = 0; i < labelCount; i++) {
+      const label = ((await labelEls[i].getAttribute('content-desc')) ?? '').toLowerCase() as Lob;
+      const count = countEls[i] ? await countEls[i].getAttribute('content-desc') : null;
+      if (count) {
+        result[label] = count;
+      }
+    }
+    return result;
+  }
+
+  async openEditSchedule(): Promise<void> {
+    await this.tap(this.editScheduleButton);
+    await this.waitFor(this.editScheduleTitle);
+  }
+
+  async isEditScheduleVisible(): Promise<boolean> {
+    return this.isVisible(this.editScheduleTitle);
+  }
+
+  /**
+   * TC036 "view Edit schedule order screen... with icon and list of stops
+   * with names and addresses" - each stop row's content-desc is
+   * "{address}\n{Name}" (live-verified, e.g. "19000 SW 192nd St Miami
+   * Florida 33187-1908\nCureLeaf"), so this returns just the trailing name
+   * line from every multi-line View on the (assumed already open) sheet.
+   */
+  async getEditScheduleStopNames(): Promise<string[]> {
+    const els = await this.driver.$$('//android.view.View');
+    const names: string[] = [];
+    for (const el of els) {
+      const desc = (await el.getAttribute('content-desc')) ?? '';
+      if (desc.includes('\n')) {
+        const parts = desc.split('\n');
+        names.push(parts[parts.length - 1]);
+      }
+    }
+    return names;
+  }
+
+  // PBI 850155 "Ad-hoc Scheduling" (TC025/027/028/029).
+  //
+  // TC027 "navigate to Ad-hoc delivery creation screen" - live-verified
+  // 2026-07-24: the "+" icon next to the Schedule pane header has NO
+  // content-desc/resource-id of its own (confirmed via dump - an unlabeled
+  // clickable View), so it's targeted structurally as the immediate
+  // following-sibling of the "Schedule" text. Confirmed reachable
+  // regardless of whether the current day is empty or not (tested against
+  // a day with 4 real deliveries) - opens an "Add Delivery" screen with a
+  // Customer search field and Add Delivery / "+ Add Another Delivery"
+  // buttons.
+  private readonly addAdhocDeliveryButton = '//android.view.View[@content-desc="Schedule"]/following-sibling::android.view.View[1]';
+
+  // TC025 "No deliveries available" message - UNVERIFIED locators below.
+  // Live-confirmed the SHAPE of this empty state earlier the same day
+  // (2026-07-24) on a genuinely zero-delivery day ("0 Delivery", "You do
+  // not have an active deliveries for Fri 24 Jul. To add an ad-hoc
+  // delivery, click the plus (+) icon", Start day shown disabled) - but
+  // BA has since seeded data across every day on both known routes
+  // (Miami/010 and Charlotte/103), so no zero-delivery day remains to
+  // confirm the EXACT locator/content-desc for that message text right
+  // now. Matched via the Excel's literal wording ("do not have"), tolerant
+  // of the varying day/date suffix - needs re-verification once a
+  // zero-delivery day exists again (tracked, not guessed away).
+  private readonly noDeliveriesMessage = '//android.view.View[contains(@content-desc,"do not have")]';
+
+  /** TC025 - true only when Deliveries is genuinely 0 AND the no-deliveries message is showing (see noDeliveriesMessage's caveat above). */
+  async isDeliveriesEmptyStateVisible(): Promise<boolean> {
+    const count = await this.getDeliveriesCount();
+    return count === 0 && (await this.isVisible(this.noDeliveriesMessage));
+  }
+
+  /** TC025 "Start day button should be display as inactive" when there are no deliveries. */
+  async isStartDayDisabled(): Promise<boolean> {
+    return !(await this.isEnabled(this.startDayButton));
+  }
+
+  /** TC026 - the "+" icon (Schedule Ad-hoc Delivery's own primary CTA) is visible before it's tapped. */
+  async isAdhocDeliveryButtonVisible(): Promise<boolean> {
+    return this.isVisible(this.addAdhocDeliveryButton);
+  }
+
+  /** TC027/TC028 - opens the Ad-hoc delivery creation screen via the "+" icon. */
+  async openAdhocDeliveryCreation(): Promise<void> {
+    await this.tap(this.addAdhocDeliveryButton);
+  }
+
+  // Live-verified 2026-07-24: pressing BACK from a screen with unsaved
+  // Sort/Filter selections (e.g. Vending's Product Fills) triggers a "Save
+  // Changes! Your changes have not saved yet, Do you want to save?" dialog
+  // (Discard/Save). A naive repeated-BACK loop presses BACK again on this
+  // dialog, which just dismisses it back to the SAME screen - the very next
+  // press re-triggers the identical dialog, looping forever and never
+  // making progress. Must tap "Discard" explicitly instead.
+  private readonly discardChangesButton = '~Discard';
+  // A SECOND, differently-worded variant of the same dialog class - live-
+  // verified 2026-08-05 on Market's Removals & Returns "Document product"
+  // screen: "Save Changes / Do you want to save your changes? / No / Save"
+  // (not "Discard"/"Save"). Same looping-forever risk as discardChangesButton
+  // if not handled explicitly.
+  private readonly saveChangesNoButton = '~No';
+  // A THIRD variant, live-verified 2026-08-06 on Coffee's Pre-sales summary
+  // screen ("Complete Pre-sale! Do you want to complete the pre-sale for
+  // this service? / Skip pre-sale / Complete") - tapping "Skip pre-sale"
+  // leaves the order as already saved (this dialog is about completing the
+  // SERVICE, not discarding the order) and continues navigating back,
+  // matching returnToHome's intent of leaving state alone.
+  private readonly skipPresaleButton = '~Skip pre-sale';
+
+  /**
+   * Navigates back to Dashboard from wherever the app currently is - used to
+   * let multiple tests share one login session (see vending-service.spec.ts)
+   * instead of each paying the manual-MFA-approval cost of a fresh login.
+   *
+   * CORRECTED: this can't be done with plain repeated BACK presses alone -
+   * live-verified this app's back-stack is NOT a simple linear chain back to
+   * Dashboard. From Vending's Product Fills (after Sort/Filter, no hamburger
+   * icon - only a back arrow), one BACK press reaches the machine's task
+   * list (still no hamburger), a second reaches the stop-detail screen
+   * ("Aaron's" - hamburger IS present here), but a THIRD exits the app
+   * entirely to the OS launcher instead of reaching Dashboard - there is no
+   * intermediate Dashboard entry in that back-stack to land on. So this
+   * instead presses BACK only until any screen with the hamburger menu is
+   * reached, then uses the app's own "Schedule overview" nav item (found in
+   * the hamburger menu, live-verified) to deterministically reach Dashboard,
+   * rather than continuing to guess with more back-presses. Also handles the
+   * "Save Changes" dialog (see discardChangesButton) by tapping Discard
+   * instead of pressing BACK again, which would otherwise loop forever.
+   *
+   * CORRECTED (live-verified 2026-08-06): the hardware BACK button
+   * (pressKeyCode(4)) is a no-op on at least one screen (Coffee's
+   * Pre-sales summary) - it neither navigates nor opens the confirm
+   * dialog below, so a loop that only ever presses hardware BACK gets
+   * stuck there for all maxBackPresses attempts. The on-screen back arrow
+   * (BaseScreen.backButton) reliably triggers the real in-app back action
+   * on that same screen. Now prefers tapping it when visible, falling
+   * back to hardware BACK only when it isn't (e.g. genuinely no back
+   * arrow on screen).
+   */
+  async returnToHome(maxBackPresses = 10): Promise<void> {
+    let reachedHamburger = false;
+    for (let i = 0; i < maxBackPresses; i++) {
+      if (await this.isVisible(this.hamburgerIcon)) {
+        reachedHamburger = true;
+        break;
+      }
+      if (await this.isVisible(this.discardChangesButton)) {
+        await this.tap(this.discardChangesButton);
+      } else if (await this.isVisible(this.saveChangesNoButton)) {
+        await this.tap(this.saveChangesNoButton);
+      } else if (await this.isVisible(this.skipPresaleButton)) {
+        await this.tap(this.skipPresaleButton);
+      } else if (await this.isVisible(this.skipButton)) {
+        // Prep Tasks' own back-press Skip/Complete popup (see
+        // PrepTasksScreen.isBackPressPopupVisible) - live-verified
+        // 2026-08-07: without this, tapping the sub-screen's back arrow
+        // just opens this popup, and neither hardware BACK nor a repeat
+        // backButton tap reliably dismisses it (observed oscillating
+        // between the popup and the checklist screen for the full
+        // maxBackPresses budget, never reaching the hamburger). Skip is
+        // the same "leave without completing" semantics this loop wants.
+        await this.tap(this.skipButton);
+      } else if (await this.isVisible(this.selectADaySheetTodayOption)) {
+        // The date badge's own "Select a day" bottom sheet (TODAY/
+        // YESTERDAY/TOMORROW cards) - live-verified 2026-08-07: hardware
+        // BACK does not dismiss it, leaving the loop stuck for the full
+        // maxBackPresses budget. Tapping TODAY re-confirms whichever day
+        // is already selected in the common case and simply closes the
+        // sheet - a safe, idempotent way out regardless of which day the
+        // caller actually wanted (a real day switch, if needed, happens
+        // separately via RouteSetupScreen/switchRoute).
+        await this.tap(this.selectADaySheetTodayOption);
+      } else if (await this.isVisible(this.backButton)) {
+        await this.tap(this.backButton);
+      } else {
+        await this.pressKeyCode(4);
+      }
+      await this.driver.pause(700);
+    }
+    if (!reachedHamburger) {
+      throw new Error(`returnToHome: no screen with the hamburger menu appeared after ${maxBackPresses} BACK presses`);
+    }
+    await this.tap(this.hamburgerIcon);
+    await this.tap('~Schedule overview');
+    await this.waitFor(this.deliveriesTitle);
   }
 }
