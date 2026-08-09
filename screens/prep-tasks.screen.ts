@@ -315,15 +315,16 @@ export class PrepTasksScreen extends BaseScreen {
    * above). Assumes Prep Tasks is already open (call openFromHamburgerMenu()
    * or waitForOpenedFromDashboard() first).
    *
-   * Two sub-steps were commented out in the RF source and are deliberately
-   * NOT reproduced - noting them here in case they're meant to be re-enabled
-   * rather than intentionally dropped: 
-   * - Product Collection: "Select All Checkboxes" was commented out, while
-   *   Money Operations and Additional Prep both DO select all checkboxes -
-   *   looks like a deliberate omission rather than an oversight, but unconfirmed.
-   * - Checks: clicking a "Vehicle check completed" checkbox + a "Dismiss"
-   *   popup button were commented out - only the Safety check checkbox is
-   *   actually clicked here.
+   * One sub-step from the RF source is deliberately NOT reproduced -
+   * Checks: clicking a "Vehicle check completed" checkbox + a "Dismiss"
+   * popup button were commented out there - only the Safety check
+   * checkbox is actually clicked here. (Product Collection's own
+   * checkboxes were ALSO commented out in the RF source, but per explicit
+   * user request 2026-08-09 this port now selects them too - see
+   * completeFullDayPrep()'s own selectAllChecklistIcons() call for that
+   * step. Live-verified the same nested `View > ImageView[clickable=true]`
+   * structure multipleCheckboxes already targets for Money Operations/
+   * Additional Prep applies here unchanged.)
    */
   /**
    * Same as completeFullDayPrep(), but tolerates Start Day already being
@@ -376,25 +377,40 @@ export class PrepTasksScreen extends BaseScreen {
     return !(await this.isVisible(this.productCollection));
   }
 
+  /**
+   * Prefer ensureFullDayPrepComplete() over calling this directly unless the
+   * day is known to be genuinely fresh. Money Operations/Additional Prep's
+   * checkbox tiles (multipleCheckboxes) and Checks' safety checkbox expose
+   * NO checked/selected accessibility signal at all (live-confirmed
+   * 2026-08-09 via both Appium's getPageSource AND a raw `adb uiautomator
+   * dump`: both attributes report "false" regardless of the rendered
+   * checkmark - the state exists only in the bitmap). BaseScreen.
+   * selectAllChecklistIcons()/setChecklistIconState() work around this via
+   * pixel-color sampling instead, so a repeat call against a
+   * partially-completed day is safe - but that's still a fallback for
+   * elements with no other signal, not a substitute for genuinely knowing
+   * the day's state.
+   */
   async completeFullDayPrep(): Promise<void> {
     await this.waitFor(this.productCollection);
     await this.tap(this.productCollection);
     await this.waitFor(this.productCollectionTitle);
+    await this.selectAllChecklistIcons(this.multipleCheckboxes);
     await this.tap(this.continueButton);
     await this.capturePhotoIfPresent();
 
     await this.waitFor(this.moneyOperations);
     await this.tap(this.moneyOperations);
-    await this.selectAllCheckboxes(this.multipleCheckboxes);
+    await this.selectAllChecklistIcons(this.multipleCheckboxes);
     await this.tap(this.continueButton);
 
     await this.tap(this.additionalPrep);
-    await this.selectAllCheckboxes(this.multipleCheckboxes);
+    await this.selectAllChecklistIcons(this.multipleCheckboxes);
     await this.tap(this.continueButton);
 
     await this.waitFor(this.checks);
     await this.tap(this.checks);
-    await this.tap(this.safetyCheckCompletedCheckbox);
+    await this.setChecklistIconState(this.safetyCheckCompletedCheckbox, true);
     await this.tap(this.continueButton);
 
     await this.tap(this.startDayButton);

@@ -511,7 +511,7 @@ export class VendingServiceScreen extends BaseScreen {
 
     await this.tap(this.moneyOperations);
     await this.waitFor(this.moneyCollectionTitle);
-    await this.tap(this.skipMoneyBagCheckbox);
+    await this.setCheckboxState(this.skipMoneyBagCheckbox, true);
     await this.tap(this.continueButton);
 
     await this.tap(this.fills);

@@ -915,8 +915,9 @@ export class CoffeeServiceScreen extends BaseScreen {
     return (await el.getAttribute('checked').catch(() => 'false')) === 'true';
   }
 
-  async tapEquipmentDoesNotExistCheckbox(): Promise<void> {
-    await this.tap(this.equipmentDoesNotExistCheckbox);
+  /** Sets the checkbox to the desired state - checks its current state first (via BaseScreen.setCheckboxState) rather than blindly tapping, so a call that requests the state it's already in is a no-op instead of toggling it the wrong way. */
+  async setEquipmentDoesNotExistCheckbox(checked: boolean): Promise<void> {
+    await this.setCheckboxState(this.equipmentDoesNotExistCheckbox, checked);
   }
 
   /**
