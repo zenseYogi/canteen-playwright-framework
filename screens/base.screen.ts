@@ -676,6 +676,37 @@ export class BaseScreen {
     }
   }
 
+  /**
+   * Whether a decorative icon (e.g. a drag handle) is rendered somewhere
+   * near an element's right edge - same last-resort pixel-sampling
+   * rationale as isChecklistIconChecked, for icons with NO accessible
+   * node of their own at all (confirmed live 2026-08-10: Edit Schedule
+   * Order's per-row drag handles are baked into the row's own bitmap -
+   * the only ImageView anywhere in the tree is the screen title's own
+   * icon, not one per row). Scans a narrow vertical strip along the
+   * right ~15% of the element's width for any non-white pixel - generic
+   * presence detection, not a specific icon match.
+   */
+  async hasNonWhiteIconNearRightEdge(el: any): Promise<boolean> {
+    const rect = await el.getElementRect(el.elementId);
+    const base64 = await this.driver.takeScreenshot();
+    const png = PNG.sync.read(Buffer.from(base64, 'base64'));
+    const stripStartX = rect.x + Math.round(rect.width * 0.85);
+    const stripEndX = rect.x + rect.width - 10;
+    for (let y = rect.y + 10; y < rect.y + rect.height - 10; y += 6) {
+      for (let x = stripStartX; x < stripEndX; x += 6) {
+        const idx = (png.width * Math.round(y) + Math.round(x)) << 2;
+        const r = png.data[idx];
+        const g = png.data[idx + 1];
+        const b = png.data[idx + 2];
+        if (!(r > 240 && g > 240 && b > 240)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   /** Straight-line swipe via the W3C pointer Actions API (same primitive `tapAt` uses, extended with a move). */
   async swipe(startX: number, startY: number, endX: number, endY: number): Promise<void> {
     await this.driver

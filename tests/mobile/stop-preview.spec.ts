@@ -12,6 +12,15 @@ import { mobileConfig } from '../../config/mobile.config';
 // this sub-area (those TC numbers belong to entirely different areas -
 // Vending/Market/Menu - confirmed via a fresh Excel read); the real
 // distinct rows here are exactly TC039-TC043/TC045/TC046/TC051 (8 total).
+//
+// Area "Market", Sub Area "Home Screen" (TC001/TC002) is the exact same
+// mechanism as TC039/TC040 above - "view the list of market stops" /
+// "navigate to the selected market stop" - just documented once more
+// under a different Area in the Excel. Tagged onto this same first step
+// rather than duplicated, same precedent as TC074/TC077/TC122 elsewhere
+// in this port (Excel's own literal Test Data example, "Oaktree
+// University", doesn't exist on this route - CureLeaf is this route's
+// real market stop, same substitution already used throughout this file).
 test.describe('Start of The Day - Stop preview', () => {
   test(
     'view a stop\'s details, About this location, View schedule, and the pre-Start-Day service gate',
@@ -24,7 +33,13 @@ test.describe('Start of The Day - Stop preview', () => {
         '@StartOfDay-TC043',
         '@StartOfDay-TC045',
         '@StartOfDay-TC046',
-        '@StartOfDay-TC051'
+        '@StartOfDay-TC051',
+        '@Market-TC001',
+        '@Market-TC002',
+        '@Market-TC003',
+        '@Market-TC004',
+        '@Market-TC007',
+        '@Market-TC008'
       ]
     },
     async ({ driver }) => {
@@ -35,14 +50,37 @@ test.describe('Start of The Day - Stop preview', () => {
         await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
       });
 
-      // TC039 "view stop details" / TC040 "view full address" - both live
-      // on the same "Stop N of M" header alongside the stop name/address.
-      await test.step('TC039/TC040: open a stop and verify its header details', async () => {
+      // TC039 "view stop details" / TC040 "view full address" / Market
+      // TC001 "view the list of market stops" / TC002 "navigate to the
+      // selected market stop" - all live on the same list-then-tap flow:
+      // the stop is visible under Pending action BEFORE tapping (TC001),
+      // and tapping it lands on the Stop Preview screen with its "Stop N
+      // of M" header (TC002/TC039), name/address (TC040).
+      await test.step('TC001/TC002/TC039/TC040: view the stop in the pending list, open it, and verify its header details', async () => {
+        expect(await dashboard.isLocationVisible('CureLeaf')).toBe(true);
         await dashboard.clickLocationByName('CureLeaf');
         expect(await dashboard.isStopOverviewVisible()).toBe(true);
         const header = await dashboard.getStopHeaderText();
         expect(header.length).toBeGreaterThan(0);
         expect(await dashboard.isLobCardVisible('market')).toBe(true);
+      });
+
+      // Market TC003 "view the service date" / TC004 "view the service
+      // location name" / TC007 "view the Market dropdown" / TC008 "open
+      // the list of service stations" - live-verified 2026-08-10: Excel's
+      // literal Test Data ("Market (3 Services)", 3 named stations) don't
+      // match this route's real data (CureLeaf has exactly 1 market
+      // station) - asserting the real, generic tile-with-count/dropdown
+      // and station-list behavior instead, same substitution pattern as
+      // TC001/TC002 above.
+      await test.step('TC003/TC004/TC007/TC008: verify the date, location name, Market dropdown tile, and its station list', async () => {
+        expect(await dashboard.isStopOverviewDateVisible()).toBe(true);
+        const locationName = await dashboard.getStopLocationName();
+        expect(locationName.length).toBeGreaterThan(0);
+        const lobCardText = await dashboard.getLobCardText('market');
+        expect(lobCardText).toContain('Service stations');
+        const stationNames = await dashboard.getServiceStationNames('market');
+        expect(stationNames.length).toBeGreaterThan(0);
       });
 
       // TC041/TC042 "About this location" / "Close button" - opens a

@@ -75,6 +75,26 @@ export class AdhocDeliveryScreen extends BaseScreen {
     await this.tap(this.accountRow(name));
   }
 
+  /** TC057 "clear selected account" - clears the already-open search field (see searchCustomer), restoring the full unfiltered account list. */
+  async clearAccountSearch(): Promise<void> {
+    const search = await this.driver.$(this.accountSearchField);
+    await search.clearValue();
+  }
+
+  // TC058 "no-results state" - live-verified 2026-08-10: a non-matching
+  // search shows this exact message in place of any result rows.
+  private readonly noSearchResultsMessage = '~No search results found';
+
+  async isNoSearchResultsVisible(): Promise<boolean> {
+    return this.isVisible(this.noSearchResultsMessage);
+  }
+
+  /** Count of real result rows currently showing in an already-open, already-searched account or service sheet (see firstMultilineRow's own doc comment for why this locator is safe against the sheet's own decorative elements). */
+  async getResultRowCount(): Promise<number> {
+    const rows = await this.driver.$$(this.firstMultilineRow);
+    return rows.length;
+  }
+
   // Generic "first real row" locator shared by both the account-search sheet
   // and the service-picker sheet below - live-verified 2026-08-07: every
   // real row in both sheets is a clickable View whose content-desc packs
@@ -103,6 +123,15 @@ export class AdhocDeliveryScreen extends BaseScreen {
   }
 
   /** Opens the Service picker and selects the first row tagged "OCS/Pantry" - Coffee's LOB tag in this list (see coffeeServiceRow). Assumes a customer is already selected. */
+  /** TC061 "view Service station drop down" - live-verified: only appears once a customer is selected; the build's own placeholder is "Search by type or number", not the Excel's claimed "Select from account's service stations" (an app-terminology mismatch, not a missing field). */
+  async isServiceFieldVisible(): Promise<boolean> {
+    return this.isVisible(this.serviceField);
+  }
+
+  async isServiceTypeFieldVisible(): Promise<boolean> {
+    return this.isVisible(this.serviceTypeField);
+  }
+
   async selectFirstCoffeeService(): Promise<void> {
     await this.tap(this.serviceField);
     await this.tap(this.coffeeServiceRow);
