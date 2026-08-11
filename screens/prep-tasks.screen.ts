@@ -23,6 +23,30 @@ export class PrepTasksScreen extends BaseScreen {
   private readonly additionalPrep = '//android.widget.ImageView[starts-with(@content-desc, "Additional prep")]';
   private readonly checks = '//android.widget.ImageView[starts-with(@content-desc, "Checks")]';
 
+  private readonly additionalPrepTitle = '~Additional prep';
+  // Live-verified 2026-08-10: both checklist item labels are STATIC content-
+  // desc text ("Collect Badges & Keys" / "Review ad-hoc tasks") regardless of
+  // checked state - Excel's TC189 claim that the label CHANGES on selection
+  // (from "Check for required badges & keys" to "Collect Badges & Keys") is
+  // a confirmed FALSE discrepancy; no such pre-selection label was observed.
+  // Same zero-accessibility-signal checked state as Money Operations/
+  // Additional Prep's other checkboxes (see isChecklistIconChecked's own
+  // note) - pixel sampling required.
+  private readonly collectBadgesKeysItem = '~Collect Badges & Keys';
+  private readonly reviewAdHocTasksItem = '~Review ad-hoc tasks';
+  private readonly overallStartDayButton = '~Start day';
+
+  private readonly checksTitle = '~Checks';
+  // Live-verified 2026-08-10: "Vehicle check completed" is an
+  // android.view.View (not an ImageView like Safety check) and, uniquely on
+  // this screen, tapping it ALWAYS opens a "GeoTab not found" error dialog
+  // (Cancel/Dismiss) instead of toggling - confirmed it can never actually
+  // be marked checked via either dialog button (Cancel closes without
+  // checking; Dismiss ALSO leaves it unchecked). This matches
+  // completeFullDayPrep()'s own pre-existing note that only Safety check is
+  // clicked there, for the same reason.
+  private readonly vehicleCheckItem = '//android.view.View[starts-with(@content-desc,"Vehicle check completed")]';
+  private readonly geoTabDismissButton = '~Dismiss';
   private readonly completeButton = '~Complete';
   private readonly safetyCheckCompletedCheckbox = '//android.widget.ImageView[starts-with(@content-desc, "Safety check completed")]';
   // common.yaml's "Select All Checkboxes" keyword's target - only ever
@@ -40,6 +64,33 @@ export class PrepTasksScreen extends BaseScreen {
   private readonly quantityFieldByHint = '//android.widget.EditText[contains(@hint,"Qty")]';
   private readonly addProductTitle = '~Add product';
   private readonly addButton = '~Add';
+  private readonly addProductCancelButton = '~Cancel';
+  // Live-verified 2026-08-10: tapping the product EditText itself just
+  // focuses it in place (no navigation) - the search icon immediately to
+  // its left (the first of the two clickable ImageViews on this screen,
+  // the second being the barcode scanner icon from TC086) is what actually
+  // opens the full-screen "Search product" dialog. No content-desc/
+  // resource-id of its own, so this is positional (first clickable
+  // ImageView) - same class of structural locator as other icon-only
+  // controls already accepted elsewhere in this port.
+  private readonly productSearchIcon = '(//android.widget.ImageView[@clickable="true"])[1]';
+  private readonly searchDialogTitle = '~Search product';
+  private readonly noSearchResultsText = '~No search results found';
+
+  /**
+   * Excel's "Totes"/"Candy" sub-area (TC111-TC129) - live-verified 2026-08-10
+   * this is ONE generic reusable checklist bottom sheet, opened by tapping
+   * any Product Collection category row (e.g. "CANDY\n30") from
+   * getProductCollectionSummaryLines(). Unlike Money Operations/Additional
+   * Prep/Checks' checkboxes (confirmed to expose zero accessibility
+   * signal, see selectAllChecklistIcons()'s own note), THIS screen's
+   * header count (e.g. "0/4" -> "1/4") is a real, reliable content-desc
+   * signal that updates live as items are (un)checked - no pixel sampling
+   * needed here.
+   */
+  private readonly checklistHeaderCount = '//android.view.View[contains(@content-desc,"/")]';
+  private readonly checklistItemCheckboxes = '//android.widget.ImageView[@clickable="true"]';
+  private readonly scrimOverlay = '~Scrim';
 
   // TC169's "date and route in the header" - see BaseScreen's
   // headerDateBadge/headerRouteBadge/isDateRouteHeaderVisible() for the
@@ -223,6 +274,122 @@ export class PrepTasksScreen extends BaseScreen {
     await this.waitFor(this.moneyOperationsTitle);
   }
 
+  /** Opens Additional Prep without completing/skipping it - lets callers assert the header/checklist (TC185/TC187) before committing to anything. */
+  async openAdditionalPrepOnly(): Promise<void> {
+    await this.openSubScreen(this.additionalPrep);
+    await this.waitFor(this.additionalPrepTitle);
+  }
+
+  /** Excel TC185 "view date and route in the header" - assumes Additional Prep is already open (openAdditionalPrepOnly()). */
+  async isAdditionalPrepHeaderVisible(): Promise<{ title: boolean; date: boolean; route: boolean }> {
+    const header = await this.isDateRouteHeaderVisible();
+    return {
+      title: await this.isVisible(this.additionalPrepTitle),
+      ...header
+    };
+  }
+
+  /** Excel TC187 "view checklist items with counts" - assumes Additional Prep is already open. */
+  async isAdditionalPrepChecklistVisible(): Promise<{ collectBadgesKeys: boolean; reviewAdHocTasks: boolean }> {
+    return {
+      collectBadgesKeys: await this.isVisible(this.collectBadgesKeysItem),
+      reviewAdHocTasks: await this.isVisible(this.reviewAdHocTasksItem)
+    };
+  }
+
+  /** Excel TC189 "select Check for required badges & keys" - taps the checkbox and returns whether it visually turned green (pixel-sampled, see isChecklistIconChecked's own note - no accessibility signal exists). */
+  async selectAdditionalPrepBadgesItem(): Promise<void> {
+    await this.setChecklistIconState(this.collectBadgesKeysItem, true);
+  }
+
+  async isBadgesItemChecked(): Promise<boolean> {
+    return this.isChecklistIconChecked(this.collectBadgesKeysItem);
+  }
+
+  /** Excel TC195/TC201 - taps Continue on Additional Prep (assumes it's already open) and waits for the Prep Tasks list to reappear. */
+  async continueFromAdditionalPrep(): Promise<void> {
+    await this.tap(this.continueButton);
+    await this.waitFor(this.titleStartDay);
+  }
+
+  /** Excel TC196 "tick is tappable indicator" - re-taps the (now-completed) Additional Prep tile, same trigger as openAdditionalPrepOnly() but named for the caller's intent at that point in a test. */
+  async reopenAdditionalPrepTile(): Promise<void> {
+    await this.tap(this.additionalPrep);
+    await this.waitFor(this.additionalPrepTitle);
+  }
+
+  /** Excel TC202 "keep Complete start of the day disabled with none selected" - the Prep Tasks list's OWN bottom "Start day" CTA (distinct from Additional Prep's own Continue button), gated on ALL FOUR categories being complete. Assumes the Prep Tasks list is already open. */
+  async isOverallStartDayButtonEnabled(): Promise<boolean> {
+    return this.isEnabled(this.overallStartDayButton);
+  }
+
+  /** Opens Checks without completing/skipping it - lets callers assert the header/checklist/Continue state before committing to anything. */
+  async openChecksOnly(): Promise<void> {
+    await this.openSubScreen(this.checks);
+    await this.waitFor(this.checksTitle);
+  }
+
+  /** Excel TC204 "view date and route in the header" - live-verified 2026-08-10: Excel claims these are "disabled", but they're actually visible/enabled exactly like every other Prep Tasks sub-screen's header - a confirmed FALSE discrepancy, asserting the real visible state. Assumes Checks is already open (openChecksOnly()). */
+  async isChecksHeaderVisible(): Promise<{ title: boolean; date: boolean; route: boolean }> {
+    const header = await this.isDateRouteHeaderVisible();
+    return {
+      title: await this.isVisible(this.checksTitle),
+      ...header
+    };
+  }
+
+  /** Excel TC206 "view informational items" - assumes Checks is already open. */
+  async areChecksItemsVisible(): Promise<{ vehicleCheck: boolean; safetyCheck: boolean }> {
+    return {
+      vehicleCheck: await this.isVisible(this.vehicleCheckItem),
+      safetyCheck: await this.isVisible(this.safetyCheckCompletedCheckbox)
+    };
+  }
+
+  /** Excel TC208 "select the first checkbox and handle error" - taps Vehicle check completed and waits for the "GeoTab not found" error dialog. Assumes Checks is already open. */
+  async tapVehicleCheckItem(): Promise<void> {
+    await this.tap(this.vehicleCheckItem);
+    await this.waitFor(this.geoTabDismissButton);
+  }
+
+  async isGeoTabErrorDialogVisible(): Promise<{ cancel: boolean; dismiss: boolean }> {
+    return {
+      cancel: await this.isVisible(this.addProductCancelButton),
+      dismiss: await this.isVisible(this.geoTabDismissButton)
+    };
+  }
+
+  /** Excel TC209 "close the error dialog via Cancel" - assumes the GeoTab error dialog is already open (tapVehicleCheckItem()). */
+  async cancelGeoTabError(): Promise<void> {
+    await this.tap(this.addProductCancelButton);
+  }
+
+  /** Excel TC212's Dismiss path - assumes the GeoTab error dialog is already open. Live-verified: Dismiss, like Cancel, does NOT mark Vehicle check as checked (see vehicleCheckItem's own note - it can never be checked via either button). */
+  async dismissGeoTabError(): Promise<void> {
+    await this.tap(this.geoTabDismissButton);
+  }
+
+  async isVehicleCheckItemChecked(): Promise<boolean> {
+    return this.isChecklistIconChecked(this.vehicleCheckItem);
+  }
+
+  /** Excel TC211/TC212's real, selectable checkbox - Safety check (see vehicleCheckItem's own note on why Vehicle check is excluded). */
+  async selectSafetyCheckItem(): Promise<void> {
+    await this.setChecklistIconState(this.safetyCheckCompletedCheckbox, true);
+  }
+
+  /** Excel TC213/TC219 - taps Continue on Checks (assumes it's already open) and waits for the Prep Tasks list to reappear. */
+  async continueFromChecks(): Promise<void> {
+    await this.tap(this.continueButton);
+    await this.waitFor(this.titleStartDay);
+  }
+
+  /** Excel TC214 "tick is tappable indicator" - re-taps the (now-completed) Checks tile. */
+  async reopenChecksTile(): Promise<void> {
+    await this.tap(this.checks);
+    await this.waitFor(this.checksTitle);
+  }
+
   /** Excel TC169 "view date and route in the header" - assumes Money Operations is already open (openMoneyOperationsOnly()). */
   async isMoneyOperationsHeaderVisible(): Promise<{ title: boolean; date: boolean; route: boolean }> {
     const header = await this.isDateRouteHeaderVisible();
@@ -262,6 +429,66 @@ export class PrepTasksScreen extends BaseScreen {
 
   async isAddProductScreenVisible(): Promise<boolean> {
     return this.isVisible(this.addProductTitle);
+  }
+
+  /** Excel TC088 "Cancel and changes are not reflected" - taps Cancel on the Add product form and waits for the Product Collection list to reappear (assumes openAddProductForm() already ran). */
+  async cancelAddProductForm(): Promise<void> {
+    await this.tap(this.addProductCancelButton);
+    await this.waitFor(this.productCollectionTitle);
+  }
+
+  /** Excel TC087 "view Cancel and Add buttons" - assumes openAddProductForm() already ran, before any search/selection. */
+  async isAddProductFormInitialStateCorrect(): Promise<{ cancelVisible: boolean; addDisabled: boolean }> {
+    return {
+      cancelVisible: await this.isVisible(this.addProductCancelButton),
+      addDisabled: !(await this.isEnabled(this.addButton))
+    };
+  }
+
+  /** Excel TC084/TC090 "open Search product screen" - taps the product field to open the full-screen search dialog (assumes openAddProductForm() already ran). */
+  async openSearchDialog(): Promise<void> {
+    await this.tap(this.productSearchIcon);
+    await this.waitFor(this.searchDialogTitle);
+  }
+
+  /** Excel TC097/TC098 "no results found for a non-matching search" - assumes openSearchDialog() already ran. */
+  async searchForNonExistentProduct(term: string): Promise<void> {
+    const field = await this.driver.$(this.searchField);
+    await field.setValue(term);
+    await this.waitFor(this.noSearchResultsText);
+  }
+
+  async isNoSearchResultsVisible(): Promise<boolean> {
+    return this.isVisible(this.noSearchResultsText);
+  }
+
+  /**
+   * Excel TC099/TC100 "select a product and view the summary with Pkg: 1" -
+   * searches, selects the first match (same as searchAndSelect()), and
+   * returns the selected product's own summary row content-desc (contains
+   * "Pkg:") for the caller to assert against. Leaves the Add product form
+   * open afterward (does NOT submit) so TC102-109's quantity-field TCs can
+   * run against the same selection.
+   */
+  async searchAndSelectProduct(term: string): Promise<string> {
+    return this.searchAndSelect(term);
+  }
+
+  /** Excel TC102/TC108/TC109 - assumes a product is already selected (searchAndSelectProduct() ran). Live-verified 2026-08-10: the quantity field defaults to "1" as soon as a product is selected - Excel's TC108 claim ("Add button disabled with no valid input") is a confirmed FALSE discrepancy, since there is no reachable "no input yet" state once a product is picked. */
+  async getQuantityFieldValueAndAddButtonState(): Promise<{ qty: string; addEnabled: boolean }> {
+    const field = await this.driver.$(this.quantityFieldByHint);
+    return {
+      qty: (await field.getText()) ?? '',
+      addEnabled: await this.isEnabled(this.addButton)
+    };
+  }
+
+  /** Excel TC103/TC104 "reject alphabetic quantity" - assumes a product is already selected. */
+  async enterQuantityAndCheckAddEnabled(qty: string): Promise<boolean> {
+    const field = await this.driver.$(this.quantityFieldByHint);
+    await field.clearValue();
+    await field.setValue(qty);
+    return this.isEnabled(this.addButton);
   }
 
   /**
@@ -306,6 +533,45 @@ export class PrepTasksScreen extends BaseScreen {
     await this.openProductCollection();
     await this.openAddProductForm();
     await this.fillAndSubmitAddProduct(searchTerm, qty);
+  }
+
+  /** Excel TC111 "open Totes screen" (generalized - the same bottom sheet opens for any category row, e.g. "CANDY"). Assumes openProductCollection() already ran. */
+  async openCategoryChecklist(categoryName: string): Promise<void> {
+    const row = await this.driver.$(`//android.view.View[starts-with(@content-desc,"${categoryName}")]`);
+    await row.click();
+    await this.waitFor(this.checklistHeaderCount);
+  }
+
+  /** Excel TC113 "view initial header quantity total" - assumes openCategoryChecklist() already ran. Returns the raw "x/y" text (e.g. "0/4"). */
+  async getChecklistHeaderCount(): Promise<string> {
+    const header = await this.driver.$(this.checklistHeaderCount);
+    return (await header.getAttribute('content-desc')) ?? '';
+  }
+
+  /** Excel TC115/TC126 "select multiple items" and TC116/TC127 "select all" - taps the checkbox at the given index (0-based). Assumes openCategoryChecklist() already ran. */
+  async tapChecklistItemCheckbox(index: number): Promise<void> {
+    const icons = await this.driver.$$(this.checklistItemCheckboxes);
+    await icons[index].click();
+  }
+
+  async getChecklistItemCount(): Promise<number> {
+    const icons = await this.driver.$$(this.checklistItemCheckboxes);
+    return icons.length;
+  }
+
+  /** Excel TC111 "view items and quantity badges" - assumes openCategoryChecklist() already ran. */
+  async getChecklistItemRows(): Promise<string[]> {
+    const rows = await this.driver.$$('//android.view.View[@clickable="true"]/android.view.View[contains(@content-desc,"\n")]');
+    const descs: string[] = [];
+    for (const row of rows) {
+      descs.push((await row.getAttribute('content-desc')) ?? '');
+    }
+    return descs;
+  }
+
+  /** Closes the checklist bottom sheet by tapping the scrim above it, without completing/skipping anything. */
+  async closeCategoryChecklist(): Promise<void> {
+    await this.tap(this.scrimOverlay);
   }
 
   /**

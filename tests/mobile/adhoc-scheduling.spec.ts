@@ -177,4 +177,86 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
       }
     }
   );
+
+  // Start of The Day / "Add stop" sub-area (TC053-TC068) - the Add
+  // Delivery screen's own field-by-field flow. Live-verified 2026-08-10
+  // (Miami/Route 10). TC054/056/059/062-066 are NOT independent rows for
+  // this sub-area (those numbers belong to Vending/Market's own Removals
+  // & Returns sub-areas - confirmed via a fresh Excel read) - the real
+  // distinct rows are exactly TC053/055/057/058/060/061/067/068 (8 total,
+  // TC052 already covered above).
+  test(
+    'TC053-TC068: Add Delivery field-by-field flow (search, filter, clear, select, submit)',
+    {
+      tag: [
+        '@StartOfDay-TC053',
+        '@StartOfDay-TC055',
+        '@StartOfDay-TC057',
+        '@StartOfDay-TC058',
+        '@StartOfDay-TC060',
+        '@StartOfDay-TC061',
+        '@StartOfDay-TC067',
+        '@StartOfDay-TC068'
+      ]
+    },
+    async ({ driver }) => {
+      const home = new HomeScreen(driver);
+      const adhoc = new AdhocDeliveryScreen(driver);
+
+      await test.step('Log in', async () => {
+        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+      });
+
+      await test.step('TC053: the Customer search field is visible', async () => {
+        await home.openAdhocDeliveryCreation();
+        expect(await adhoc.isCustomerFieldVisible()).toBe(true);
+      });
+
+      // TC055 "view filtered accounts list" / TC058 "no-results state" /
+      // TC057 "clear selected account -> full list restored".
+      await test.step('TC055/TC057/TC058: filtered list, no-results state, and clearing restores the full list', async () => {
+        await adhoc.searchCustomer('a');
+        expect(await adhoc.getResultRowCount()).toBeGreaterThan(0);
+
+        for (const ch of 'zzzzzzzzzz') {
+          await driver.keys(ch);
+        }
+        expect(await adhoc.isNoSearchResultsVisible()).toBe(true);
+
+        await adhoc.clearAccountSearch();
+        expect(await adhoc.getResultRowCount()).toBeGreaterThan(0);
+      });
+
+      // TC060 "view disabled add service" (the Add Delivery button, before
+      // Service/Service type are filled) / TC061 "Service station drop
+      // down" (this build's own placeholder is "Search by type or
+      // number", not the Excel's claimed "Select from account's service
+      // stations" - a wording mismatch, not a missing field).
+      await test.step('TC060/TC061: Add Delivery starts disabled; the Service field appears once a customer is selected', async () => {
+        await adhoc.selectFirstSearchedCustomer();
+        expect(await adhoc.isAddDeliveryButtonEnabled()).toBe(false);
+        expect(await adhoc.isServiceFieldVisible()).toBe(true);
+        expect(await adhoc.isServiceTypeFieldVisible()).toBe(true);
+      });
+
+      // TC067 "add multiple services" - the "+ Add Another Delivery"
+      // button (already covered generically via isAddAnotherDeliveryButtonVisible
+      // elsewhere) remains available throughout this same flow.
+      await test.step('TC067: Add Another Delivery remains available', async () => {
+        expect(await adhoc.isAddAnotherDeliveryButtonVisible()).toBe(true);
+      });
+
+      // TC068 "proceed with Start day" - live-verified: filling every
+      // mandatory field enables Add Delivery, and submitting it commits
+      // the new ad-hoc delivery, returning to Home with it now part of
+      // the day's schedule (ready for the Start Day workflow).
+      await test.step('TC068: filling every field enables Add Delivery, and submitting proceeds to the Start Day workflow', async () => {
+        await adhoc.selectFirstServiceAnyLob();
+        await adhoc.selectServiceType('FULL');
+        expect(await adhoc.isAddDeliveryButtonEnabled()).toBe(true);
+        await adhoc.submitAddDelivery();
+        expect(await home.isLoaded()).toBe(true);
+      });
+    }
+  );
 });

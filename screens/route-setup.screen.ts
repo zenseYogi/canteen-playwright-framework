@@ -140,6 +140,28 @@ export class RouteSetupScreen extends BaseScreen {
   }
 
   /**
+   * TC030 "view 'Select a day'" / TC035 "verify date-label mapping" -
+   * returns each of the sheet's three options' full content-desc (e.g.
+   * "TODAY\nAugust 10, 2026"), in whatever order they appear. Live-verified
+   * 2026-08-10: tapping any option immediately applies it and closes the
+   * sheet - there's no persistent, inspectable radio-selection state to
+   * assert on (checked/selected both read false regardless, even before
+   * any tap), so TC031-034's "radio button in green"/"single selection"
+   * claims aren't reproducible here - call this BEFORE selectDay(), not
+   * after.
+   */
+  async getDaySheetOptionLabels(): Promise<string[]> {
+    const options = await this.driver.$$(
+      '//android.view.View[starts-with(@content-desc,"TODAY") or starts-with(@content-desc,"YESTERDAY") or starts-with(@content-desc,"TOMORROW")]'
+    );
+    const labels: string[] = [];
+    for (const option of options) {
+      labels.push((await option.getAttribute('content-desc')) ?? '');
+    }
+    return labels;
+  }
+
+  /**
    * Pick operation/route, confirm, wait for sync, pick a day - assumes
    * you're already ON the Route Setup screen (either navigated there via
    * openFromHamburgerMenu(), or landed here directly as a fresh account's

@@ -1,6 +1,7 @@
 import { test, expect } from '../../fixtures/appium.fixture';
 import { loginAndEnsureRoute } from '../../utils/login-flow';
 import { HomeScreen } from '../../screens/home.screen';
+import { DashboardScreen } from '../../screens/dashboard.screen';
 import { mobileConfig } from '../../config/mobile.config';
 
 // PBI 622025 (Azure DevOps): "Home Page: Dynamic data with functionality" -
@@ -32,9 +33,23 @@ test.describe('Home / Dashboard - dynamic data (PBI 622025)', () => {
 
   test(
     'view the system date, route badge, and dynamic Deliveries/LOB counts',
-    { tag: ['@StartOfDay-TC007', '@StartOfDay-TC012', '@StartOfDay-TC013', '@StartOfDay-TC014', '@StartOfDay-TC015'] },
+    {
+      tag: [
+        '@StartOfDay-TC006',
+        '@StartOfDay-TC007',
+        '@StartOfDay-TC012',
+        '@StartOfDay-TC013',
+        '@StartOfDay-TC014',
+        '@StartOfDay-TC015',
+        '@StartOfDay-TC016',
+        '@StartOfDay-TC017',
+        '@StartOfDay-TC021',
+        '@StartOfDay-TC022'
+      ]
+    },
     async ({ driver }) => {
       const home = new HomeScreen(driver);
+      const dashboard = new DashboardScreen(driver);
 
       await test.step('Log in', async () => {
         await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
@@ -66,13 +81,15 @@ test.describe('Home / Dashboard - dynamic data (PBI 622025)', () => {
         expect(count).toBeGreaterThanOrEqual(0);
       });
 
-      // TC015 "view Vending counter" (same dynamic pattern applies to
-      // Market/Coffee) - live-verified on Miami/010: only LOBs with
-      // scheduled stops render a card at all (Market "0/3", Coffee "0/1" -
-      // no Vending card, since this route has zero Vending stops today).
-      // So this asserts the counts that ARE present are well-formed
-      // ("X/Y"), not that all three LOBs always appear.
-      await test.step('TC015: verify each rendered LOB count is well-formed (X/Y)', async () => {
+      // TC015/TC016 "view Vending counter" (near-duplicate rows in the
+      // Excel - Home vs Home-Vending sub-areas, same assertion) / TC017
+      // "view Coffee counter" - same dynamic pattern applies to
+      // Market/Coffee/Vending alike. Live-verified on Miami/010: only LOBs
+      // with scheduled stops render a card at all (Market "0/3", Coffee
+      // "0/1" - no Vending card, since this route has zero Vending stops
+      // today). So this asserts the counts that ARE present are
+      // well-formed ("X/Y"), not that all three LOBs always appear.
+      await test.step('TC015/TC016/TC017: verify each rendered LOB count is well-formed (X/Y)', async () => {
         const counts = await home.getLobCounts();
         const renderedLobs = Object.keys(counts);
         expect(renderedLobs.length).toBeGreaterThan(0);
@@ -80,12 +97,35 @@ test.describe('Home / Dashboard - dynamic data (PBI 622025)', () => {
           expect(counts[lob as keyof typeof counts]).toMatch(/^\d+\/\d+$/);
         }
       });
+
+      // TC006 "click on the Hamburger menu" - live-verified 2026-08-10: the
+      // icon itself is hidden once the drawer is open (its own visibility
+      // isn't a usable "did it open" signal), so this checks for the
+      // drawer's own "Schedule overview" item instead, then closes back
+      // out via hardware back (re-tapping the hamburger icon isn't
+      // possible while it's hidden behind the drawer).
+      await test.step('TC006: hamburger menu opens the nav drawer', async () => {
+        await home.openHamburgerMenu();
+        expect(await home.isNavigationMenuVisible()).toBe(true);
+        await home.closeHamburgerMenu();
+      });
+
+      // TC021 "view Pending action tab" / TC022 "view Actioned tab" - this
+      // build labels the second tab "Completed", not "Actioned" (an
+      // app-terminology mismatch, not a missing feature - see
+      // DashboardScreen.isCompletedTabVisible's own doc comment). Both tab
+      // pills are present on Home regardless of which is currently
+      // selected.
+      await test.step('TC021/TC022: both Pending action and Completed tabs are visible', async () => {
+        expect(await dashboard.isPendingActionTabVisible()).toBe(true);
+        expect(await dashboard.isCompletedTabVisible()).toBe(true);
+      });
     }
   );
 
   test(
     'open Edit schedule and verify it lists every stop',
-    { tag: ['@StartOfDay-TC018', '@StartOfDay-TC020', '@StartOfDay-TC036'] },
+    { tag: ['@StartOfDay-TC018', '@StartOfDay-TC020', '@StartOfDay-TC036', '@StartOfDay-TC037'] },
     async ({ driver }) => {
       const home = new HomeScreen(driver);
 
@@ -102,6 +142,28 @@ test.describe('Home / Dashboard - dynamic data (PBI 622025)', () => {
         const stopNames = await home.getEditScheduleStopNames();
         expect(stopNames.length).toBeGreaterThan(0);
       });
+
+      // TC037 "verify drag handle visibility" - live-confirmed 2026-08-10:
+      // each row's drag handle has NO accessible node of its own anywhere
+      // in the tree (baked into the row's bitmap, same class of gap as
+      // Prep Tasks' checklist checkboxes) - detected via pixel scanning
+      // instead (see BaseScreen.hasNonWhiteIconNearRightEdge).
+      await test.step('TC037: a drag handle icon is visible for every stop', async () => {
+        expect(await home.areDragHandlesVisibleForAllStops()).toBe(true);
+      });
+
+      // TC038 "reorder stops" - NOT automated. Live-attempted 2026-08-10
+      // with three different gesture strategies (raw W3C pointer actions
+      // with a long-press hold before moving, incremental multi-step
+      // moves, and Appium's dedicated `mobile: dragGesture` command) -
+      // none triggered a reorder; the stop order stayed unchanged every
+      // time. Drag-and-drop reordering on Flutter ReorderableListView-
+      // style widgets is a known hard case for synthetic touch timing.
+      // Needs further investigation (or a different automation strategy
+      // entirely) before this can be automated - not a "TC doesn't match
+      // app behavior" case like TC031-034, the feature visibly exists
+      // (see the screenshot evidence for TC037), just not yet
+      // successfully driven.
     }
   );
 });

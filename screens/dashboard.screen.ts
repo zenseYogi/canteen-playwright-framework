@@ -109,9 +109,128 @@ export class DashboardScreen extends BaseScreen {
     await this.tap(row);
   }
 
+  /** Market TC001 "view the list of market stops" - same row locator as clickLocationByName(), without tapping it. */
+  async isLocationVisible(name: string): Promise<boolean> {
+    await this.ensurePendingActionTabSelected();
+    const row = `//android.view.View[contains(@content-desc,"Pending action")]/following-sibling::android.view.View//*[@clickable="true" and @content-desc="${name}"]`;
+    return this.isVisible(row);
+  }
+
+  // TC039-TC051 (Start of The Day / Stop preview) - the screen
+  // clickLocationByName()/clickLocationByPosition() land on. Live-verified
+  // 2026-08-10 (Miami/Route 10, CureLeaf/market): heading badge reads
+  // "Stop N of M", followed by the stop name, full address, an "About
+  // this location" link, and "View schedule"/"Navigate" buttons, above
+  // the LOB card(s).
+  private readonly stopOverviewBadge = '//android.view.View[starts-with(@content-desc,"Stop ") and contains(@content-desc," of ")]';
+  private readonly aboutThisLocationLink = '~About this location';
+  private readonly closeButton = '~Close';
+  private readonly viewScheduleButton = '~View schedule';
+  // Market TC003 "view the service date" - live-verified 2026-08-10: the
+  // Stop Overview screen's own date badge (e.g. "Yesterday, Sun 9 Aug") has
+  // NO accompanying "Route X" text on this screen, so BaseScreen's shared
+  // headerDateBadge/isDateRouteHeaderVisible() (anchored relative to the
+  // route pill) don't match here - this locator anchors on the hamburger
+  // button's position instead, which IS present on every screen.
+  private readonly stopOverviewDateBadge =
+    '//android.widget.Button[@content-desc="Open navigation menu"]/following-sibling::android.view.View[1]';
+  // Market TC004 "view the service location name" - the stop's name is a
+  // separate element directly above the address (see getStopHeaderText's
+  // own note) - this is that name-only element, one level up.
+  private readonly stopLocationName = `${this.stopOverviewBadge}/following-sibling::android.view.View[1]`;
+
+  /** TC039 "view stop details" - the "Stop N of M" badge is the most reliable signal this screen (not some other) is showing. */
+  async isStopOverviewVisible(): Promise<boolean> {
+    return this.isVisible(this.stopOverviewBadge);
+  }
+
+  /** TC040 "view full address" - the location name + full address, both plain Views directly under the stop badge, live-verified as separate elements (name in a large bold style, address beneath it). */
+  async getStopHeaderText(): Promise<string> {
+    const el = await this.driver.$(this.stopOverviewBadge);
+    return (await el.getAttribute('content-desc')) ?? '';
+  }
+
+  /** Market TC003 "view the service date" - assumes the Stop Overview screen is already open (clickLocationByName()). */
+  async isStopOverviewDateVisible(): Promise<boolean> {
+    return this.isVisible(this.stopOverviewDateBadge);
+  }
+
+  /** Market TC004 "view the service location name" - assumes the Stop Overview screen is already open. */
+  async getStopLocationName(): Promise<string> {
+    const el = await this.driver.$(this.stopLocationName);
+    return (await el.getAttribute('content-desc')) ?? '';
+  }
+
+  /** TC041 "click on About this location link" / opens a sheet titled "About this location" with the stop's name/address and a Close button. */
+  async openAboutThisLocation(): Promise<void> {
+    await this.tap(this.aboutThisLocationLink);
+  }
+
+  /**
+   * Whether the "About this location" sheet is open - checks the Close
+   * button rather than the "About this location" text itself, since that
+   * exact content-desc appears BOTH on the Stop Overview screen's own
+   * link (clickable) and the opened sheet's title (not clickable) -
+   * ambiguous to match on alone. Close only exists while the sheet is
+   * actually open.
+   */
+  async isAboutThisLocationVisible(): Promise<boolean> {
+    return this.isVisible(this.closeButton);
+  }
+
+  /** TC042 "click on Close button" - dismisses the About-this-location sheet, returning to Stop Overview. */
+  async closeAboutThisLocation(): Promise<void> {
+    await this.tap(this.closeButton);
+  }
+
+  /** TC043 "click on View schedule" - live-verified: returns to Home/Schedule overview (the "schedule overview" the Excel's Outcome column refers to). */
+  async tapViewSchedule(): Promise<void> {
+    await this.tap(this.viewScheduleButton);
+  }
+
+  // TC046/048/050 (near-duplicate rows for Vending/Market/Coffee, same
+  // outcome) - tapping a LOB card's service station row BEFORE Start Day
+  // has been completed shows this gate popup instead of the task list
+  // TC045/047/049 describe (that outcome needs Start Day already done -
+  // out of scope for a Stop Preview-only test). Live-verified 2026-08-10:
+  // titled "Start day" with a "Cancel"/"Start day" button pair - the
+  // Excel calls the button "Go to start day", an app-terminology mismatch
+  // (same class as TC022's "Actioned"/"Completed"), not a missing button.
+  private readonly startDayGatePopupMessage = '//android.view.View[contains(@content-desc,"start day checks")]';
+
+  async isStartDayGatePopupVisible(): Promise<boolean> {
+    return this.isVisible(this.startDayGatePopupMessage);
+  }
+
+  /** TC051 "click on 'start day' button" - the gate popup's own confirm button; live-verified this navigates to the Prep Task screen ("Start day, Route X", the same pre-screen HomeScreen.tapStartDay() reaches). */
+  async confirmStartDayFromGatePopup(): Promise<void> {
+    await this.tap(this.startDayButton);
+  }
+
+  async cancelStartDayGatePopup(): Promise<void> {
+    await this.tap('~Cancel');
+  }
+
   /** Whether the given LOB's card is present at all on the current location-detail screen - distinct from clickLob (which assumes it exists and expands it). */
   async isLobCardVisible(lob: Lob): Promise<boolean> {
     return this.isVisible(this.lobSelector(lob));
+  }
+
+  /** Market TC007 "view the Market dropdown" - the LOB tile's own content-desc (e.g. "market\n1 Service stations "), a real station-count + dropdown-arrow tile regardless of how many stations that count actually is. Assumes the Stop Overview screen is already open. */
+  async getLobCardText(lob: Lob): Promise<string> {
+    const el = await this.driver.$(this.lobSelector(lob));
+    return (await el.getAttribute('content-desc')) ?? '';
+  }
+
+  /** Market TC008 "open the list of service stations" - expands the LOB card (clickLob()) and returns every visible station row's content-desc. */
+  async getServiceStationNames(lob: Lob): Promise<string[]> {
+    await this.clickLob(lob);
+    const rows = await this.driver.$$(`//android.view.View[contains(@content-desc,"${lob}")]`);
+    const names: string[] = [];
+    for (const row of rows) {
+      names.push((await row.getAttribute('content-desc')) ?? '');
+    }
+    return names;
   }
 
   // The "Pending action (N)" tab pill itself - live-verified 2026-08-07:
@@ -129,6 +248,22 @@ export class DashboardScreen extends BaseScreen {
   /** Explicitly selects the "Pending action" tab - defensive against a stale Completed-tab selection carried over from an earlier test under KEEP_APP_SESSION (see pendingActionTab's own doc comment). */
   async ensurePendingActionTabSelected(): Promise<void> {
     await this.tap(this.pendingActionTab);
+  }
+
+  /** TC021 "view Pending action tab" - the tab pill itself is present regardless of which one is currently selected. */
+  async isPendingActionTabVisible(): Promise<boolean> {
+    return this.isVisible(this.pendingActionTab);
+  }
+
+  // The second tab pill, live-verified 2026-08-10: labeled "Completed" in
+  // this build (e.g. "Completed (0)") - the Excel's TC022 calls it
+  // "Actioned", an app-terminology mismatch (same class as other TCs'
+  // stale wording elsewhere), not a missing feature.
+  private readonly completedTab = '//android.view.View[contains(@content-desc,"Completed")]';
+
+  /** TC022 "view Actioned tab" (this build labels it "Completed") - present regardless of which tab is currently selected. */
+  async isCompletedTabVisible(): Promise<boolean> {
+    return this.isVisible(this.completedTab);
   }
 
   // Live-verified 2026-08-07: a genuinely empty Pending action tab renders

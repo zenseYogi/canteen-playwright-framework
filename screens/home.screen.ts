@@ -50,6 +50,21 @@ export class HomeScreen extends BaseScreen {
     await this.tap(this.startDayButton);
   }
 
+  /** TC006 "click on the Hamburger menu" - opens the nav drawer. */
+  async openHamburgerMenu(): Promise<void> {
+    await this.tap(this.hamburgerIcon);
+  }
+
+  /** Whether the nav drawer is open, per its own "Schedule overview" menu item - the hamburger icon itself is hidden behind the drawer once open, so this (not hamburgerIcon) is the visibility signal. */
+  async isNavigationMenuVisible(): Promise<boolean> {
+    return this.isVisible('~Schedule overview');
+  }
+
+  /** Closes the nav drawer via hardware back - the hamburger icon is hidden while the drawer is open, so re-tapping it isn't an option. */
+  async closeHamburgerMenu(): Promise<void> {
+    await this.pressKeyCode(4);
+  }
+
   /** TC007 "view the System Date" - the day/date badge in the navigation bar (e.g. "Yesterday, Thu 23 Jul"). */
   async getCurrentDateText(): Promise<string> {
     const el = await this.driver.$(this.currentDateBadge);
@@ -117,6 +132,34 @@ export class HomeScreen extends BaseScreen {
       }
     }
     return names;
+  }
+
+  /**
+   * TC037 "verify drag handle visibility" - each stop row (the same
+   * multi-line View getEditScheduleStopNames() reads) renders a drag
+   * handle icon on its right edge, live-confirmed visually, but with NO
+   * accessible node of its own anywhere in the tree (baked into the row's
+   * bitmap - see BaseScreen.hasNonWhiteIconNearRightEdge's own doc
+   * comment). Returns true only if every stop row has one.
+   */
+  async areDragHandlesVisibleForAllStops(): Promise<boolean> {
+    const els = await this.driver.$$('//android.view.View');
+    const rows = [];
+    for (const el of els) {
+      const desc = (await el.getAttribute('content-desc')) ?? '';
+      if (desc.includes('\n')) {
+        rows.push(el);
+      }
+    }
+    if (rows.length === 0) {
+      return false;
+    }
+    for (const row of rows) {
+      if (!(await this.hasNonWhiteIconNearRightEdge(row))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   // PBI 850155 "Ad-hoc Scheduling" (TC025/027/028/029).
