@@ -129,6 +129,21 @@ function routeNumber(text: string): string {
  * Aug" reliably, resolving the "not yet confirmed live" caveat switchRoute's
  * own doc comment used to carry. Assumes Dashboard is already reached (call
  * after loginAndWaitForMfa).
+ *
+ * CORRECTED 2026-08-09 (live-verified): a route's badge only ever renders a
+ * real number once at least one delivery exists on it - confirmed by adding
+ * a throwaway delivery to Route 103 (blank "Route " immediately became
+ * "Route 103"). This left ensureOnRoute() unable to ever skip a redundant
+ * switch for Miami/Route 001 (config/mobile.config.ts's emptyRoute) - the
+ * ONE route in this framework guaranteed to always have 0 deliveries BY
+ * DESIGN (it's the whole reason TC025/TC028 use it) - since its badge
+ * stays permanently blank. Falls back to checking "0 deliveries" as the
+ * confirming signal, but ONLY for emptyRoute specifically - deliberately
+ * NOT generalized to "any route currently showing 0 deliveries", since
+ * e.g. Route 103's blank/0-delivery state is an incidental DATA GAP (see
+ * [[market_coffee_vending_p1_status]]), not a guaranteed invariant;
+ * treating that as "confirmed" too could silently leave the app on the
+ * wrong route if two blank-badge routes were ever compared.
  */
 async function isOnRoute(
   driver: Browser,
@@ -136,10 +151,19 @@ async function isOnRoute(
 ): Promise<boolean> {
   const home = new HomeScreen(driver);
   const [routeText, dateText] = await Promise.all([home.getRouteBadgeText(), home.getCurrentDateText()]);
+  const currentDayPrefix = dateText.split(',')[0]?.trim().toUpperCase();
+  if (currentDayPrefix !== route.day) {
+    return false;
+  }
   const currentRoute = routeNumber(routeText);
   const targetRoute = routeNumber(route.routeLabel);
-  const currentDayPrefix = dateText.split(',')[0]?.trim().toUpperCase();
-  return currentRoute !== '' && currentRoute === targetRoute && currentDayPrefix === route.day;
+  if (currentRoute !== '') {
+    return currentRoute === targetRoute;
+  }
+  if (targetRoute === routeNumber(mobileConfig.emptyRoute.routeLabel)) {
+    return (await home.getDeliveriesCount()) === 0;
+  }
+  return false;
 }
 
 /**

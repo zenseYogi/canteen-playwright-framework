@@ -10,11 +10,13 @@
   },
   "dependencies": {
     "dotenv": "^16.4.5",
+    "pngjs": "^7.0.0",
     "webdriverio": "^9.5.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",
     "@types/node": "^22.0.0",
+    "@types/pngjs": "^6.0.5",
     "typescript": "^5.7.0"
   }
 }

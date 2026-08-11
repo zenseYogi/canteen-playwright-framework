@@ -677,7 +677,7 @@ export class MarketServiceScreen extends BaseScreen {
   /** Checks "Skip money bag" and continues - simpler alternative to performMoneyOperations() when the actual bag code/coins/bills/refund values don't matter for the flow being exercised. */
   async skipMoneyOperations(): Promise<void> {
     await this.openMoneyOperations();
-    await this.tap(this.skipMoneyBagCheckbox);
+    await this.setCheckboxState(this.skipMoneyBagCheckbox, true);
     await this.tap(this.continueButton);
   }
 

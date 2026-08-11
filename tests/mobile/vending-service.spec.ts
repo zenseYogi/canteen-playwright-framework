@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import type { Browser } from 'webdriverio';
 import { createMobileSession, closeMobileSession } from '../../fixtures/appium.fixture';
-import { loginAndWaitForMfa, switchRoute } from '../../utils/login-flow';
+import { loginAndWaitForMfa, ensureOnRoute } from '../../utils/login-flow';
 import { PrepTasksScreen } from '../../screens/prep-tasks.screen';
 import { DashboardScreen } from '../../screens/dashboard.screen';
 import { VendingServiceScreen } from '../../screens/vending-service.screen';
@@ -24,8 +24,9 @@ import { mobileConfig } from '../../config/mobile.config';
 // Route 103 - a genuinely different route from Market/Coffee's Miami/010
 // (config/mobile.config.ts's defaultRoute). loginAndWaitForMfa() alone only
 // guarantees Miami/010 (via defaultRoute, for the fresh-account gate case),
-// so switchRoute() is called once with mobileConfig.vendingRoute right after
-// logging in.
+// so ensureOnRoute() is called once with mobileConfig.vendingRoute right
+// after logging in - skips the full resync entirely if a resumed
+// KEEP_APP_SESSION session is already on Route 103 (see isOnRoute).
 //
 // SHARED SESSION: both tests here log in and switch routes once (beforeAll)
 // rather than per test - MFA requires manual approval on a separate physical
@@ -49,7 +50,7 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
   test.beforeAll(async () => {
     driver = await createMobileSession();
     await loginAndWaitForMfa(driver);
-    await switchRoute(driver, mobileConfig.vendingRoute);
+    await ensureOnRoute(driver, mobileConfig.vendingRoute);
   });
 
   test.afterEach(async ({}, testInfo) => {

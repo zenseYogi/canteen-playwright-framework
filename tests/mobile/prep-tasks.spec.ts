@@ -53,8 +53,20 @@ test.describe('Prep Tasks / Start of Day', () => {
       // docs/rf-to-playwright-reuse.md's Phase 7 notes. The equivalent
       // claims for Additional Prep (TC188) and Checks (TC207) follow the
       // same pattern but haven't been directly tested.
+      // Uses ensureFullDayPrepComplete() (not completeFullDayPrep() directly)
+      // - Start Day completion is server-tracked, not tied to the local app
+      // session, so a KEEP_APP_SESSION-resumed run can find this route/day
+      // already fully done from an earlier run. Money Operations/Additional
+      // Prep's checkbox tiles expose NO checked/selected accessibility
+      // signal at all (live-confirmed 2026-08-09 - both attributes report
+      // "false" before AND after tapping), so there's no way to detect
+      // "already checked" and skip re-tapping individual boxes. Guarding at
+      // the whole-flow level (skip entirely if already complete) is the only
+      // reliable option - re-running completeFullDayPrep() against an
+      // already-done day risks blindly UNchecking boxes left checked from
+      // that earlier pass.
       await test.step('TC072/TC079/TC168/TC184/TC203: complete the full Start Day flow', async () => {
-        await prepTasks.completeFullDayPrep();
+        await prepTasks.ensureFullDayPrepComplete();
       });
     }
   );

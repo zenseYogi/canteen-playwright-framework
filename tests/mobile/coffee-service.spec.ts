@@ -377,7 +377,7 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
       await test.step('TC012/TC014/TC015: mark the equipment as not present', async () => {
         await coffee.openEquipmentCard('Cafection');
         expect(await coffee.isEquipmentDoesNotExistCheckboxChecked()).toBe(false);
-        await coffee.tapEquipmentDoesNotExistCheckbox();
+        await coffee.setEquipmentDoesNotExistCheckbox(true);
         expect(await coffee.isEquipmentDoesNotExistCheckboxChecked()).toBe(true);
         await coffee.submitAddOrVerifyEquipment();
       });

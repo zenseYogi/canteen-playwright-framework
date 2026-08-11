@@ -1,4 +1,5 @@
 import { execSync } from 'child_process';
+import { PNG } from 'pngjs';
 import type { Browser } from 'webdriverio';
 import { mobileConfig } from '../config/mobile.config';
 import { positionToIndex, type Position } from '../utils/position';
@@ -236,6 +237,38 @@ export class BaseScreen {
   async isChecked(selector: string): Promise<boolean> {
     const el = await this.driver.$(selector);
     return (await el.getAttribute('checked').catch(() => 'false')) === 'true';
+  }
+
+  /**
+   * Same "is this checkbox-like element currently on" read as isChecked(),
+   * but also falls back to the `selected` attribute - some of this app's
+   * checkboxes are plain android.widget.CheckBox (real `checked`), others
+   * are ImageView-based custom checkboxes (e.g. Prep Tasks' "Select All")
+   * that may expose `selected` instead. Tries `checked` first since that's
+   * the more common/reliable signal where present.
+   */
+  private async isCheckboxOn(el: any): Promise<boolean> {
+    const checked = await el.getAttribute('checked').catch(() => null);
+    if (checked !== null) {
+      return checked === 'true';
+    }
+    return (await el.getAttribute('selected').catch(() => 'false')) === 'true';
+  }
+
+  /**
+   * Sets a checkbox-like element to the desired checked state, only tapping
+   * it if its current state doesn't already match - guards against blindly
+   * toggling a checkbox that's already in the state a TC wants (which would
+   * otherwise flip it into the WRONG state instead of leaving it alone).
+   * Always verify against the checkbox's real current state before
+   * selecting/unselecting, per the exact TC being automated.
+   */
+  async setCheckboxState(selector: string, checked: boolean): Promise<void> {
+    const el = await this.driver.$(selector);
+    const current = await this.isCheckboxOn(el);
+    if (current !== checked) {
+      await el.click();
+    }
   }
 
   /**
@@ -561,11 +594,85 @@ export class BaseScreen {
     return name;
   }
 
-  /** Selects every checkbox currently matched by `selector`. */
-  async selectAllCheckboxes(selector: string): Promise<void> {
+  /**
+   * Whether a checklist row's checkbox icon is visually checked (a green
+   * checkmark) - for elements with NO accessibility signal at all for
+   * their checked state. Confirmed live 2026-08-09 via both Appium's
+   * getPageSource AND a raw `adb uiautomator dump` (bypassing Appium
+   * entirely): Prep Tasks' Money Operations/Additional Prep checkbox rows
+   * and the Checks screen's Safety-check checkbox are plain
+   * android.widget.ImageView nodes, single-level, no children/siblings, no
+   * resource-id - `checked`/`selected` are permanently "false" regardless
+   * of the rendered checkmark, because the state exists ONLY in the
+   * rendered bitmap, never in the semantics node.
+   *
+   * CORRECTED (live-verified 2026-08-09): an earlier version sampled a
+   * SINGLE pixel at a fixed fraction of the row's own height - broke on
+   * the Checks screen's "Safety check completed" row, which is taller
+   * (192px, two lines: label + subtitle) than Money Operations/Additional
+   * Prep's rows (162px, single line) - the icon is NOT positioned
+   * proportionally to row height (it stays near the top, pinned to the
+   * label's own line, regardless of how much subtitle text follows), so
+   * the same fractional offset landed on blank space on the taller row
+   * and mis-read it as unchecked, causing a real regression (a checked
+   * "Safety check completed" box got un-checked). Scans a small region
+   * near the icon's expected top-left corner instead of trusting one
+   * exact point - robust to the icon's exact position varying by a few
+   * dozen pixels between row layouts. Checked reads clearly green (e.g.
+   * RGB 65/159/103); unchecked reads as a neutral gray outline (e.g. RGB
+   * 73/69/79, channels roughly equal, no green dominance) - the scan
+   * returns true the moment ANY sampled pixel in the region is green.
+   *
+   * Do NOT reuse this for real android.widget.CheckBox elements (e.g.
+   * Coffee's "Equipment does not exist", Market/Vending's "Skip money
+   * bag") - those DO expose a working `checked` attribute (see
+   * isCheckboxOn/isChecked/setCheckboxState) and should use that instead;
+   * pixel sampling is a last resort for elements with no other signal,
+   * and is inherently more fragile (theme/resolution/icon-asset changes
+   * could shift the icon's position or color).
+   */
+  private async isChecklistIconCheckedEl(el: any): Promise<boolean> {
+    const rect = await el.getElementRect(el.elementId);
+    const base64 = await this.driver.takeScreenshot();
+    const png = PNG.sync.read(Buffer.from(base64, 'base64'));
+    const scanWidth = Math.min(140, rect.width - 10);
+    const scanHeight = Math.min(140, rect.height - 10);
+    for (let dy = 10; dy < scanHeight; dy += 6) {
+      for (let dx = 10; dx < scanWidth; dx += 6) {
+        const x = Math.round(rect.x + dx);
+        const y = Math.round(rect.y + dy);
+        const idx = (png.width * y + x) << 2;
+        const r = png.data[idx];
+        const g = png.data[idx + 1];
+        const b = png.data[idx + 2];
+        if (g > r + 30 && g > b + 20) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  async isChecklistIconChecked(selector: string): Promise<boolean> {
+    const el = await this.driver.$(selector);
+    return this.isChecklistIconCheckedEl(el);
+  }
+
+  /** Same "only tap if not already in the desired state" idempotency as setCheckboxState(), but for checklist icons with no accessibility signal (see isChecklistIconChecked). */
+  async setChecklistIconState(selector: string, checked: boolean): Promise<void> {
+    const el = await this.driver.$(selector);
+    if ((await this.isChecklistIconCheckedEl(el)) !== checked) {
+      await el.click();
+    }
+  }
+
+  /** Checks every checklist icon currently matched by `selector` via pixel sampling (see isChecklistIconChecked) - skips any already checked, so a repeat call against a partially-completed screen is idempotent instead of unchecking already-done items. */
+  async selectAllChecklistIcons(selector: string): Promise<void> {
     const elements = await this.driver.$$(selector);
     for (const el of elements) {
-      await el.click();
+      if (!(await this.isChecklistIconCheckedEl(el))) {
+        await el.click();
+      }
     }
   }
 
