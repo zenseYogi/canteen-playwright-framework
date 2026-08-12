@@ -34,7 +34,7 @@ export const test = base.extend<MobileFixtures>({
 
     try {
       //commented for testing purpose uncomment while pushing to git
-     // execSync(`adb -s ${deviceName} shell pm clear ${appId}`);
+      execSync(`adb -s ${deviceName} shell pm clear ${appId}`);
     } catch (e) {
       console.warn(`Could not clear app data for ${appId} before session start:`, e);
     }

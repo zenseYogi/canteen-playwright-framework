@@ -179,7 +179,7 @@ export class BaseScreen {
    * the list and flips section_header_sort_cta's `checked` to true.
    */
   async selectSortOption(optionLabel: string): Promise<void> {
-    await this.tap(this.sortCta);
+    //await this.tap(this.sortCta);
     await this.tap(`~${optionLabel}`);
   }
 

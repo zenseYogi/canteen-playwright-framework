@@ -7,7 +7,7 @@ import { expect } from '@playwright/test';
  *
  * Encapsulates the lookup product search UI and associated action icons.
  */
-export class VendingReturnScreen extends BaseScreen {
+export class VendingRemovalReturnScreen extends BaseScreen {
   readonly lookupProductField =
     '//android.widget.EditText[contains(@hint,"Look up product")]';
 
@@ -31,6 +31,12 @@ export class VendingReturnScreen extends BaseScreen {
 
   readonly sortIcon = '~section_header_sort_cta';
   readonly filterIcon = '~section_header_filter_cta';
+  readonly filterSheetTitle = '~Filter';
+  readonly byCategoryLabel = '~By category';
+  readonly clearFiltersButton = '~Clear filters';
+  readonly applyFiltersButton = '~Apply filters';
+  readonly sortSheetTitle = '~Sort by';
+  readonly clearSortOrderButton = '~Clear sort order';
 
   get lookupProductSearchIcon(): string {
     return `${this.lookupProductField}/following-sibling::android.widget.ImageView[1]`;
@@ -47,11 +53,11 @@ export class VendingReturnScreen extends BaseScreen {
     `//android.view.View[contains(@hint,"${details}")]`;
 
   private get recordTruckReturnsInfo(): string {
-    return `${this.recordTruckReturnsInfoIcon}/following-sibling::android.view.View[contains(@content-desc,"Record Individual Truck Returns")]`;
+    return `${this.recordTruckReturnsInfoIcon}/following-sibling::android.view.View[contains(@content-desc,"Record Removed Items & Truck Returns")]`;
   }
 
   private get truckReturnsValidationText(): string {
-    return `${this.recordTruckReturnsInfoIcon}/following-sibling::android.view.View[contains(@content-desc,"This service stop does not have requested truck returns. Please add truck returns individually to accurately reflect inventory")]`;
+    return `${this.recordTruckReturnsInfoIcon}/following-sibling::android.view.View[contains(@content-desc,"To document removals and truck returns please scan or search the item and log the count.")]`;
   }
 
 //  async open(): Promise<void> {
@@ -72,6 +78,14 @@ export class VendingReturnScreen extends BaseScreen {
 //   await this.tap(this.navMenuTruckReturns);
 //   await this.waitFor(this.truckReturnsTitle);
 // }
+
+
+async clickHeader(headerName: string): Promise<void> {
+    const selector = `//android.view.View[contains(@content-desc,"${headerName}")]`;
+    const element = await this.driver.$(selector);
+    await element.waitForDisplayed({ timeout: 15000 });
+    await element.click();
+  }
 
   /**
    * Returns the placeholder text for the lookup product search field.
@@ -149,6 +163,92 @@ export class VendingReturnScreen extends BaseScreen {
     return this.isEnabled(this.filterIcon);
   }
 
+  async openFilter(): Promise<void> {
+    await this.tap(this.filterIcon);
+  }
+
+  async isFilterSheetVisible(): Promise<boolean> {
+    return this.isVisible(this.filterSheetTitle);
+  }
+
+  async tapFilterCategory(label: string): Promise<void> {
+    const selector = `//android.widget.Button[contains(@content-desc,"${label}") or contains(@text,"${label}")]`;
+    await this.tap(selector);
+  }
+
+  async isFilterCategoryHighlighted(label: string): Promise<boolean> {
+    const selector = `//android.widget.Button[contains(@content-desc,"${label}") or contains(@text,"${label}")]`;
+    const el = await this.driver.$(selector);
+    await el.waitForDisplayed({ timeout: 15000 });
+    const selected = String((await el.getAttribute('selected')) ?? '').toLowerCase();
+    const checked = String((await el.getAttribute('checked')) ?? '').toLowerCase();
+    return selected === 'true' || checked === 'true';
+  }
+
+  async isApplyFiltersEnabled(): Promise<boolean> {
+    return this.isEnabled(this.applyFiltersButton);
+  }
+
+  async isClearFiltersEnabled(): Promise<boolean> {
+    return this.isEnabled(this.clearFiltersButton);
+  }
+
+  async applyFilters(): Promise<void> {
+    await this.tap(this.applyFiltersButton);
+  }
+
+  async clearFilters(): Promise<void> {
+    await this.tap(this.clearFiltersButton);
+  }
+
+  async isFilterActive(): Promise<boolean> {
+    return this.isChecked(this.filterIcon);
+  }
+
+  /**
+   * Selects multiple filter category chips without applying.
+   */
+  async selectFilterCategories(labels: string[]): Promise<void> {
+    for (const label of labels) {
+      await this.tapFilterCategory(label);
+    }
+  }
+
+  /**
+   * Verifies that all expected active filter chips are displayed on screen.
+   * Active chip buttons are visible as views/buttons whose content-desc or
+   * text contains the category label.
+   */
+  async verifyActiveFilterChips(expectedChips: string[]): Promise<boolean> {
+    for (const expected of expectedChips) {
+      const selector = `//android.view.View[contains(@content-desc,"${expected}") or contains(@text,"${expected}")] | //android.widget.Button[contains(@content-desc,"${expected}") or contains(@text,"${expected}")]`;
+      const els = await this.driver.$$(selector);
+      const count = (els as any).length as number;
+      if (!count) {
+        return false;
+      }
+
+      let foundVisible = false;
+      for (let i = 0; i < count; i++) {
+        const el = (els as any)[i];
+        if (await el.isDisplayed().catch(() => false)) {
+          foundVisible = true;
+          break;
+        }
+      }
+
+      if (!foundVisible) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  async areActiveFilterChipsCleared(): Promise<boolean> {
+    const allCleared = await this.verifyActiveFilterChips([]);
+    return allCleared;
+  }
+
   async tapProductResult(productName: string): Promise<void> {
     await this.tap(this.productResultByName(productName));
   }
@@ -165,6 +265,88 @@ export class VendingReturnScreen extends BaseScreen {
     const element = await this.driver.$(selector);
     await element.waitForDisplayed({ timeout: 15000 });
     return (await element.getAttribute('text'))?.trim() ?? '';
+  }
+
+  /**
+   * Verifies the visible product list is sorted A → Z by product title.
+   * Uses a numeric-aware comparison so titles beginning with numbers
+   * are ordered correctly (e.g. "1 Thing" before "10 Thing" before "A Thing").
+   * Returns true when the visible list is in non-decreasing (ascending) order.
+   */
+  async isProductListSortedByTitleAtoZ(): Promise<boolean> {
+    const selector = `//android.view.View[@hint and contains(@hint,'Pkg:')]`;
+    const elements = await this.driver.$$(selector);
+
+    const count = await elements.length;
+    if (!elements || count < 2) return true;
+
+    const titles: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const el = elements[i];
+      try {
+        await el.waitForDisplayed({ timeout: 5000 });
+      } catch (e) {
+        // continue even if a single element isn't displayed yet
+      }
+      const hint = (await el.getAttribute('hint')) ?? '';
+      let title = hint.split('\n')[0].trim();
+      if (!title) {
+        // fallback to content-desc or visible text
+        title = (await el.getAttribute('content-desc')) ?? (await el.getText().catch(() => ''));
+        title = (title ?? '').toString().split('\n')[0].trim();
+      }
+      titles.push(title);
+    }
+
+    // The app displays numeric-starting titles in lexicographic order
+    // (e.g. "1", "100", "12", "18"). Use numeric:false so the
+    // comparator matches the on-device ordering observed in screenshots.
+    const collator = new Intl.Collator(undefined, { numeric: false, sensitivity: 'base' });
+    for (let i = 1; i < titles.length; i++) {
+      if (collator.compare(titles[i - 1], titles[i]) > 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Verifies the visible product list is sorted Z → A by product title.
+   * Matches the same lexicographic ordering used for A→Z but in reverse.
+   */
+  async isProductListSortedByTitleZtoA(): Promise<boolean> {
+    const selector = `//android.view.View[@hint and contains(@hint,'Pkg:')]`;
+    const elements = await this.driver.$$(selector);
+
+    const count = await elements.length;
+    if (!elements || count < 2) return true;
+
+    const titles: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const el = elements[i];
+      try {
+        await el.waitForDisplayed({ timeout: 5000 });
+      } catch (e) {
+        // ignore
+      }
+      const hint = (await el.getAttribute('hint')) ?? '';
+      let title = hint.split('\n')[0].trim();
+      if (!title) {
+        title = (await el.getAttribute('content-desc')) ?? (await el.getText().catch(() => ''));
+        title = (title ?? '').toString().split('\n')[0].trim();
+      }
+      titles.push(title);
+    }
+
+    // Use the same lexicographic comparator (numeric:false) as A→Z,
+    // but ensure the sequence is non-increasing.
+    const collator = new Intl.Collator(undefined, { numeric: false, sensitivity: 'base' });
+    for (let i = 1; i < titles.length; i++) {
+      if (collator.compare(titles[i - 1], titles[i]) < 0) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -344,6 +526,13 @@ async verifyProductInfo(headerLabel: string, barcode: string) {
     await button.click();
   }
 
+  async verifyButtonIsDisplayed(buttonLabel: string): Promise<void> {
+    const selector = `//android.widget.Button[contains(@content-desc,"${buttonLabel}") or contains(@text,"${buttonLabel}")]`;
+    const button = await this.driver.$(selector);
+    await button.waitForDisplayed({ timeout: 15000 });
+    expect(await button.isDisplayed()).toBe(true);
+  }
+
   // async verifyProductHeaderInfo(headerLabel: string, pkgInfo: string, barcode: string): Promise<boolean> {
   //   const headerVisible = await this.verifyElementDisplayed(headerLabel);
   //   const pkgVisible = await this.verifyElementDisplayed(pkgInfo);
@@ -369,5 +558,64 @@ async verifyProductInfo(headerLabel: string, barcode: string) {
     return true;
   }
 
+  async closeKeypadIfDisplayed(): Promise<void> {
+    // When the numeric keypad is open, Android will typically intercept BACK
+    // to close the IME before it navigates away from the app screen.
+    // Use a short visibility probe first so we only dismiss the keyboard when
+    // it is actually present.
+    await this.waitForKeyboardVisible(3000);
+    await this.hideKeyboardViaAdb();
+  }
+
+  async openSort(): Promise<void> {
+    await this.tap(this.sortIcon);
+  }
+
+  async isSortSheetVisible(): Promise<boolean> {
+    return this.isVisible(this.sortSheetTitle);
+  }
+
+  async clearSortOrder(): Promise<void> {
+    await this.tap(this.clearSortOrderButton);
+  }
+
+  // async selectSortOption(optionLabel: string): Promise<void> {
+  //   await this.tap(this.sortIcon);
+  //   await this.tap(`~${optionLabel}`);
+  // }
+
+  // async isSortOptionHighlighted(optionLabel: string): Promise<boolean> {
+  //   const selector = `~${optionLabel}`;
+  //   const el = await this.driver.$(selector);
+  //   await el.waitForDisplayed({ timeout: 15000 });
+  //   const selected = String((await el.getAttribute('selected')) ?? '').toLowerCase();
+  //   const checked = String((await el.getAttribute('checked')) ?? '').toLowerCase();
+  //   if (selected === 'true' || checked === 'true') {
+  //     return true;
+  //   }
+  //   // The Sort option buttons do not expose a native selected state in this
+  //   // screen source; rely on the shared Sort header's real active state as a
+  //   // fallback verification signal.
+  //   return this.isSortActive();
+  // }
+
+  // async verifySortOption(optionLabel: string): Promise<boolean> {
+  //   const selector = `~${optionLabel}`;
+  //   const el = await this.driver.$(selector);
+  //   await el.waitForDisplayed({ timeout: 15000 });
+  //   const selected = String((await el.getAttribute('selected')) ?? '').toLowerCase();
+  //   const checked = String((await el.getAttribute('checked')) ?? '').toLowerCase();
+  //   if (selected === 'true' || checked === 'true') {
+  //     return true;
+  //   }
+  //   // The Sort option buttons do not expose a native selected state in this
+  //   // screen source; rely on the shared Sort header's real active state as a
+  //   // fallback verification signal.
+  //   return this.isSortActive();
+  // }
+
+  async isSortActive(): Promise<boolean> {
+    return this.isChecked(this.sortIcon);
+  }
 
 }

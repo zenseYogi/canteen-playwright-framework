@@ -137,7 +137,38 @@ export class VendingDeliveryScreen extends BaseScreen {
     return header.isDisplayed().catch(() => false);
   }
 
+  async isHeaderButtonDisplayed(headerLabel: string): Promise<boolean> {
+    const selector = `//android.widget.Button[@content-desc="${headerLabel}"]`;
+    const header = await this.driver.$(selector);
+    return header.isDisplayed().catch(() => false);
+  }
 
+  private readonly viewScheduleButton = '~View schedule';
+
+  async tapViewSchedule(): Promise<void> {
+    await this.tap(this.viewScheduleButton);
+  }
+
+  // /**
+  //  * Generic helper to verify whether an element matching the selector
+  //  * is currently displayed on screen. Suppresses locator failures and
+  //  * returns a boolean for easy use in assertions.
+  //  *
+  //  * @param selector XPath or selector string for the element.
+  //  * @returns True if the element is displayed, false otherwise.
+  //  */
+  // async isElementDisplayed(selector: string): Promise<boolean> {
+  //   const el = await this.driver.$(selector);
+  //   return el.isDisplayed().catch(() => false);
+  // }
+
+
+
+  //android.widget.Button
+
+
+
+  ////android.widget.Button[@content-desc="section_header_add_cta"]
   /**
    * Returns the first machine name shown in the delivery location list.
    *

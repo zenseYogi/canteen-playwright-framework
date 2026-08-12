@@ -20,14 +20,13 @@ export const mobileConfig = {
     //For using the existing app session on the device, 
     // we can use noReset and fullReset capabilities. 
     // uncomment the below lines while pushin code to git 
-    'appium:noReset': true,
-    'appium:fullReset': false,
-    'appium:newCommandTimeout': 240
-
-
-    // 'appium:noReset': false,
-    // 'appium:fullReset': true,
+    // 'appium:noReset': true,
+    // 'appium:fullReset': false,
     // 'appium:newCommandTimeout': 240
+
+    'appium:noReset': false,
+    'appium:fullReset': true,
+    'appium:newCommandTimeout': 240
 
   },
   timeouts: {

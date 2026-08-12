@@ -84,7 +84,7 @@ test.describe('Vending delivery workflow', () => {
       const address = await delivery.getHeaderAddress(firstMachineName);
       expect(address).toBeTruthy();
       expect(address).not.toEqual('');
-      await delivery.tap("~View schedule");
+      await delivery.tapViewSchedule();
     });
    
 

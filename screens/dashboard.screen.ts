@@ -64,6 +64,7 @@ export class DashboardScreen extends BaseScreen {
     await this.tap(this.nthServiceStationUnder(lob, position));
   }
 
+
   /**
    * From a location's detail screen (after clickLocationByPosition), expands
    * the given LOB's card and taps its first service station row. New method,
