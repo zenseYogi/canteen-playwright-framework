@@ -122,6 +122,13 @@ function routeNumber(text: string): string {
   return match ? String(parseInt(match[0], 10)) : '';
 }
 
+function appDateText(date: Date): string {
+  const month = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(date);
+  const day = date.getDate();
+  const year = date.getFullYear();
+  return `${month} ${day},${year}`;
+}
+
 /**
  * Whether the app is currently sitting on the given route/day, per Home's
  * own badges (HomeScreen.getRouteBadgeText()/getCurrentDateText()) -
@@ -151,10 +158,15 @@ async function isOnRoute(
 ): Promise<boolean> {
   const home = new HomeScreen(driver);
   const [routeText, dateText] = await Promise.all([home.getRouteBadgeText(), home.getCurrentDateText()]);
-  const currentDayPrefix = dateText.split(',')[0]?.trim().toUpperCase();
-  if (currentDayPrefix !== route.day) {
+
+  const dayOffsets: Record<DaySelection, number> = { TODAY: 0, YESTERDAY: -1, TOMORROW: 1 };
+  const expectedDate = new Date();
+  expectedDate.setDate(expectedDate.getDate() + dayOffsets[route.day]);
+  const expectedDateText = appDateText(expectedDate);
+  if (dateText !== expectedDateText) {
     return false;
   }
+
   const currentRoute = routeNumber(routeText);
   const targetRoute = routeNumber(route.routeLabel);
   if (currentRoute !== '') {

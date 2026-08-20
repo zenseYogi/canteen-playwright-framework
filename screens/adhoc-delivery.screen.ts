@@ -16,8 +16,8 @@ import { BaseScreen } from './base.screen';
  */
 export class AdhocDeliveryScreen extends BaseScreen {
   private readonly titleText = '//android.view.View[@content-desc="Add Delivery"]';
-  private readonly customerField = '//android.view.View[@hint="Customer"]';
-  private readonly addDeliveryButton = '//android.widget.Button[@content-desc="Add Delivery"]';
+  private readonly customerField = '//android.view.View[@hint="Account"]';
+  private readonly addDeliveryButton = '//android.widget.Button[@content-desc="Continue"]';
   private readonly addAnotherDeliveryButton = '~+ Add Another Delivery';
 
   // The account picker opened by tapping customerField - a bottom sheet

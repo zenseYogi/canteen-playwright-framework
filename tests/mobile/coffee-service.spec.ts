@@ -53,7 +53,7 @@ test.describe('Coffee - Before Photos / Skip photo', () => {
       // fixed via an ad-hoc "OCS/Pantry" delivery against FedEx, the same
       // account this spec already navigates to below.
       await test.step("Ensure today's route has a Coffee delivery", async () => {
-        await ensureCoffeeDeliveryExists(driver, 'FedEx');
+        await ensureCoffeeDeliveryExists(driver, 'ADT');
       });
 
       // Start Day may already be server-tracked complete from an earlier
@@ -68,7 +68,7 @@ test.describe('Coffee - Before Photos / Skip photo', () => {
         // By name, not position - live-verified 2026-08-06 that Route 10's
         // stop order/count drifts (an unrelated stop can appear alongside
         // FedEx), same rationale as ensureCoffeeDeliveryExists's own note.
-        await dashboard.clickLocationByName('FedEx');
+        await dashboard.clickLocationByName('ADT');
         await dashboard.openFirstServiceStation('coffee');
       });
 
@@ -181,7 +181,8 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
       const coffee = new CoffeeServiceScreen(driver);
 
       await test.step('Log in, ensure Route 10/YESTERDAY (skips the route switch if already there)', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+         await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -195,7 +196,8 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
         // verified again 2026-08-06: now 3 stops (CureLeaf/Market,
         // FedEx/Market, White & Case LLP/Coffee), Coffee at 'third', not
         // 'first' as of the last correction.
-        await dashboard.clickLocationByPosition('third');
+        //await dashboard.clickLocationByPosition('first');
+        await dashboard.clickLocationByName('ADT');
         await dashboard.openFirstServiceStation('coffee');
       });
 
@@ -281,6 +283,8 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
         expect(fields.serialNumber).toBe(true);
         expect(fields.assetNumber).toBe(true);
         expect(fields.netTlmConnected).toBe(true);
+        
+        //await coffee.waitFor(fields.photos);
         expect(fields.plumbed).toBe(true);
         expect(fields.photos).toBe(true);
       });
@@ -443,7 +447,8 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Route 10/YESTERDAY (skips the route switch if already there)', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+         await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -455,7 +460,8 @@ test.describe('Coffee - Equipment Audit (Header + Completing an equipment audit)
         // Same recurring Route 10/Yesterday stop-position drift as the
         // TC001 test above - live-verified 2026-08-06, Coffee is at
         // 'third' (White & Case LLP), not 'second'.
-        await dashboard.clickLocationByPosition('third');
+        // await dashboard.clickLocationByPosition('first');
+        await dashboard.clickLocationByName('ADT');
         await dashboard.openFirstServiceStation('coffee');
         await coffee.openEquipmentAudit();
         await coffee.openAddEquipmentFromEmptyState();
@@ -567,7 +573,7 @@ test.describe('Coffee - Presales order (Add Pre-sales order)', () => {
       // test re-asserts it exists rather than assuming another test's run
       // already did.
       await test.step("Ensure today's route has a Coffee delivery", async () => {
-        await ensureCoffeeDeliveryExists(driver, 'FedEx');
+        await ensureCoffeeDeliveryExists(driver, 'ADT');
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -582,7 +588,7 @@ test.describe('Coffee - Presales order (Add Pre-sales order)', () => {
         // position, since Route 10's stop order/count drifts (live-
         // verified 2026-08-06, same rationale as ensureCoffeeDeliveryExists's
         // own note).
-        await dashboard.clickLocationByName('FedEx');
+        await dashboard.clickLocationByName('ADT');
         await dashboard.openFirstServiceStation('coffee');
       });
 
@@ -723,7 +729,7 @@ test.describe('Coffee - Delivery (add product, sort/search, sign-off)', () => {
       // test's Coffee stop (FedEx) isn't guaranteed to already have a
       // Coffee delivery from a previous run/session.
       await test.step("Ensure today's route has a Coffee delivery", async () => {
-        await ensureCoffeeDeliveryExists(driver, 'FedEx');
+        await ensureCoffeeDeliveryExists(driver, 'ADT');
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -753,7 +759,7 @@ test.describe('Coffee - Delivery (add product, sort/search, sign-off)', () => {
         // than position - Route 10's stop order/count drifts (live-
         // verified 2026-08-06, same rationale as ensureCoffeeDeliveryExists's
         // own note).
-        await dashboard.clickLocationByName('FedEx');
+        await dashboard.clickLocationByName('ADT');
         await dashboard.openFirstServiceStation('coffee');
         await coffee.openDelivery();
         if (!(await coffee.isDeliveriesEmptyStateVisible())) {
@@ -868,7 +874,7 @@ test.describe('Coffee - After Photos / Skip photo', () => {
       // test's Coffee stop (FedEx) isn't guaranteed to already have a
       // Coffee delivery from a previous run/session.
       await test.step("Ensure today's route has a Coffee delivery", async () => {
-        await ensureCoffeeDeliveryExists(driver, 'FedEx');
+        await ensureCoffeeDeliveryExists(driver, 'ADT');
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -881,7 +887,7 @@ test.describe('Coffee - After Photos / Skip photo', () => {
         // than position - Route 10's stop order/count drifts (live-
         // verified 2026-08-06, same rationale as ensureCoffeeDeliveryExists's
         // own note).
-        await dashboard.clickLocationByName('FedEx');
+        await dashboard.clickLocationByName('ADT');
         await dashboard.openFirstServiceStation('coffee');
       });
 

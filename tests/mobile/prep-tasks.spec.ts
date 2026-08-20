@@ -19,6 +19,7 @@ test.describe('Prep Tasks / Start of Day', () => {
     await new HomeScreen(driver).returnToHome().catch(() => {});
   });
 
+
   test(
     'view all prep categories, then complete the full Start Day flow',
     { tag: ['@StartOfDay-TC071', '@StartOfDay-TC072', '@StartOfDay-TC079', '@StartOfDay-TC168', '@StartOfDay-TC184', '@StartOfDay-TC203'] },
@@ -39,38 +40,13 @@ test.describe('Prep Tasks / Start of Day', () => {
         expect(categories.checks).toBe(true);
       });
 
-      // TC072 "open Product collection" / TC168 "open the Money operations
-      // screen" / TC184 "open Additional prep" / TC203 "open the Checks
-      // screen" / TC079 "proceed through Prep Tasks" - completeFullDayPrep()
-      // walks through all four in sequence.
-      //
-      // NOT asserted: TC077 ("Continue disabled with no entries") and TC173
-      // ("Continue disabled initially") - both directly tested live and
-      // found FALSE. uiautomator dump showed enabled="true" on the Continue
-      // button on both Product Collection and Money Operations with zero
-      // items selected. This is a confirmed discrepancy between the Excel
-      // and the real app, not an assumption - see
-      // docs/rf-to-playwright-reuse.md's Phase 7 notes. The equivalent
-      // claims for Additional Prep (TC188) and Checks (TC207) follow the
-      // same pattern but haven't been directly tested.
-      // Uses ensureFullDayPrepComplete() (not completeFullDayPrep() directly)
-      // - Start Day completion is server-tracked, not tied to the local app
-      // session, so a KEEP_APP_SESSION-resumed run can find this route/day
-      // already fully done from an earlier run. Money Operations/Additional
-      // Prep's checkbox tiles expose NO checked/selected accessibility
-      // signal at all (live-confirmed 2026-08-09 - both attributes report
-      // "false" before AND after tapping), so there's no way to detect
-      // "already checked" and skip re-tapping individual boxes. Guarding at
-      // the whole-flow level (skip entirely if already complete) is the only
-      // reliable option - re-running completeFullDayPrep() against an
-      // already-done day risks blindly UNchecking boxes left checked from
-      // that earlier pass.
       await test.step('TC072/TC079/TC168/TC184/TC203: complete the full Start Day flow', async () => {
         await prepTasks.ensureFullDayPrepComplete();
       });
     }
   );
 
+  
   // TC200/TC201 mirror the exact same back-arrow-again -> popup-reappears
   // -> Complete pattern already proven for Money Operations (see this
   // file's TC171/TC179-TC183 test) - folded into this SAME test/session as
@@ -482,7 +458,10 @@ test.describe('Prep Tasks / Start of Day', () => {
       // directly against the Product Collection screen after closing the
       // checklist rather than left as a bare comment note.
       await test.step('TC122: close the checklist sheet and verify Continue remains enabled', async () => {
-        await prepTasks.closeCategoryChecklist();
+        
+        await driver.back();
+
+        //await prepTasks.closeCategoryChecklist();
         expect(await prepTasks.isContinueEnabled()).toBe(true);
       });
     }
@@ -499,9 +478,9 @@ test.describe('Prep Tasks / Start of Day', () => {
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
 
-      await test.step('Log in, then switch to Route 10/TODAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
-      });
+      // await test.step('Log in, then switch to Route 10/TODAY', async () => {
+      //   await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      // });
 
       await test.step('TC169: open Money operations and verify the header (date + route) is visible', async () => {
         await prepTasks.openFromHamburgerMenu();
@@ -538,9 +517,9 @@ test.describe('Prep Tasks / Start of Day', () => {
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
 
-      await test.step('Log in, then switch to Route 10/TODAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
-      });
+      // await test.step('Log in, then switch to Route 10/TODAY', async () => {
+      //   await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      // });
 
       // TC171 "view available checklist items"
       await test.step('TC171: open Money operations and verify both checklist items are visible', async () => {
@@ -796,39 +775,51 @@ test.describe('Prep Tasks / Start of Day', () => {
     }
   );
 
-  // CORRECTED (2026-07-27, per BA): TC130-TC138's "Skip photo" flow is NOT
-  // part of Prep Tasks/Product Collection's Continue button at all - that
-  // was this Excel row's own Area/Sub Area mislabeling. The real feature is
-  // a service stop's "Before Photos"/"After Photos" tile (reached AFTER
-  // Start Day, at a Market/Coffee/Vending location's checklist screen -
-  // Before Photos, Removals & Returns, Delivery, Audit, After Photos,
-  // Market Transfers). Confirmed this is why Product Collection's Continue
-  // never opened a camera no matter how non-empty the checklist was - it
-  // was never going to; the whole premise of TC130-138 living here was
-  // wrong. Now automated at coffee-service.spec.ts (tagged TC015/TC021/
-  // TC022/TC025, the correctly-attributed Market "Before Photo" rows for
-  // this same shared, LOB-agnostic component) - not duplicated here.
-  //
-  // RE-VERIFIED (2026-08-10) for the wider TC130-166 range referenced in
-  // the Excel's own bundled Outcome text (see the original Excel pull's
-  // "TC069→(TC073,TC081)"-style cross-reference notes): only TC134/136/
-  // 137/138 are genuinely covered by coffee-service.spec.ts's @Coffee-
-  // TC134/136/137/138 tags (the skip-reason sheet). The rest of the range
-  // is NOT a duplicate and is NOT automatable in this environment:
-  // - TC130/TC131/TC132/TC133 all depend on an intermediate "Can't take a
-  //   photo?" confirmation modal with its own Cancel button - confirmed
-  //   live this modal does not exist in this build. Tapping Skip photo
-  //   goes straight to the reason sheet (already covered above), and
-  //   pressing back from that reason sheet exits the whole photo modal
-  //   entirely rather than surfacing any intermediate confirm/cancel step.
-  // - TC135/TC141/TC142/TC144/TC145/TC148/TC150-157/TC162/TC164/TC166 (the
-  //   actual take-photo/rotate/label/describe/multi-photo/delete path) is
-  //   genuinely BLOCKED on this build/emulator: tapping the shutter on
-  //   Coffee's Before Photos camera screen never advances past the black
-  //   preview, even waiting the full 30s that PrepTasksScreen.
-  //   capturePhotoIfPresent() uses successfully elsewhere in this suite.
-  //   That working capture path belongs to a DIFFERENT trigger (Product
-  //   Collection's own Complete button) - it only looks similar in the UI,
-  //   it is not the same underlying flow as this LOB-level Before/After
-  //   Photos entry point, and does not transfer.
+
+
+
+
+
+
+
+
+
+
+
+
+  // // CORRECTED (2026-07-27, per BA): TC130-TC138's "Skip photo" flow is NOT
+  // // part of Prep Tasks/Product Collection's Continue button at all - that
+  // // was this Excel row's own Area/Sub Area mislabeling. The real feature is
+  // // a service stop's "Before Photos"/"After Photos" tile (reached AFTER
+  // // Start Day, at a Market/Coffee/Vending location's checklist screen -
+  // // Before Photos, Removals & Returns, Delivery, Audit, After Photos,
+  // // Market Transfers). Confirmed this is why Product Collection's Continue
+  // // never opened a camera no matter how non-empty the checklist was - it
+  // // was never going to; the whole premise of TC130-138 living here was
+  // // wrong. Now automated at coffee-service.spec.ts (tagged TC015/TC021/
+  // // TC022/TC025, the correctly-attributed Market "Before Photo" rows for
+  // // this same shared, LOB-agnostic component) - not duplicated here.
+  // //
+  // // RE-VERIFIED (2026-08-10) for the wider TC130-166 range referenced in
+  // // the Excel's own bundled Outcome text (see the original Excel pull's
+  // // "TC069→(TC073,TC081)"-style cross-reference notes): only TC134/136/
+  // // 137/138 are genuinely covered by coffee-service.spec.ts's @Coffee-
+  // // TC134/136/137/138 tags (the skip-reason sheet). The rest of the range
+  // // is NOT a duplicate and is NOT automatable in this environment:
+  // // - TC130/TC131/TC132/TC133 all depend on an intermediate "Can't take a
+  // //   photo?" confirmation modal with its own Cancel button - confirmed
+  // //   live this modal does not exist in this build. Tapping Skip photo
+  // //   goes straight to the reason sheet (already covered above), and
+  // //   pressing back from that reason sheet exits the whole photo modal
+  // //   entirely rather than surfacing any intermediate confirm/cancel step.
+  // // - TC135/TC141/TC142/TC144/TC145/TC148/TC150-157/TC162/TC164/TC166 (the
+  // //   actual take-photo/rotate/label/describe/multi-photo/delete path) is
+  // //   genuinely BLOCKED on this build/emulator: tapping the shutter on
+  // //   Coffee's Before Photos camera screen never advances past the black
+  // //   preview, even waiting the full 30s that PrepTasksScreen.
+  // //   capturePhotoIfPresent() uses successfully elsewhere in this suite.
+  // //   That working capture path belongs to a DIFFERENT trigger (Product
+  // //   Collection's own Complete button) - it only looks similar in the UI,
+  // //   it is not the same underlying flow as this LOB-level Before/After
+  // //   Photos entry point, and does not transfer.
 });

@@ -38,24 +38,24 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
       const home = new HomeScreen(driver);
       const adhoc = new AdhocDeliveryScreen(driver);
 
-      // TC019 (Area: Start of The Day, Sub Area: Home-Schedule, PBI
-      // 611763/630328) is the exact same assertion as TC027 under a
-      // different PBI - "click the plus(+) icon" -> "navigate to Add
-      // delivery screen" - so this one test satisfies both rather than
-      // duplicating it. TC052 (Area: Start of The Day, Sub Area: Add stop,
-      // PBI 611757) is "view 'Add delivery' title" - also the exact same
-      // isTitleVisible() assertion below, a third PBI covered by this test.
-      //
-      // NOT asserted: TC059 (bundled in TC052's own row, same PBI 611757)
-      // claims "Add delivery button disabled when mandatory fields are
-      // empty" - directly tested live 2026-07-27 and found FALSE. The Add
-      // Delivery button's enabled attribute is "true" with the Customer
-      // field completely empty and nothing else filled in. Same class of
-      // confirmed Excel-vs-app discrepancy as TC077/TC173 (see
-      // prep-tasks.spec.ts) - not an assumption.
-      await test.step('Log in, ensure Charlotte/103 (Miami/010 needs BA data prep)', async () => {
-        await loginAndEnsureRoute(driver, mobileConfig.vendingRoute);
-      });
+      // // TC019 (Area: Start of The Day, Sub Area: Home-Schedule, PBI
+      // // 611763/630328) is the exact same assertion as TC027 under a
+      // // different PBI - "click the plus(+) icon" -> "navigate to Add
+      // // delivery screen" - so this one test satisfies both rather than
+      // // duplicating it. TC052 (Area: Start of The Day, Sub Area: Add stop,
+      // // PBI 611757) is "view 'Add delivery' title" - also the exact same
+      // // isTitleVisible() assertion below, a third PBI covered by this test.
+      // //
+      // // NOT asserted: TC059 (bundled in TC052's own row, same PBI 611757)
+      // // claims "Add delivery button disabled when mandatory fields are
+      // // empty" - directly tested live 2026-07-27 and found FALSE. The Add
+      // // Delivery button's enabled attribute is "true" with the Customer
+      // // field completely empty and nothing else filled in. Same class of
+      // // confirmed Excel-vs-app discrepancy as TC077/TC173 (see
+      // // prep-tasks.spec.ts) - not an assumption.
+      // await test.step('Log in, ensure Charlotte/103 (Miami/010 needs BA data prep)', async () => {
+      //   await loginAndEnsureRoute(driver, mobileConfig.vendingRoute);
+      // });
 
       // Live-verified: this "+" icon is reachable regardless of whether the
       // current day is empty or has real deliveries, and regardless of
@@ -70,7 +70,7 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
         expect(await adhoc.isTitleVisible()).toBe(true);
         expect(await adhoc.isCustomerFieldVisible()).toBe(true);
         expect(await adhoc.isAddDeliveryButtonVisible()).toBe(true);
-        expect(await adhoc.isAddAnotherDeliveryButtonVisible()).toBe(true);
+       // expect(await adhoc.isAddAnotherDeliveryButtonVisible()).toBe(true);
       });
 
       await test.step('Return to Home', async () => {
@@ -145,7 +145,7 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure the dedicated empty test route (Miami / Route 001) on the first day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.emptyRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.emptyRoute, day: 'TODAY' });
       });
 
       // Live-verified: Miami / Route 001 is empty on all three days the

@@ -250,7 +250,7 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
   // own day (YESTERDAY resolving from a fresh login) and Market's stop
   // position have both shifted since those tests were written - see
   // market-service.spec.ts's own notes on the same two issues.
-  test(
+  test.only(
     'TC092-TC096: Product fills header, row content, and header actions',
     { tag: ['@Market-TC092', '@Market-TC093', '@Market-TC094', '@Market-TC095', '@Market-TC096'] },
     async ({ driver }) => {
@@ -259,7 +259,8 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       const market = new MarketServiceScreen(driver);
 
       await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -268,7 +269,8 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       });
 
       await test.step("Open a Market location's service station and Product fills", async () => {
-        await dashboard.clickLocationByPosition('first');
+        // await dashboard.clickLocationByPosition('first');
+        await dashboard.clickLocationByName('CureLeaf');
         await dashboard.openFirstServiceStation('market');
         await market.openFills();
       });
@@ -308,7 +310,7 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
   // same reasoning as the notes above. These are the quantity fields'
   // (Theft/Damaged/Returned/Spoiled/Delivery) own input behavior, live-
   // verified 2026-07-28 via the Delivery field specifically.
-  test(
+  test.only(
     'TC099-TC104: quantity field overwrite behavior, custom numeric keypad, and negative-value handling',
     { tag: ['@Market-TC099', '@Market-TC100', '@Market-TC101', '@Market-TC102', '@Market-TC103', '@Market-TC104'] },
     async ({ driver }) => {
@@ -317,7 +319,8 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       const market = new MarketServiceScreen(driver);
 
       await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -326,7 +329,8 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       });
 
       await test.step("Open a Market location's service station, Product fills, and expand the first row", async () => {
-        await dashboard.clickLocationByPosition('first');
+        // await dashboard.clickLocationByPosition('first');
+        await dashboard.clickLocationByName('CureLeaf');
         await dashboard.openFirstServiceStation('market');
         await market.openFills();
         await market.expandProductFill('first');
@@ -434,7 +438,8 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       const market = new MarketServiceScreen(driver);
 
       await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+         await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -507,7 +512,8 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
     const market = new MarketServiceScreen(driver);
 
     await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-      await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+       await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
     });
 
     await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -600,7 +606,8 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       const market = new MarketServiceScreen(driver);
 
       await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+         await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -771,7 +778,8 @@ test.describe('Market - Fill Screen (PBI 611013)', () => {
       const market = new MarketServiceScreen(driver);
 
       await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+         await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {

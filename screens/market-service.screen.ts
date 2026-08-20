@@ -742,14 +742,21 @@ export class MarketServiceScreen extends BaseScreen {
    */
   async completeRemovalsAndReturns(): Promise<void> {
     await this.tap(this.removalsAndReturns);
-    await this.tap(this.doneButton);
+    //await this.tap(this.doneButton);
+    await this.tap(this.backArrowButton);
+    
   }
 
   /** Opens Audit without searching/continuing - lets callers assert the search field/scanner icon first. Assumes the tile is already enabled (see this class's own note above afterPhotos on Audit's own prerequisites - Before Photos, Removals & Returns, and Delivery). */
-  async openAudit(): Promise<void> {
+  async openAudit(buttonName: string): Promise<void> {
     await this.tap(this.audit);
+    await this.tap(this.buttonByName(buttonName));
     await this.waitFor(this.audit);
   }
+
+  // async tapAuditType(buttonName: string): Promise<void> {
+    
+  // }
 
   /** Excel TC244 - opens Audit and searches/selects a product, stopping right before Continue - lets a caller inspect whatever quantity-entry control appears (e.g. the shared numeric keypad) before committing. */
   async selectAuditProduct(searchTerm: string): Promise<void> {
@@ -786,6 +793,9 @@ export class MarketServiceScreen extends BaseScreen {
   async isAuditScannerIconVisible(): Promise<boolean> {
     return this.isVisible(`${this.searchField}/following-sibling::android.widget.ImageView[2]`);
   }
+
+  
+
 
   async performAudit(searchTerm: string): Promise<void> {
     await this.tap(this.audit);

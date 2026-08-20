@@ -24,9 +24,9 @@ test.describe('Truck Stock - Truck Returns', () => {
     const truckReturns = new TruckStockTruckReturnsScreen(driver);
     let productName = '';
 
-    await test.step('Log in', async () => {
-      await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
-    });
+    // await test.step('Log in', async () => {
+    //   await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+    // });
 
     await test.step('Open the Truck returns screen', async () => {
       await truckReturns.open();
@@ -43,6 +43,7 @@ test.describe('Truck Stock - Truck Returns', () => {
     // "jaggery" matches exactly one product whose catalog/display names do
     // align cleanly.
     await test.step('Add a product under Coffee', async () => {
+      // productName = await truckReturns.addProduct('coffee', 'jaggery');
       productName = await truckReturns.addProduct('coffee', 'jaggery');
     });
 
@@ -76,9 +77,9 @@ test.describe('Truck Stock - Truck Returns', () => {
     async ({ driver }) => {
       const truckReturns = new TruckStockTruckReturnsScreen(driver);
 
-      await test.step('Log in', async () => {
-        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
-      });
+      // await test.step('Log in', async () => {
+      //   await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+      // });
 
       await test.step('TC298: the hamburger menu lists Truck Stock (Truck returns/Route Inventory/Route shopping) and Transfers', async () => {
         const menu = await truckReturns.isTruckStockMenuVisible();
@@ -116,9 +117,9 @@ test.describe('Truck Stock - Truck Returns', () => {
       const truckReturns = new TruckStockTruckReturnsScreen(driver);
       let productName = '';
 
-      await test.step('Log in', async () => {
-        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
-      });
+      // await test.step('Log in', async () => {
+      //   await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+      // });
 
       await test.step('Add a product under Market', async () => {
         productName = await truckReturns.addProduct('market', 'jaggery');

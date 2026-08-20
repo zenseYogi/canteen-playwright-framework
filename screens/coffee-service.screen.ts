@@ -127,8 +127,11 @@ export class CoffeeServiceScreen extends BaseScreen {
   // since there's nothing to cancel - the back arrow is the only way out).
   private readonly addPresaleTrigger = '//android.view.View[starts-with(@content-desc,"Add presale")]';
   private readonly presalesEmptyStateHeading = '~Log Pre-Sales by Order';
-  private readonly presalesAddOrderTrigger = '~Add order';
-  private readonly addPresalesOrderTitle = '~Add Pre-sales order';
+  // private readonly presalesAddOrderTrigger = '~Add order';
+  private readonly presalesAddOrderTrigger = '~Add Presale';
+  
+  // private readonly addPresalesOrderTitle = '~Add Pre-sales order';
+  private readonly addPresalesOrderTitle = '~Add Presale';
   // Live-verified (build 0.1.76): both fields are true XML siblings of the
   // title under one parent (index 3 = title, 4 = Delivery Date, 6 = Add
   // product EditText) - content-desc/hint-based locators don't work here
@@ -137,9 +140,9 @@ export class CoffeeServiceScreen extends BaseScreen {
   // ("Thu 30 Jul") rather than content-desc. following-sibling off the
   // title is the only stable anchor found.
   private readonly deliveryDateField =
-    '//android.view.View[@content-desc="Add Pre-sales order"]/following-sibling::android.view.View[1]';
+    '//android.view.View[@content-desc="Add Presale"]/following-sibling::android.view.View[1]';
   private readonly addProductField =
-    '//android.view.View[@content-desc="Add Pre-sales order"]/following-sibling::android.widget.EditText[1]';
+    '//android.view.View[@content-desc="Add Presale"]/following-sibling::android.widget.EditText[1]';
   private readonly searchProductSheetTitle = '~Search product';
   // Scoped as a sibling of the sheet's own title, not a bare
   // "//android.widget.EditText" - the underlying "Add Pre-sales order"
@@ -756,14 +759,16 @@ export class CoffeeServiceScreen extends BaseScreen {
     return {
       heading: await this.isVisible(this.equipmentAuditEmptyStateHeading),
       message: await this.isVisible(this.equipmentAuditEmptyStateMessage),
-      addEquipment: await this.isVisible(this.addEquipmentTrigger),
+      //addEquipment: await this.isVisible(this.addEquipmentTrigger),
+      addEquipment: await this.isVisible(this.addProductButton),
       done: await this.isVisible(this.doneButton)
     };
   }
 
   /** Excel TC030 - opens the Add Equipment form from the empty-state's own trigger, confirms its title. */
   async openAddEquipmentFromEmptyState(): Promise<void> {
-    await this.tap(this.addEquipmentTrigger);
+    // await this.tap(this.addEquipmentTrigger);
+     await this.tap(this.addProductButton);
     await this.waitFor(this.addEquipmentTitle);
   }
 
@@ -779,7 +784,7 @@ export class CoffeeServiceScreen extends BaseScreen {
     plumbed: boolean;
     photos: boolean;
   }> {
-    return {
+    const result = {
       account: await this.isVisible(this.addEquipmentFieldSelector('Account')),
       manufacturer: await this.isVisible(this.addEquipmentFieldSelector('Manufacturer')),
       model: await this.isVisible(this.addEquipmentFieldSelector('Model')),
@@ -790,6 +795,13 @@ export class CoffeeServiceScreen extends BaseScreen {
       plumbed: await this.isVisible(this.addEquipmentFieldSelector('Plumbed')),
       photos: await this.isVisible(this.addEquipmentFieldSelector('Photos'))
     };
+    // Scroll down before verifying Photos field
+    await this.scrollDown();
+    await this.scrollDown();
+    result.photos = await this.isVisible(
+    this.addEquipmentFieldSelector('Photos')
+    );
+    return result;
   }
 
   /** Excel TC035 - Add equipment submit button's enabled state (disabled grey until required fields are filled). */

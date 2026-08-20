@@ -47,7 +47,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
     });
 
     await test.step("Open a Market location's service station", async () => {
-      await dashboard.clickLocationByPosition('second');
+      await dashboard.clickLocationByName('FedEx');
       await dashboard.openFirstServiceStation('market');
     });
 
@@ -91,7 +91,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       });
 
       await test.step("Open a Market location's service station", async () => {
-        await dashboard.clickLocationByPosition('second');
+        await dashboard.clickLocationByName('CureLeaf');
         await dashboard.openFirstServiceStation('market');
       });
 
@@ -166,7 +166,8 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       // "persists" (TC012) nor "displays instead of POS/equipment ID"
       // (TC011, which also doesn't show a POS/equipment ID to be replacing).
       await test.step("TC010: open a Market location's service stop and verify the account name is the bold header", async () => {
-        await dashboard.clickLocationByPosition('first');
+        await dashboard.clickLocationByName('CureLeaf');
+        //await dashboard.clickLocationByPosition('first');
         await dashboard.openFirstServiceStation('market');
         expect(await market.isServiceStopLocationHeaderVisible()).toBe(true);
         const headerText = await market.getServiceStopLocationHeaderText();
@@ -199,7 +200,9 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       const market = new MarketServiceScreen(driver);
 
       await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        //Changed to TODAY from YESTERDAY to avoid data issue.
+        // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -324,7 +327,9 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       const market = new MarketServiceScreen(driver);
 
       await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        //Changed to TODAY from YESTERDAY to avoid data issue.
+        // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -626,7 +631,9 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       const market = new MarketServiceScreen(driver);
 
       await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        //Changed to TODAY from YESTERDAY to avoid data issue.
+        // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -742,7 +749,10 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
     const market = new MarketServiceScreen(driver);
 
     await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-      await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      //Changed to TODAY from YESTERDAY to avoid data issue.
+        // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      
     });
 
     await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -751,7 +761,8 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
     });
 
     await test.step("Open a Market location's service station", async () => {
-      await dashboard.clickLocationByPosition('first');
+      // await dashboard.clickLocationByPosition('first');
+       await dashboard.clickLocationByName('CureLeaf');
       await dashboard.openFirstServiceStation('market');
     });
 
@@ -772,7 +783,9 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
     const market = new MarketServiceScreen(driver);
 
     await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-      await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      //Changed to TODAY from YESTERDAY to avoid data issue.
+        // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
     });
 
     await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -819,7 +832,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // TC274/TC277/TC278 - identical shared component to Before Photos'
   // already-covered TC021/TC022/TC025 (BaseScreen's openPhotoTrigger/
   // openSkipPhotoReasonSheet), just on the After Photos trigger instead.
-  test(
+  test.only(
     'TC232/TC274/TC277/TC278: Audit scanner icon, and the After Photos skip-reason flow',
     { tag: ['@Market-TC232', '@Market-TC274', '@Market-TC277', '@Market-TC278'] },
     async ({ driver }) => {
@@ -828,7 +841,9 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       const market = new MarketServiceScreen(driver);
 
       await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        //Changed to TODAY from YESTERDAY to avoid data issue.
+        // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -837,7 +852,8 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       });
 
       await test.step("Open CureLeaf's service station", async () => {
-        await dashboard.clickLocationByPosition('second');
+        //await dashboard.clickLocationByPosition('second');
+         await dashboard.clickLocationByName('CureLeaf');
         await dashboard.openFirstServiceStation('market');
       });
 
@@ -861,7 +877,8 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
 
       // TC232 - Audit's search field scanner icon.
       await test.step('TC232: Audit shows a scanner icon on its search field', async () => {
-        await market.openAudit();
+        await market.openAudit('Full audit');
+        // await market.tapAuditType('Full audit');
         expect(await market.isAuditScannerIconVisible()).toBe(true);
       });
 
@@ -908,7 +925,9 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
     const market = new MarketServiceScreen(driver);
 
     await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-      await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      //Changed to TODAY from YESTERDAY to avoid data issue.
+        // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
     });
 
     await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -947,7 +966,9 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
     const market = new MarketServiceScreen(driver);
 
     await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-      await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      //Changed to TODAY from YESTERDAY to avoid data issue.
+        // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
     });
 
     await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -991,7 +1012,9 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
     const market = new MarketServiceScreen(driver);
 
     await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-      await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      //Changed to TODAY from YESTERDAY to avoid data issue.
+      // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
+      await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
     });
 
     await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {

@@ -22,6 +22,12 @@ export class BaseScreen {
   protected readonly addProductButton = '~section_header_add_cta';
   protected readonly takePhotoButton = '~Take photo';
   protected readonly attachPhotoButton = '~Attach Photo';
+  protected readonly backArrowButton = '(//android.widget.Button)[1]';
+
+  protected readonly buttonByName = (buttonName: string) =>
+    `//android.widget.Button[@content-desc="${buttonName}"]`;
+
+
   // Before/After Photos' "skip photo" sub-flow - live-verified 2026-07-27 on
   // a Coffee LOB service stop (Route 10/TODAY), reached via the service
   // stop checklist's "Before Photos" tile. Genuinely shared across LOBs -

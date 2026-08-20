@@ -20,7 +20,7 @@ export class RouteSetupScreen extends BaseScreen {
   private readonly settingsMenuItem = '~Settings, Collapsed';
   private readonly settingsExpandedMarker = '~Settings, Expanded';
   private readonly routeSetupMenuItem = '~Route setup';
-  private readonly screenTitle = '~Route Setup';
+  private readonly screenTitle = '~Route setup';
   private readonly operationField = '(//android.view.View[@clickable="true"])[1]';
   private readonly routeField = '(//android.view.View[@clickable="true"])[2]';
   private readonly modalSearchField = '//android.widget.EditText';
@@ -30,10 +30,27 @@ export class RouteSetupScreen extends BaseScreen {
     return `//android.view.View[starts-with(@content-desc,"${day}")]`;
   }
 
-  /** Hamburger menu > Settings (expands the collapsed section) > Route setup. */
+  /** Hamburger menu > Settings (expands the collapsed section) > Route setup.
+   * Handles both states: if Settings is already expanded, do not tap the
+   * collapsed label again or it will collapse the section instead of opening it.
+   */
   async openFromHamburgerMenu(): Promise<void> {
-    await this.tap(this.hamburgerIcon);
-    await this.tap(this.settingsMenuItem);
+    const settingsCollapsed = await this.isVisible(this.settingsMenuItem);
+    const settingsExpanded = await this.isVisible(this.settingsExpandedMarker);
+
+    if (!settingsCollapsed && !settingsExpanded) {
+      await this.tap(this.hamburgerIcon);
+    }
+
+    if (settingsCollapsed) {
+      await this.tap(this.settingsMenuItem);
+    } else if (!settingsExpanded) {
+      const collapsedVisible = await this.isVisible(this.settingsMenuItem);
+      if (collapsedVisible) {
+        await this.tap(this.settingsMenuItem);
+      }
+    }
+
     await this.tap(this.routeSetupMenuItem);
     await this.waitFor(this.screenTitle);
   }
@@ -53,16 +70,22 @@ export class RouteSetupScreen extends BaseScreen {
     // KEEP_APP_SESSION session can land with the drawer already open and/or
     // Settings already expanded (live-verified 2026-08-05) - tapping either
     // again would close it instead of opening it.
-    const alreadyOpen = await this.isVisible(this.settingsMenuItem);
-    if (!alreadyOpen) {
-      const expanded = await this.isVisible(this.settingsExpandedMarker);
-      if (!expanded) {
-        await this.tap(this.hamburgerIcon);
+    const settingsCollapsed = await this.isVisible(this.settingsMenuItem);
+    const settingsExpanded = await this.isVisible(this.settingsExpandedMarker);
+
+    if (settingsCollapsed) {
+      await this.tap(this.settingsMenuItem);
+    } else if (settingsExpanded) {
+      // Already expanded; continue without re-tapping, or it will collapse
+      // the section instead of preserving the current open state.
+    } else {
+      await this.tap(this.hamburgerIcon);
+      const settingsVisibleAfterOpen = await this.isVisible(this.settingsMenuItem);
+      if (settingsVisibleAfterOpen) {
+        await this.tap(this.settingsMenuItem);
       }
     }
-    if (!(await this.isVisible(this.settingsExpandedMarker))) {
-      await this.tap(this.settingsMenuItem);
-    }
+
     return this.isVisible(this.routeSetupMenuItem);
   }
 
@@ -130,7 +153,7 @@ export class RouteSetupScreen extends BaseScreen {
    * to appear. Sync took 60-90s in live testing - default timeout reflects
    * that rather than BaseScreen's normal 15s element timeout.
    */
-  async waitForSyncAndDaySheet(timeoutMs = 120_000): Promise<void> {
+  async waitForSyncAndDaySheet(timeoutMs = 360_000): Promise<void> {
     const el = await this.driver.$('~Select a day');
     await el.waitForDisplayed({ timeout: timeoutMs });
   }

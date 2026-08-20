@@ -13,11 +13,21 @@ export class HomeScreen extends BaseScreen {
   private readonly deliveriesTitle = '//android.view.View[contains(@content-desc, "Deliver")]';
 
   // PBI 622025 "Home Page: Dynamic data with functionality" - live-verified
-  // against build 0.1.76 (Miami/010). The day badge's content-desc is the
-  // whole string (e.g. "Yesterday, Thu 23 Jul") - matched by its one of
-  // three fixed prefixes, since the day/date portion changes daily.
+  // against build 0.1.76 (Miami/010). The date badge can render as either a
+  // day-based label ("Today, Thu 23 Jul") or the concrete calendar-date
+  // string used by the current app build (e.g. "August 18,2026"). Prefer
+  // the exact date locator first, then fall back to the older day-based
+  // pattern for compatibility.
   private readonly currentDateBadge =
     '//android.view.View[starts-with(@content-desc,"Today") or starts-with(@content-desc,"Yesterday") or starts-with(@content-desc,"Tomorrow")]';
+
+  private formatAppDate(date: Date): string {
+    const month = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(date);
+    const day = date.getDate();
+    const year = date.getFullYear();
+    return `${month} ${day},${year}`;
+  }
+
   private readonly routeBadge = '//android.view.View[starts-with(@content-desc,"Route")]';
   // The "Select a day" bottom sheet's own TODAY card (content-desc packs
   // the label and date together, e.g. "TODAY\nAugust 7, 2026") - used by
@@ -65,10 +75,19 @@ export class HomeScreen extends BaseScreen {
     await this.pressKeyCode(4);
   }
 
-  /** TC007 "view the System Date" - the day/date badge in the navigation bar (e.g. "Yesterday, Thu 23 Jul"). */
+  /** TC007 "view the System Date" - read the concrete date label shown on the app screen, e.g. "August 18,2026". */
   async getCurrentDateText(): Promise<string> {
-    const el = await this.driver.$(this.currentDateBadge);
-    return (await el.getAttribute('content-desc')) ?? '';
+    const todayText = this.formatAppDate(new Date());
+    const exactToday = await this.driver.$(`//android.view.View[@content-desc="${todayText}"]`).catch(() => null);
+    if (exactToday) {
+      const value = await exactToday.getAttribute('content-desc');
+      if (value) {
+        return value;
+      }
+    }
+
+    const el = await this.driver.$(this.currentDateBadge).catch(() => null);
+    return (await el?.getAttribute('content-desc')) ?? '';
   }
 
   /** TC012 "view route badge" - e.g. "Route 103". */

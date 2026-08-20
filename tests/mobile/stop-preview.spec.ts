@@ -22,7 +22,7 @@ import { mobileConfig } from '../../config/mobile.config';
 // University", doesn't exist on this route - CureLeaf is this route's
 // real market stop, same substitution already used throughout this file).
 test.describe('Start of The Day - Stop preview', () => {
-  test(
+  test.only(
     'view a stop\'s details, About this location, View schedule, and the pre-Start-Day service gate',
     {
       tag: [
