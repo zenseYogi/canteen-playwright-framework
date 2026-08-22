@@ -38,6 +38,7 @@ export class BaseScreen {
   // title instead of the button, making an actually-disabled submit button
   // read as enabled. Scoped to the Button class specifically to avoid that.
   protected readonly skipPhotoModalTitle = '~Add supporting photo';
+  protected readonly afterPhotos = '~After Photos';
   protected readonly skipPhotoButton = '//android.widget.Button[@content-desc="Skip photo"]';
   // CORRECTED (live-verified 2026-07-28, Market's own equivalent flow):
   // once the field has been typed into and cleared once, its `hint`
@@ -96,7 +97,7 @@ export class BaseScreen {
   protected readonly removalsSpoiledField = '//android.widget.EditText[1]';
   protected readonly removalsDamagedField = '//android.widget.EditText[2]';
   protected readonly removalsTheftField = '//android.widget.EditText[3]';
-  protected readonly removalsTruckReturnsField = '//android.widget.EditText[4]';
+  protected readonly removalsTruckReturnsField = '//android.widget.EditText[2]';
   protected readonly removalsSaveButton = '~Save';
   protected readonly removalsDoneButton = '~Done';
   // common.yaml's "delivery" trigger - identical usage in both
@@ -146,6 +147,12 @@ export class BaseScreen {
   // relying on it - see docs/rf-to-playwright-reuse.md.
   protected readonly capturePhotoButton =
     '//android.widget.FrameLayout[@resource-id="android:id/content"]/android.widget.FrameLayout/android.view.View/android.view.View/android.view.View/android.view.View/android.view.View';
+
+
+
+  protected textBoxByHint(labelName: string, hint: string): string {
+    return  `//android.view.View[contains(@content-desc,"${labelName}")]/android.widget.EditText[contains(@hint,"${hint}")]`
+  }
 
   /**
    * Switches the session into the app's WebView context so that WebView-rendered
@@ -278,7 +285,7 @@ export class BaseScreen {
    * the list and flips section_header_sort_cta's `checked` to true.
    */
   async selectSortOption(optionLabel: string): Promise<void> {
-    await this.tap(this.sortCta);
+    // await this.tap(this.sortCta);
     await this.tap(`~${optionLabel}`);
   }
 

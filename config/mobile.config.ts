@@ -37,7 +37,7 @@ export const mobileConfig = {
     operationLabel: process.env.ROUTE_OPERATION_LABEL || 'Miami, FL',
     routeSearch: process.env.ROUTE_SEARCH || 'Route 010',
     routeLabel: process.env.ROUTE_LABEL || 'Route 010',
-    day: (process.env.ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'YESTERDAY'
+    day: (process.env.ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'TODAY'
   },
   // Vending confirmed (2026-07-24) to live on a separate route from
   // Market/Coffee - Charlotte, NC / Route 103, not the Miami/010 default
@@ -51,7 +51,7 @@ export const mobileConfig = {
     operationLabel: process.env.VENDING_OPERATION_LABEL || 'Charlotte, NC',
     routeSearch: process.env.VENDING_ROUTE_SEARCH || 'Route 103',
     routeLabel: process.env.VENDING_ROUTE_LABEL || 'Route 103',
-    day: (process.env.VENDING_ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'YESTERDAY'
+    day: (process.env.VENDING_ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'TODAY'
   },
   // PBI 850155 (Ad-hoc Scheduling, TC025/TC028) needs a genuinely zero-delivery
   // day to test the empty-state UI - defaultRoute/vendingRoute both had real

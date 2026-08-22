@@ -76,6 +76,19 @@ export class DashboardScreen extends BaseScreen {
     await this.tap(this.nthServiceStationUnder(lob, position));
   }
 
+  async getNthServiceStationName(
+    lob: Lob,
+    position: Position
+  ): Promise<string> {
+    await this.clickLob(lob);
+    const locator = this.nthServiceStationUnder(lob, position);
+    const station = await this.driver.$(locator);
+    const stationName =
+      (await station.getAttribute('content-desc')) ?? '';
+    // await station.click();
+    return stationName;
+  }
+
   /** Whether a given position's service station row exists under the (already-expanded, or about-to-expand) LOB card - a quick presence check callers can use instead of eating openNthServiceStation's full tap timeout on a LOB with fewer stations than expected. */
   async isNthServiceStationVisible(lob: Lob, position: Position): Promise<boolean> {
     await this.clickLob(lob);
