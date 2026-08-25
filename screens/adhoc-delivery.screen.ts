@@ -176,6 +176,19 @@ export class AdhocDeliveryScreen extends BaseScreen {
   }
 
   /**
+   * Opens the Service picker and selects the OCS/Pantry (Coffee) service whose
+   * label contains `nameFragment`. Live-verified 2026-08-25 on Charlotte 103
+   * that this picker IS scoped to the customer chosen a step earlier (Aaron's
+   * offered only its own Vending stations, Amerock only "Maint: Amerock -
+   * OCS/Pantry"), so the fragment only has to disambiguate WITHIN one account -
+   * Advocate Health, for instance, offers two.
+   */
+  async selectCoffeeServiceFor(nameFragment: string): Promise<void> {
+    await this.tap(this.serviceField);
+    await this.tap(`//android.view.View[contains(@content-desc,"${nameFragment}") and contains(@content-desc,"OCS/Pantry")]`);
+  }
+
+  /**
    * Opens the Service picker and selects whichever service row comes
    * first, regardless of LOB - unlike selectFirstCoffeeService, which only
    * matches the "OCS/Pantry" tag. Used by ensureAnyDeliveryExistsToday,

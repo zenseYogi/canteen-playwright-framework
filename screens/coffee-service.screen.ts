@@ -854,6 +854,49 @@ export class CoffeeServiceScreen extends BaseScreen {
     return this.isVisible(this.paymentInputByHint(hint));
   }
 
+  // ==== C-TC-005: the Deliveries screen's empty state ====
+  //
+  // Live-verified 2026-08-25 (build 0.1.90, Charlotte 103). The fee lines
+  // BELONG on this screen: a POPULATED Deliveries screen renders "Shipping &
+  // Handling (Taxable) $1.06" and "Delivery Charge (Nontaxable) $12.00" above
+  // the product rows. The EMPTY state omits them entirely - that is the defect
+  // behind BUG 918856, and the reason this had to be checked both ways: if
+  // fees had been absent from the populated screen too, the test case would
+  // simply have been pointing at the wrong screen rather than the app being
+  // wrong.
+  private readonly deliverySearchField = '//android.widget.EditText[@hint="Search product"]';
+  private readonly deliveryAddIcon = '~section_header_add_cta';
+  private readonly deliverySortIcon = '~section_header_sort_cta';
+  private readonly deliveriesHeading = '~Deliveries';
+
+  /** C-TC-005 - the Deliveries screen's own heading. */
+  async isDeliveriesHeadingVisible(): Promise<boolean> {
+    return this.isVisible(this.deliveriesHeading);
+  }
+
+  /** C-TC-005 - the "Search product" input, matched by hint (it carries no content-desc). */
+  async isDeliverySearchFieldVisible(): Promise<boolean> {
+    return this.isVisible(this.deliverySearchField);
+  }
+
+  /** C-TC-005 - the Add and Sort header icons (both unlabelled section_header_*_cta ids). */
+  async areDeliveryHeaderIconsVisible(): Promise<{ add: boolean; sort: boolean }> {
+    return {
+      add: await this.isVisible(this.deliveryAddIcon),
+      sort: await this.isVisible(this.deliverySortIcon)
+    };
+  }
+
+  /** C-TC-005 - whether a named fee line (e.g. "Shipping & Handling") is rendered on the Deliveries screen. */
+  async isDeliveryFeeLineVisible(label: string): Promise<boolean> {
+    return this.isVisible(`//*[contains(@content-desc,"${label}")]`);
+  }
+
+  /** C-TC-005 - whether the Deliveries screen's own Continue is enabled. */
+  async isDeliveriesContinueEnabled(): Promise<boolean> {
+    return this.isDeliveryContinueEnabled();
+  }
+
   // ==== C-TC-004: the signature-discard confirmation ====
   //
   // Live-verified 2026-08-25 (build 0.1.90, Charlotte 103): pressing BACK on

@@ -103,6 +103,50 @@ async function reachCoffeeServiceStation(driver: any): Promise<string> {
   return BOOTSTRAP;
 }
 
+
+/**
+ * Leaves the caller on a Coffee stop whose Deliveries screen is EMPTY, which
+ * C-TC-005 needs and no seeded stop on Charlotte 103 provides - 24Hundred
+ * Marketplace, the route's only real Coffee stop, has requested fills.
+ *
+ * An ad-hoc delivery is the intended way to get this state: Anthony (QA)
+ * confirmed 2026-08-25 that ad-hoc orders have NO products by design and must
+ * be filled manually, so a fresh one lands exactly on "No Deliveries
+ * Requested."
+ *
+ * Uses Amerock deliberately, NOT 24Hundred Marketplace: C-TC-002/003/004 all
+ * drive 24Hundred, and adding a second Coffee station there would change which
+ * one openFirstServiceStation('coffee') picks and break them. Live-verified
+ * the ad-hoc Service picker is scoped to the chosen customer on this route,
+ * and Amerock offers exactly one OCS/Pantry service ("Maint: Amerock").
+ * Idempotent - only creates the stop if Amerock has no Coffee card yet.
+ */
+async function reachEmptyCoffeeDeliveries(driver: any): Promise<void> {
+  const home = new HomeScreen(driver);
+  const dashboard = new DashboardScreen(driver);
+  const coffee = new CoffeeServiceScreen(driver);
+
+  await home.returnToHome();
+  await dashboard.clickLocationByName('Amerock');
+  const alreadyHasCoffee = await dashboard.isLobCardVisible('coffee').catch(() => false);
+  await home.returnToHome();
+
+  if (!alreadyHasCoffee) {
+    const adhoc = new AdhocDeliveryScreen(driver);
+    await home.openAdhocDeliveryCreation();
+    await adhoc.searchCustomer('Amerock');
+    await adhoc.selectCustomer('Amerock');
+    await adhoc.selectCoffeeServiceFor('Maint: Amerock');
+    await adhoc.selectServiceType('FULL');
+    await adhoc.submitAddDelivery();
+    await home.returnToHome();
+  }
+
+  await dashboard.clickLocationByName('Amerock');
+  await dashboard.openFirstServiceStation('coffee');
+  await coffee.openDelivery();
+}
+
 test.describe('Coffee - Before Photos / Skip photo', () => {
   test(
     'Skip photo flow: reason sheet appears, validates non-blank input, and submits without saving a photo',
@@ -1275,6 +1319,91 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
         await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
         await coffee.confirmSignatureDiscard();
       });
+    }
+  );
+
+  // ==== C-TC-005 (regression suite "Coffee", build 0.1.90) ====
+  //
+  // "Deliveries screen shows empty state when no deliveries are requested."
+  //
+  // Split into two tests deliberately. The sheet records this case as Fail
+  // with BUG 918856 raised, and exactly ONE of its five expected clauses
+  // actually fails (the fee lines). Asserting all five in a single test marked
+  // as expected-to-fail would mask a regression in the other four - the test
+  // would still "pass" if the heading or Continue-disabled behaviour broke.
+  test(
+    'C-TC-005: empty Deliveries shows header, search, Add/Sort icons and a disabled Continue',
+    { tag: ['@Coffee-C-TC-005'] },
+    async ({ driver }) => {
+      test.setTimeout(600_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach a Coffee stop with no requested deliveries', async () => {
+        await reachEmptyCoffeeDeliveries(driver);
+      });
+
+      await test.step('C-TC-005: date, route and Deliveries heading are shown', async () => {
+        const header = await coffee.isDateRouteHeaderVisible();
+        expect(header.date).toBe(true);
+        expect(header.route).toBe(true);
+        expect(await coffee.isDeliveriesHeadingVisible()).toBe(true);
+      });
+
+      await test.step('C-TC-005: Search product field with Add and Sort icons', async () => {
+        expect(await coffee.isDeliverySearchFieldVisible()).toBe(true);
+        expect(await coffee.areDeliveryHeaderIconsVisible()).toEqual({ add: true, sort: true });
+      });
+
+      await test.step('C-TC-005: the empty-state message is shown', async () => {
+        expect(await coffee.isDeliveriesEmptyStateVisible()).toBe(true);
+      });
+
+      await test.step('C-TC-005: Continue remains disabled', async () => {
+        expect(await coffee.isDeliveriesContinueEnabled()).toBe(false);
+      });
+    }
+  );
+
+  // FAILING HALF of C-TC-005 - BUG 918856.
+  //
+  // Marked test.fail() so it asserts the INTENDED behaviour while staying green
+  // against the current build, and flags loudly ("expected to fail but passed")
+  // the moment the fix lands. That is the whole point of writing it this way:
+  // the alternative - asserting the buggy behaviour as if correct - would go
+  // silently green forever and never tell us the bug was fixed.
+  //
+  // The expectation is legitimate, not a mis-specified test case: a POPULATED
+  // Deliveries screen on this same route DOES render both fee lines (live-
+  // verified 2026-08-25: "Shipping & Handling (Taxable) $1.06" and "Delivery
+  // Charge (Nontaxable) $12.00" on 24Hundred Marketplace). Only the empty state
+  // omits them.
+  test(
+    'C-TC-005 (BUG 918856): empty Deliveries omits Shipping & Handling and Delivery Charge',
+    { tag: ['@Coffee-C-TC-005', '@bug-918856'] },
+    async ({ driver }) => {
+      test.setTimeout(600_000);
+      test.fail();
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+      await prepTasks.openFromHamburgerMenu();
+      await prepTasks.ensureFullDayPrepComplete();
+      await home.returnToHome();
+      await reachEmptyCoffeeDeliveries(driver);
+
+      expect(await coffee.isDeliveryFeeLineVisible('Shipping & Handling')).toBe(true);
+      expect(await coffee.isDeliveryFeeLineVisible('Delivery Charge')).toBe(true);
     }
   );
 
