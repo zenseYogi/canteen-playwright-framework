@@ -134,10 +134,31 @@ export class CoffeeServiceScreen extends BaseScreen {
   // product (TC193), while "Add order" opens a genuinely blank form for a
   // second order (TC201, live-verified: Cancel is disabled on a blank form
   // since there's nothing to cancel - the back arrow is the only way out).
-  private readonly addPresaleTrigger = '//android.view.View[starts-with(@content-desc,"Add presale")]';
+  // CORRECTED 2026-08-25 (build 0.1.90, live-verified): the checklist tile is
+  // now capitalised "Add Presale" ("Add Presale\nAdd a New Presale Order") -
+  // the old lowercase "Add presale" locator matched ZERO elements. Matching
+  // either so this keeps working across both builds.
+  private readonly addPresaleTrigger =
+    '//android.view.View[starts-with(@content-desc,"Add presale") or starts-with(@content-desc,"Add Presale")]';
   private readonly presalesEmptyStateHeading = '~Log Pre-Sales by Order';
-  private readonly presalesAddOrderTrigger = '~Add order';
-  private readonly addPresalesOrderTitle = '~Add Pre-sales order';
+  // CORRECTED 2026-08-25 (build 0.1.90, live-verified): the Pre-sales screen's
+  // own "start a new order" trigger is no longer labelled "Add order" - it is
+  // now "Add Presale", the SAME label as the checklist tile that led here.
+  // Matching either; the two never appear on the same screen.
+  private readonly presalesAddOrderTrigger =
+    '//android.view.View[@content-desc="Add order" or @content-desc="Add Presale"]';
+  // CORRECTED 2026-08-25 (build 0.1.90, live-verified): the Add Presale form's
+  // title is no longer "Add Pre-sales order" - it is now "Add Presale", the
+  // SAME content-desc as both the checklist tile and the Pre-sales screen's own
+  // trigger. All three collapsed onto one string in this build, so the title is
+  // no longer a safe "have we arrived?" anchor: waiting on it can match the
+  // trigger we just tapped rather than the form. Anchoring on "Save order"
+  // instead - a button that exists ONLY on this form.
+  private readonly addPresalesOrderTitle =
+    '//android.view.View[@content-desc="Add Pre-sales order" or @content-desc="Add Presale"]';
+  private readonly addPresalesOrderAnchor = '//android.widget.Button[@content-desc="Save order"]';
+  private readonly addPresalesCancelButton = '//android.widget.Button[@content-desc="Cancel"]';
+  private readonly addPresalesProductField = '//android.widget.EditText[@hint="Add product"]';
   // Live-verified (build 0.1.76): both fields are true XML siblings of the
   // title under one parent (index 3 = title, 4 = Delivery Date, 6 = Add
   // product EditText) - content-desc/hint-based locators don't work here
@@ -145,10 +166,19 @@ export class CoffeeServiceScreen extends BaseScreen {
   // picked, when it switches to using the plain "text" attribute instead
   // ("Thu 30 Jul") rather than content-desc. following-sibling off the
   // title is the only stable anchor found.
-  private readonly deliveryDateField =
-    '//android.view.View[@content-desc="Add Pre-sales order"]/following-sibling::android.view.View[1]';
-  private readonly addProductField =
-    '//android.view.View[@content-desc="Add Pre-sales order"]/following-sibling::android.widget.EditText[1]';
+  // CORRECTED 2026-08-25 (build 0.1.90): both of these were anchored as
+  // siblings of the title "Add Pre-sales order", which no longer exists (the
+  // form is now titled "Add Presale" - see addPresalesOrderTitle's own note),
+  // so neither resolved at all. Re-anchored on each field's own `hint`, the
+  // only stable attribute they carry - both expose content-desc="null".
+  //
+  // Note the Delivery Date row itself is a View with clickable="false"; the
+  // real picker trigger is the calendar ImageView rendered immediately after
+  // it, hence deliveryDatePickerIcon below rather than tapping the row.
+  private readonly deliveryDateField = '//*[@hint="Delivery Date"]';
+  private readonly deliveryDatePickerIcon =
+    '//*[@hint="Delivery Date"]/following::android.widget.ImageView[1]';
+  private readonly addProductField = '//android.widget.EditText[@hint="Add product"]';
   private readonly searchProductSheetTitle = '~Search product';
   // Scoped as a sibling of the sheet's own title, not a bare
   // "//android.widget.EditText" - the underlying "Add Pre-sales order"
@@ -194,7 +224,70 @@ export class CoffeeServiceScreen extends BaseScreen {
   /** Excel TC147/TC148 - opens "Add Pre-sales order" from the empty-state's own "Add order" button. */
   async openAddPresalesOrder(): Promise<void> {
     await this.tap(this.presalesAddOrderTrigger);
-    await this.waitFor(this.addPresalesOrderTitle);
+    // Anchor on "Save order", not the title - see addPresalesOrderTitle's note.
+    await this.waitFor(this.addPresalesOrderAnchor);
+  }
+
+  /** C-TC-007 - whether the Pre-sales screen's own Continue is enabled (stays disabled while the stop has no saved presales). */
+  async isPresalesContinueEnabled(): Promise<boolean> {
+    return this.isEnabled(this.presalesContinueButton);
+  }
+
+  /**
+   * C-TC-007 - selects a Delivery Date on the Add Presale form.
+   *
+   * Live-verified 2026-08-25 (build 0.1.90): the picker offers FUTURE dates
+   * only (on business date 25 Aug it offered 26-31 Aug), which is consistent
+   * with a pre-sale. Both the form's Cancel AND "Save order" stay disabled
+   * until this field is set - adding a product alone is not enough.
+   */
+  async selectFirstAvailableDeliveryDate(): Promise<string> {
+    await this.openDeliveryDatePicker();
+    const days = [...(await this.driver.$$('//*[@clickable="true" and @content-desc!=""]'))];
+    let chosen = '';
+    for (const d of days) {
+      const desc = (await d.getAttribute('content-desc')) ?? '';
+      // Day cells read like "26, Wednesday, August 26, 2026" - a leading digit
+      // distinguishes them from the picker's own chrome (Cancel/OK/Next month).
+      if (/^\d+,/.test(desc)) {
+        chosen = desc;
+        await d.click();
+        break;
+      }
+    }
+    await this.tap('//*[@content-desc="OK" or @text="OK"]');
+    await this.waitFor(this.addPresalesOrderAnchor);
+    return chosen;
+  }
+
+  /** C-TC-007 - the Delivery Date currently shown on the Add Presale form (e.g. "Wed 26 Aug"). */
+  async getAddPresalesDeliveryDate(): Promise<string> {
+    const el = await this.driver.$(this.deliveryDateField);
+    await el.waitForDisplayed({ timeout: 15_000 });
+    return (await el.getAttribute('text')) ?? '';
+  }
+
+  /** C-TC-007 - whether the Add Presale form's Cancel is enabled (live-verified: disabled until the form has unsaved content). */
+  async isAddPresalesCancelEnabled(): Promise<boolean> {
+    return this.isEnabled(this.addPresalesCancelButton);
+  }
+
+  /** C-TC-007 - whether the Add Presale form's "Save order" is enabled. */
+  async isAddPresalesSaveEnabled(): Promise<boolean> {
+    return this.isEnabled(this.addPresalesOrderAnchor);
+  }
+
+  /** C-TC-007 - cancels the in-progress presale, discarding it. */
+  async cancelAddPresalesOrder(): Promise<void> {
+    await this.tap(this.addPresalesCancelButton);
+  }
+
+  /** C-TC-007 - types into the Add Presale form's own "Add product" field (hint-matched; it carries no content-desc). */
+  async typeAddPresalesProduct(term: string): Promise<void> {
+    const f = await this.driver.$(this.addPresalesProductField);
+    await f.waitForDisplayed({ timeout: 15_000 });
+    await f.click();
+    await f.setValue(term);
   }
 
   async isAddPresalesOrderTitleVisible(): Promise<boolean> {
@@ -213,7 +306,7 @@ export class CoffeeServiceScreen extends BaseScreen {
   }
 
   async openDeliveryDatePicker(): Promise<void> {
-    await this.tap(this.deliveryDateField);
+    await this.tap(this.deliveryDatePickerIcon);
     // Not an accessibility-id match ('~Select date') - live-verified this
     // native Android DatePicker dialog's own content-desc is actually
     // "Select date\n{selected day}" (e.g. "Select date\nThu, Jul 30"), so

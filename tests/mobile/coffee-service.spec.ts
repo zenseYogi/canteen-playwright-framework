@@ -1407,4 +1407,70 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
     }
   );
 
+  // ==== C-TC-007 (regression suite "Coffee", build 0.1.90) ====
+  //
+  // "Driver cancels presale creation with unsaved changes."
+  //
+  // Runs on 24Hundred Marketplace (Charlotte 103). Safe to run against a real
+  // ordered stop precisely BECAUSE it cancels: nothing is ever saved, so the
+  // stop is left exactly as found.
+  //
+  // Gating discovered live 2026-08-25 and worth knowing before reading this
+  // test: the form's Cancel AND "Save order" both stay DISABLED until the
+  // Delivery Date is set - adding a product is not enough. So a driver who
+  // adds a product and changes their mind has no Cancel button at all, only
+  // the back arrow. Odd, but it is a gating rule rather than a defect, and the
+  // test sets the date so it can exercise the documented Cancel path.
+  test(
+    'C-TC-007: cancelling a presale with unsaved changes creates no order',
+    { tag: ['@Coffee-C-TC-007'] },
+    async ({ driver }) => {
+      test.setTimeout(600_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Open the Coffee stop and start a new presale order', async () => {
+        await dashboard.clickLocationByName('24Hundred Marketplace');
+        await dashboard.openFirstServiceStation('coffee');
+        await coffee.openAddPresaleFromChecklist();
+        expect(await coffee.isPresalesEmptyStateVisible()).toBe(true);
+        await coffee.openAddPresalesOrder();
+      });
+
+      await test.step('C-TC-007: build up unsaved changes - a product and a delivery date', async () => {
+        // Typing in "Add product" opens a separate product SEARCH SHEET;
+        // picking a result returns to the form with the product attached.
+        await coffee.typeAddPresalesProduct('sugar');
+        await coffee.selectPresaleProductOption('Canteen Granulated Sugar Canister (20oz) - pkg: 1');
+        // Dismiss the quantity keypad the selection opens over the form.
+        await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+        const chosen = await coffee.selectFirstAvailableDeliveryDate();
+        expect(chosen).not.toBe('');
+        expect(await coffee.getAddPresalesDeliveryDate()).not.toBe('');
+      });
+
+      await test.step('C-TC-007: Cancel is available once the form is complete', async () => {
+        expect(await coffee.isAddPresalesCancelEnabled()).toBe(true);
+        expect(await coffee.isAddPresalesSaveEnabled()).toBe(true);
+      });
+
+      await test.step('C-TC-007: cancelling returns to Pre-sales with no order created', async () => {
+        await coffee.cancelAddPresalesOrder();
+        // The empty state IS the proof no order was created - it only renders
+        // when the stop has no presales at all.
+        expect(await coffee.isPresalesEmptyStateVisible()).toBe(true);
+        expect(await coffee.isPresalesContinueEnabled()).toBe(false);
+      });
+    }
+  );
+
 });
