@@ -1695,4 +1695,78 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
     }
   );
 
+  // ==== C-TC-014 (regression suite "Coffee", build 0.1.90) ====
+  //
+  // "Driver searches or scans and adds a product to Deliveries."
+  //
+  // The SCAN half is not automatable (no scanner hardware, and no scan-intent
+  // mechanism in this suite - the same blocker as Vending V-TC-001/004 and
+  // Market M-TC-012). The search half is what is verified here, which is the
+  // path a scan result feeds into anyway.
+  //
+  // Self-cleaning like C-TC-011: the product added here is deleted again at
+  // the end, so the stop is left on the empty Deliveries state that C-TC-005
+  // and C-TC-011 both depend on.
+  test(
+    'C-TC-014: a searched product is added with Ordered and an editable Delivered quantity',
+    { tag: ['@Coffee-C-TC-014'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach an empty Deliveries screen', async () => {
+        await reachCoffeeStopWithEmptyDeliveries(driver);
+        expect(await coffee.getDeliveryProductRowCount()).toBe(0);
+        // Establish the "before" state, so enabling Continue later is a real
+        // transition rather than something that was already true.
+        expect(await coffee.isDeliveriesContinueEnabled()).toBe(false);
+      });
+
+      let product = '';
+      await test.step('C-TC-014: searching and selecting a product adds it to the list', async () => {
+        product = await coffee.addFirstDeliverySearchResult('sugar');
+        expect(product).not.toBe('');
+        await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+        expect(await coffee.getDeliveryProductRowCount()).toBe(1);
+      });
+
+      await test.step('C-TC-014: the row exposes Ordered and an editable Delivered quantity', async () => {
+        // The row concatenates product, packaging, price and the Ordered
+        // label/value into one content-desc. A manually added product has no
+        // ordered quantity, so Ordered renders as "-" rather than a number -
+        // the presence of the label and the product is what matters here.
+        const rowText = await coffee.getFirstDeliveryProductRowText();
+        expect(rowText).toContain('Ordered');
+        expect(rowText).toContain('Pkg:');
+        expect(await coffee.isDeliveredQtyFieldVisible()).toBe(true);
+        // Editable in the real sense: it accepts a new value and keeps it.
+        // Compared numerically because this keypad field clears to "0" rather
+        // than empty, so setting 4 lands as the text "04" - see
+        // setDeliveredQuantity's own note.
+        await coffee.setDeliveredQuantity('4');
+        expect(Number(await coffee.getDeliveredQty())).toBe(4);
+      });
+
+      await test.step('C-TC-014: Continue is enabled once a valid delivered quantity is present', async () => {
+        expect(await coffee.isDeliveriesContinueEnabled()).toBe(true);
+      });
+
+      await test.step('Cleanup: remove the added product so the stop is left empty', async () => {
+        await coffee.revealDeliveryProductDelete();
+        await coffee.tapRevealedDeliveryProductDelete();
+        await coffee.confirmDeleteProduct();
+        expect(await coffee.getDeliveryProductRowCount()).toBe(0);
+      });
+    }
+  );
+
 });

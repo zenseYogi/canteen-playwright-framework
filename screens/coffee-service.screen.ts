@@ -703,7 +703,15 @@ export class CoffeeServiceScreen extends BaseScreen {
     return this.isVisible(this.deliveryProductRow(name));
   }
 
-  /** Excel TC211 - sets a product's own Delivered quantity via its numeric-keypad field (see deliveredQtyField's own note on targeting it). */
+  /**
+   * Excel TC211 - sets a product's own Delivered quantity via its
+   * numeric-keypad field (see deliveredQtyField's own note on targeting it).
+   *
+   * NOTE the resulting TEXT may carry a leading zero: this is a keypad-driven
+   * field, and clearing it leaves "0" rather than empty, so setValue("4")
+   * lands as "04" - live-verified 2026-08-25. The value is numerically
+   * correct; callers should compare with Number(), not string equality.
+   */
   async setDeliveredQuantity(value: string): Promise<void> {
     const field = await this.driver.$(this.deliveredQtyField);
     await field.click();
@@ -1032,6 +1040,22 @@ export class CoffeeServiceScreen extends BaseScreen {
   /** C-TC-011/C-TC-014 - how many product rows the Deliveries list currently shows. */
   async getDeliveryProductRowCount(): Promise<number> {
     return [...(await this.driver.$$(this.deliveryProductRowAny))].length;
+  }
+
+  /**
+   * C-TC-014 - the first delivery product row's full label, e.g.
+   * "CanteenSugrCanister20oz (Pkg: 24) (Price: 117.26) Ordered -".
+   *
+   * Read whole rather than probed by name: the row concatenates product,
+   * packaging, price, the "Ordered" label and its value into ONE content-desc,
+   * so isDeliveryProductVisible()'s starts-with match only ever finds the
+   * product name at the front - asking it for "Ordered" returns false even
+   * though the label is plainly there.
+   */
+  async getFirstDeliveryProductRowText(): Promise<string> {
+    const row = await this.driver.$(this.deliveryProductRowAny);
+    await row.waitForDisplayed({ timeout: 15_000 });
+    return ((await row.getAttribute('content-desc')) ?? '').replace(/\n/g, ' ');
   }
 
   /** C-TC-014 - whether the row's editable "Delivered" quantity field is present. */
