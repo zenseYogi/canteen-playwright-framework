@@ -1,5 +1,6 @@
 import { test, expect } from '../../fixtures/appium.fixture';
 import { loginAndEnsureRoute } from '../../utils/login-flow';
+import { AdhocDeliveryScreen } from '../../screens/adhoc-delivery.screen';
 import { PrepTasksScreen } from '../../screens/prep-tasks.screen';
 import { DashboardScreen } from '../../screens/dashboard.screen';
 import { HomeScreen } from '../../screens/home.screen';
@@ -19,6 +20,179 @@ import { mobileConfig } from '../../config/mobile.config';
 // Data note: navigating to a Market location assumes this environment's
 // seeded route data is stable across sessions (confirmed across this
 // session's app relaunches) - the second dashboard location is a Market stop.
+
+/**
+ * M-TC-005/008/013/014/015/016 (build 0.1.90) navigate to a named Miami/
+ * Route 001 account (Teva Pharmaceutical or United Collection Bureau)
+ * rather than a fixed Pending-tab position - live-verified 2026-08-24 that
+ * clicking a position under "Pending action" alone breaks the moment an
+ * earlier test in this same run completes that account (M-TC-008 tapping
+ * Complete Delivery moves it to "Completed", changing every position
+ * under Pending for whatever runs after it). Checking both tabs by the
+ * account's own name keeps each test correct regardless of what state an
+ * earlier test left the account in.
+ */
+async function reachMarketAccount(driver: any, accountName: string): Promise<void> {
+  for (const tabLabel of ['Pending action', 'Completed']) {
+    const tab = await driver.$(`//android.view.View[contains(@content-desc,"${tabLabel}")]`);
+    await tab.click();
+    const row = await driver.$(
+      `//android.view.View[contains(@content-desc,"${tabLabel}")]/following-sibling::android.view.View//*[@clickable="true" and contains(@content-desc,"${accountName}")]`
+    );
+    const found = await row.waitForDisplayed({ timeout: 5_000 }).catch(() => false);
+    if (found) {
+      await row.click();
+      return;
+    }
+  }
+  throw new Error(`${accountName} not found under either Pending action or Completed`);
+}
+
+/**
+ * Start Day (Prep Tasks) is a per-route/per-DAY server-tracked gate: until
+ * it is completed, a stop's Market checklist tiles are unreachable, so every
+ * Market test needs it done first. loginAndEnsureRoute() only runs it on the
+ * fresh-login "select-day" gate path (see handlePostAuthScreen's own note),
+ * which means a KEEP_APP_SESSION resume that lands straight on Home silently
+ * skips it - exactly what broke M-TC-005/008/013/014/015/016 on 2026-08-25,
+ * the first run on a NEW day after they last passed (they had inherited a
+ * day whose Start Day was already complete, so the gap never showed).
+ * ensureFullDayPrepComplete() is safe on an already-complete day (it just
+ * taps through), so this is unconditional rather than state-detecting.
+ */
+async function loginAndStartDay(driver: any): Promise<void> {
+  await loginAndEnsureRoute(driver, mobileConfig.miamiRoute001);
+  const prepTasks = new PrepTasksScreen(driver);
+  await prepTasks.openFromHamburgerMenu();
+  await prepTasks.ensureFullDayPrepComplete();
+}
+
+/**
+ * The Audit / "Market Physical" tile stays DISABLED until Before Photos and
+ * Delivery are both done on that stop (see MarketServiceScreen's own note on
+ * Audit's prerequisites) - tapping it before then is a silent no-op, which
+ * surfaces downstream as tapAuditTile() timing out on a Count Type modal and
+ * an Audit search field that never arrive.
+ *
+ * M-TC-015/016 used to get this for free: they inherited a day whose stops an
+ * earlier run had already worked. On 2026-08-25 - the first run on a genuinely
+ * NEW day - Teva's checklist came up fresh and both failed at the Audit tile.
+ * Both sub-steps are guarded by isChecklistIconChecked, so this is a no-op on
+ * a stop that is already past them (which is why M-TC-008, whose own body this
+ * was extracted from, can share it).
+ */
+/**
+ * Every Market stop currently scheduled today, across both Home tabs. The tab
+ * bodies carry no per-row test id, so rows are read as "every clickable node
+ * with a content-desc" minus the four chrome controls that always match too
+ * (the nav/menu and edit-schedule icons, and the two tab headers, which read
+ * "Pending action (N)" / "Completed (N)").
+ */
+async function listScheduledStops(driver: any): Promise<Array<{ tab: string; name: string }>> {
+  const stops: Array<{ tab: string; name: string }> = [];
+  for (const tab of ['Pending action', 'Completed']) {
+    await (await driver.$(`//android.view.View[contains(@content-desc,"${tab}")]`)).click();
+    await driver.pause(2_000);
+    for (const row of [...(await driver.$$('//*[@clickable="true" and @content-desc!=""]'))]) {
+      const name = ((await row.getAttribute('content-desc')) ?? '').split('\n')[0].trim();
+      const isChrome =
+        name === 'Open navigation menu' ||
+        name === 'Edit schedule' ||
+        name.startsWith('Pending action') ||
+        name.startsWith('Completed');
+      if (name && !isChrome && !stops.some((s) => s.name === name)) {
+        stops.push({ tab, name });
+      }
+    }
+  }
+  return stops;
+}
+
+/**
+ * M-TC-014's precondition: a Market stop whose Removals & Returns tile is
+ * still UNCHECKED. Leaves the caller on that stop's Market checklist and
+ * returns its name.
+ *
+ * Recording a removal is one-way and server-tracked per account per DAY, with
+ * no in-app undo, so this precondition is a consumable resource rather than
+ * something a test can simply reset. It also cannot be satisfied by pinning a
+ * single account, because which Market stops Route 001 carries VARIES BY DAY
+ * (2026-08-24: Teva Pharmaceutical + United Collection Bureau; 2026-08-25:
+ * Teva only). So this searches every scheduled stop for one that qualifies
+ * and, only if none does, BOOTSTRAPS a fresh one as an ad-hoc delivery -
+ * mirroring what a tester does by hand, and confirmed live 2026-08-25 against
+ * a manually-added "Pet SuperMarket Sunrise" whose whole checklist (Removals
+ * included) came up unchecked.
+ *
+ * Note M-TC-014 never records a removal itself - it only asserts Complete
+ * Delivery enables while Removals stays untouched - so a stop found here stays
+ * valid for later re-runs; the bootstrap is a genuine last resort.
+ */
+async function reachStopWithUntouchedRemovals(
+  driver: any,
+  home: HomeScreen,
+  dashboard: DashboardScreen,
+  market: MarketServiceScreen
+): Promise<string | null> {
+  const REMOVALS_TILE = '//android.view.View[starts-with(@content-desc,"Removals & Returns")]';
+
+  for (const { name } of await listScheduledStops(driver)) {
+    try {
+      await reachMarketAccount(driver, name);
+      await dashboard.openFirstServiceStation('market');
+    } catch {
+      await home.returnToHome(); // Not a Market stop - openFirstServiceStation found no Market station.
+      continue;
+    }
+    if (!(await market.isChecklistIconChecked(REMOVALS_TILE))) {
+      return name;
+    }
+    await home.returnToHome();
+  }
+
+  // Nothing scheduled qualifies - bootstrap a fresh Market stop the same way a
+  // tester would by hand. A brand-new ad-hoc delivery starts with its ENTIRE
+  // checklist unchecked, Removals & Returns included.
+  const BOOTSTRAP_ACCOUNT = 'Pet SuperMarket';
+  await home.returnToHome();
+  await home.openAdhocDeliveryCreation();
+  const adhoc = new AdhocDeliveryScreen(driver);
+  await adhoc.searchCustomer(BOOTSTRAP_ACCOUNT);
+  await adhoc.selectCustomer(BOOTSTRAP_ACCOUNT);
+  // Account-scoped, NOT selectFirstMarketService() - the Service picker lists
+  // every account's stations, so the unscoped call attaches the wrong stop.
+  await adhoc.selectMarketServiceFor(BOOTSTRAP_ACCOUNT);
+  await adhoc.selectServiceType('FULL');
+  await adhoc.submitAddDelivery();
+
+  await home.returnToHome();
+  try {
+    await reachMarketAccount(driver, BOOTSTRAP_ACCOUNT);
+    await dashboard.openFirstServiceStation('market');
+  } catch {
+    return null;
+  }
+  return (await market.isChecklistIconChecked(REMOVALS_TILE)) ? null : BOOTSTRAP_ACCOUNT;
+}
+
+async function ensureAuditPrerequisites(market: MarketServiceScreen): Promise<void> {
+  if (!(await market.isChecklistIconChecked('//android.view.View[starts-with(@content-desc,"Before Photos")]'))) {
+    await market.openBeforePhotos();
+    await market.openSkipPhotoReasonSheet();
+    await market.enterSkipPhotoReason("Camera can't focus and take clear picture");
+    await market.waitForSkipPhotoSubmitEnabled(true);
+    await market.confirmSkipPhoto();
+  }
+  if (!(await market.isChecklistIconChecked('//android.view.View[starts-with(@content-desc,"Delivery")]'))) {
+    await market.openFills();
+    // An ad-hoc stop bootstrapped by reachStopWithUntouchedRemovals has no
+    // backend order, so its Product fills screen arrives EMPTY with Continue
+    // disabled - see ensureFillsSubmittable. No-op on a normal stop.
+    await market.ensureFillsSubmittable();
+    await market.submitFillsAndReturnToChecklist();
+  }
+}
+
 test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // Every test here navigates deep into some Market sub-flow and leaves the
   // app sitting wherever the last step landed (KEEP_APP_SESSION carries
@@ -134,15 +308,22 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // is seed-data-dependent, not a fixed contract - don't assume position
   // 'second' is always Market.
   test(
-    'TC010: view the account location name as the delivery header',
-    { tag: ['@Market-TC010'] },
+    'TC010/M-TC-002: view the account location name as the delivery header, and whether it persists into Product fills',
+    { tag: ['@Market-TC010', '@Market-TC002'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
       const market = new MarketServiceScreen(driver);
 
-      await test.step('Log in, switch to Route 10/TODAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+      // CORRECTED 2026-08-21: this test previously pinned day to 'TODAY',
+      // which was valid when originally written but has since drifted -
+      // Route 010's real TODAY now serves a Coffee stop (White & Case LLP),
+      // not the Market stop (CureLeaf) this test needs. defaultRoute's own
+      // 'YESTERDAY' default is the stable choice already used elsewhere
+      // (e.g. stop-preview.spec.ts's M-TC-001), so just use it directly
+      // instead of re-pinning a day that will drift again.
+      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
+        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -150,30 +331,687 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
         await prepTasks.ensureFullDayPrepComplete();
       });
 
-      // TC010 "view the delivery header" - Excel's Test Data references a
-      // different account name ("Goodwill / Rutherford") than what's
-      // actually seeded here ("CuraLeaf") - expected, seed data varies by
-      // environment; the claim being tested is that SOME account name
-      // renders as the bold header, not a specific literal string.
+      // CORRECTED 2026-08-21 (build 0.1.86, live-verified): TC010/M-TC-002
+      // both assume this header shows the account/location name (e.g.
+      // "CuraLeaf") - that's now FALSE. The bold header immediately above
+      // Before Photos reads "Order {orderNumber}" (e.g. "Order 13517362")
+      // once the order data finishes loading - confirmed via a raw
+      // uiautomator dump: "CureLeaf" doesn't appear anywhere in this
+      // screen's accessibility tree, not just outside the header.
+      // isServiceStopLocationHeaderVisible() still returns true (SOME
+      // element is there), so this only surfaces as a real failure once the
+      // text itself is checked, not just presence.
       //
-      // NOT asserted: TC011 ("account location name displayed instead of
-      // POS/equipment ID on the Market product recording screen") and
-      // TC012 ("the same account location name persists across Market
-      // delivery and product screens") - both live-verified FALSE. Opening
-      // Delivery (Product fills) replaces the header entirely with the
-      // feature name "Product fills" - the account name ("CuraLeaf")
-      // doesn't appear anywhere on that screen at all, so it neither
-      // "persists" (TC012) nor "displays instead of POS/equipment ID"
-      // (TC011, which also doesn't show a POS/equipment ID to be replacing).
-      await test.step("TC010: open a Market location's service stop and verify the account name is the bold header", async () => {
+      // NOT asserted as the specific "Order {n}" pattern: live-verified
+      // this header can sit on a literal "null" placeholder for well over
+      // 30s right after Start Day completes (a real backend order-creation
+      // delay, not a UI render race) - reaching this screen via an
+      // already-completed day (no fresh order just created) resolves to
+      // the real order number quickly instead. Asserting "not the account
+      // name" directly, the actual claim under test, avoids coupling this
+      // assertion to that unrelated backend timing.
+      await test.step("TC010/M-TC-002: the checklist's bold header does not show the account location name (documented FAIL)", async () => {
         await dashboard.clickLocationByPosition('first');
         await dashboard.openFirstServiceStation('market');
         expect(await market.isServiceStopLocationHeaderVisible()).toBe(true);
         const headerText = await market.getServiceStopLocationHeaderText();
-        expect(headerText.length).toBeGreaterThan(0);
+        expect(headerText.toLowerCase()).not.toContain('cureleaf');
+      });
+
+      // M-TC-002's second claim ("the same name should persist across
+      // Market delivery and product screens") is moot given the above - the
+      // account name was never shown to begin with, so nothing persists.
+      // Still asserting the concrete, observed behavior (Product fills
+      // replaces the header instead of persisting anything) so a future fix
+      // that changes either half of this shows up as a real test change.
+      await test.step('M-TC-002: Product fills replaces the header instead of persisting anything (documented FAIL)', async () => {
+        await market.openFills();
+        expect(await market.isProductFillsTitleVisible()).toBe(true);
+        expect(await market.isServiceStopLocationHeaderVisible()).toBe(false);
       });
     }
   );
+
+  // M-TC-004 "Order number displays on Delivery page when an order exists" -
+  // both halves of this claim live on the same checklist-header element
+  // documented in the TC010/M-TC-002 test above (getServiceStopLocationHeaderText).
+  test(
+    'M-TC-004: order number displays for a real stop; "No Orders" for an ad-hoc one with no backend order',
+    { tag: ['@Market-TC004'] },
+    async ({ driver }) => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
+        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+      });
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+
+      // Positive case: a real, already-scheduled stop (CureLeaf) has a real
+      // backend order - the header is SUPPOSED to show "Order {n}" once it
+      // finishes loading. Live-verified this is genuinely intermittent, not
+      // just slow: earlier in this same session it correctly resolved to
+      // "Order 13517362" within ~1.5s; later, against the same stop, it got
+      // permanently stuck on the literal "null" placeholder for 45s+ across
+      // 4 independent fresh navigations (confirmed via raw content-desc
+      // polling, not just a UI read) - a real backend/sync defect, not a
+      // test-side race. Asserting the CORRECT intended behavior here (not
+      // loosened to accept "null") so a run that hits the stuck state
+      // correctly reports FAIL rather than silently passing against broken
+      // output - that's the honest signal for this TC, even though it
+      // means this assertion will be flaky until the underlying app defect
+      // is fixed.
+      await test.step('M-TC-004 positive: a real stop shows its order number', async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openFirstServiceStation('market');
+        const headerText = await market.getServiceStopLocationHeaderText(15_000);
+        expect(headerText).toMatch(/^Order \d+$/);
+        await new HomeScreen(driver).returnToHome();
+      });
+
+      // Negative case: an ad-hoc delivery created on the fly was never a
+      // real requested/synced order - same "no real order" rationale
+      // already documented in coffee-service.screen.ts for Coffee's own
+      // ad-hoc Delivery flow. Inlining login-flow.ts's own
+      // ensureFreshMarketDeliveryExists steps (rather than calling it as a
+      // black box) to capture the selected account's name, needed to
+      // navigate back to this specific stop afterward.
+      //
+      // BLOCKED 2026-08-22 (build 0.1.86, live-verified): this step never
+      // actually ran this session - the positive-case step above fails
+      // first (real, reproduced defect, not a script bug), and this test
+      // doesn't reach here as a result.
+      //
+      // Standalone isolated retest (not this test - a separate throwaway
+      // script, since removed) found a SECOND, more fundamental blocker:
+      // for a single-service account (e.g. AETNA/"Aetna Plantation -
+      // Market"), submitAddDelivery()'s "Continue" tap does nothing at all.
+      // Confirmed with a clean before/after comparison - captured Home's
+      // exact delivery counts and Completed-tab contents immediately
+      // before tapping Continue (via a real WebDriverIO click(), not a
+      // manual/raw tap) and again 10s afterward: both snapshots were
+      // byte-for-byte identical (same "2 Deliveries", same Completed(2) =
+      // AETNA + CureLeaf). The screen itself also never visibly changes
+      // (still shows the filled Add Delivery form). This isn't the
+      // documented "null" placeholder/slow-load pattern seen elsewhere
+      // this session - it's a real submit failure with zero user feedback,
+      // reported separately. Until this is fixed, there's no way to reach
+      // a genuinely order-less Market stop via the ad-hoc flow at all, so
+      // this negative case stays unverified. The assertion below reflects
+      // Excel's claimed correct behavior, not something independently
+      // confirmed live yet.
+      await test.step('M-TC-004 negative: an ad-hoc delivery with no backend order shows "No Orders"', async () => {
+        const home = new HomeScreen(driver);
+        await home.openAdhocDeliveryCreation();
+        const adhoc = new AdhocDeliveryScreen(driver);
+        await adhoc.searchCustomer('a');
+        const accountName = await adhoc.selectFirstSearchedCustomer();
+        await adhoc.selectFirstMarketService();
+        await adhoc.selectServiceType('FULL');
+        await adhoc.submitAddDelivery();
+        await home.returnToHome();
+
+        await dashboard.clickLocationByName(accountName);
+        await dashboard.openFirstServiceStation('market');
+        const headerText = await market.getServiceStopLocationHeaderText();
+        expect(headerText).toBe('No Orders');
+      });
+    }
+  );
+
+  // M-TC-005 "Scheduled markets display immediately after selecting a
+  // stop" - verified via AETNA's own current state (already reachable via
+  // the Completed tab, same route-switch-free approach as M-TC-008 below)
+  // rather than the shared pre-Start-Day test in stop-preview.spec.ts,
+  // whose own loginAndEnsureRoute() call started failing consistently on
+  // the Route Setup Operation-search modal (5 straight attempts, including
+  // after a full app restart - a real, reproducible app defect, not
+  // flakiness, but orthogonal to what M-TC-005 itself claims). The
+  // mechanism under test is identical either way: tapping the "market" LOB
+  // card immediately reveals its scheduled station(s) as a flat list, with
+  // no additional dropdown/selection step required.
+  //
+  // REWRITTEN 2026-08-24 (build 0.1.90) to be fully independent, per the
+  // team's own direction: this test (and the 5 below it, through M-TC-016)
+  // used to assume AETNA/CureLeaf were already reachable under Home's
+  // "Completed" tab from an EARLIER test's own KEEP_APP_SESSION state -
+  // true on the old build/data, false on this fresh install. Each test
+  // below now does its own login + route switch + navigation instead,
+  // against a real, currently-live account: Miami/Route 001's own
+  // "Teva Pharmaceutical Industries LTB" (Stop 1 of 2, real Order
+  // 13517384) - not an ad-hoc-created one, which live-verified 2026-08-24
+  // has no seeded Delivery products at all and can never reach a
+  // meaningful checklist state (a genuine dead end for this class of test,
+  // not a script gap).
+  test(
+    'M-TC-005: scheduled markets display immediately under the LOB card, no extra dropdown needed',
+    { tag: ['@Market-TC005'] },
+    async ({ driver }) => {
+      const dashboard = new DashboardScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Miami/Route 001, complete Start Day', async () => {
+        await loginAndStartDay(driver);
+      });
+
+      await test.step("Reach Teva Pharmaceutical's location detail (Stop 1)", async () => {
+        await home.returnToHome();
+        await reachMarketAccount(driver, 'Teva Pharmaceutical');
+      });
+
+      await test.step('M-TC-005: expanding the market LOB card immediately shows its station(s), no dropdown needed', async () => {
+        const lobCardText = await dashboard.getLobCardText('market');
+        expect(lobCardText).toContain('Service stations');
+        const stationNames = await dashboard.getServiceStationNames('market');
+        expect(stationNames.length).toBeGreaterThan(0);
+      });
+    }
+  );
+
+  // ==== M-TC-015 / M-TC-016 (Sub Area "Audit"), build 0.1.86/0.1.90 ====
+  //
+  // Live-verified 2026-08-24 on AETNA / Route 010 / YESTERDAY (build
+  // 0.1.86), REWRITTEN 2026-08-24 (build 0.1.90) to run independently
+  // against Teva Pharmaceutical (Miami/Route 001, Stop 1) instead - see
+  // this file's own top-of-M-TC-005 note on why. Also swapped the product
+  // used ("Baby Ruth 1.9oz" doesn't exist in Teva's own catalog - live-
+  // verified its real products include "Balance CkieDough1.76oz - pkg: 1"
+  // among others). The Audit flow in this build works as follows (none of
+  // it matched what the older TC232/TC244-era helpers assumed):
+  //   1. Tapping the checklist's "Audit" tile raises a "Count Type" modal
+  //      first - Cycle count / Full audit / Cancel.
+  //   2. Choosing one opens the Audit screen, which carries its OWN "Audit
+  //      type" Cycle count/Full audit toggle over the same product list
+  //      (switching it keeps already-counted rows and their counts - it is
+  //      a mode switch, not a separate list).
+  //   3. Searching and selecting a product adds it as a row with an
+  //      editable count "pill" (an EditText) pre-filled with 1, and opens
+  //      the shared in-app numeric keypad against it (digits replace, +/-
+  //      step, and the value survives dismissing the keypad).
+  //
+  // These two tests deliberately read the starting count dynamically rather
+  // than assuming an empty audit: they mutate real seeded data (a counted
+  // row persists on the stop), so a hardcoded "starts at 1" would pass once
+  // and then fail on every re-run.
+  test(
+    'M-TC-015: Audit offers Cycle count/Full audit and saves editable count pills',
+    { tag: ['@Market-TC015'] },
+    async ({ driver }) => {
+      const dashboard = new DashboardScreen(driver);
+      const home = new HomeScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in, ensure Miami/Route 001, complete Start Day', async () => {
+        await loginAndStartDay(driver);
+      });
+
+      await test.step("Reach Teva Pharmaceutical's checklist (Stop 1)", async () => {
+        await home.returnToHome();
+        await reachMarketAccount(driver, 'Teva Pharmaceutical');
+        await dashboard.openFirstServiceStation('market');
+      });
+
+      await test.step("Ensure Before Photos and Delivery are complete (Audit's prerequisites)", async () => {
+        await ensureAuditPrerequisites(market);
+      });
+
+      // The Count Type modal only ever appears the FIRST time an
+      // account's Audit is opened (see tapAuditTile's own note) - if an
+      // earlier run already picked a count type for this account, this
+      // step is skipped rather than failed, since there's nothing left to
+      // observe about the modal on this particular account anymore.
+      await test.step('M-TC-015: the Audit tile raises a Count Type modal offering Cycle count and Full audit (first-time-only)', async () => {
+        await market.tapAuditTile();
+        const modalShown = await market.isCountTypeModalVisible();
+        if (modalShown) {
+          expect(await market.getCountTypeOptions()).toEqual({ cycleCount: true, fullAudit: true, cancel: true });
+          await market.selectCountType('cycle');
+        }
+      });
+
+      // FAIL half of M-TC-015: Excel expects "Continue should remain
+      // disabled until at least one valid count is entered". It is enabled
+      // from the moment the Audit screen opens, with nothing counted -
+      // there is no validation-driven enable transition to observe at all.
+      // Same shape as M-TC-011's own already-reported finding on Fills.
+      await test.step('M-TC-015 (FAIL): Continue is already enabled before any count is entered', async () => {
+        expect(await market.isAuditContinueEnabled()).toBe(true);
+      });
+
+      await test.step('M-TC-015: selecting a product adds an editable count pill', async () => {
+        await market.searchAndSelectAuditProduct('Balance C', 'Balance CkieDough1.76oz - pkg: 1', 'Balance CkieDough1.76oz');
+        expect(await market.getAuditProductRowCount('Balance CkieDough1.76oz')).toBe(1);
+        expect(Number(await market.getAuditCount('Balance CkieDough1.76oz'))).toBeGreaterThan(0);
+      });
+
+      // Note the Audit pill's keypad behaviour is NOT the same as Product
+      // fills': there the first digit tap after focusing REPLACES the
+      // committed value (see tapKeypadDigit's own note), whereas here it
+      // APPENDS to it - live-verified 2026-08-24, a pill holding "1"
+      // becomes "14", not "4". Asserted against the observed starting
+      // value rather than a hardcoded one so this stays true whatever the
+      // row already held.
+      let expectedCount = '';
+      await test.step('M-TC-015: the pill accepts a typed count and keeps it after the keypad closes', async () => {
+        const before = await market.getAuditCount('Balance CkieDough1.76oz');
+        await market.focusAuditCount('Balance CkieDough1.76oz');
+        await market.tapKeypadDigit('4');
+        expectedCount = `${before}4`;
+        expect(await market.getAuditCount('Balance CkieDough1.76oz')).toBe(expectedCount);
+        await market.pressKeyCode(4);
+        expect(await market.getAuditCount('Balance CkieDough1.76oz')).toBe(expectedCount);
+        expect(await market.isAuditContinueEnabled()).toBe(true);
+      });
+
+      await test.step('M-TC-015: switching Audit type to Full audit keeps the counted row intact', async () => {
+        await market.switchAuditType('full');
+        expect(await market.getAuditProductRowCount('Balance CkieDough1.76oz')).toBe(1);
+        expect(await market.getAuditCount('Balance CkieDough1.76oz')).toBe(expectedCount);
+      });
+    }
+  );
+
+  // M-TC-016 "Scanning a product multiple times increases its audit count".
+  // The literal barcode-SCAN trigger is not automatable here (same blocker
+  // as M-TC-012 - no real scanner hardware and no scan-intent mechanism in
+  // this suite). What IS verified below is the behaviour the TC is actually
+  // asserting: re-adding the same product to the audit increments that
+  // product's existing count by 1 rather than creating a duplicate row.
+  // Live-verified 2026-08-24 (6 -> 7, still a single row) via the same
+  // product-selection path a scan result feeds into.
+  test(
+    'M-TC-016: re-selecting an already-counted product increments its count instead of duplicating the row',
+    { tag: ['@Market-TC016'] },
+    async ({ driver }) => {
+      const dashboard = new DashboardScreen(driver);
+      const home = new HomeScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in, ensure Miami/Route 001, complete Start Day', async () => {
+        await loginAndStartDay(driver);
+      });
+
+      await test.step("Reach Teva Pharmaceutical's Audit screen (Stop 1)", async () => {
+        await home.returnToHome();
+        await reachMarketAccount(driver, 'Teva Pharmaceutical');
+        await dashboard.openFirstServiceStation('market');
+        await ensureAuditPrerequisites(market);
+        await market.openAudit('cycle');
+      });
+
+      await test.step('M-TC-016: count the product once, then again', async () => {
+        await market.searchAndSelectAuditProduct('Balance C', 'Balance CkieDough1.76oz - pkg: 1', 'Balance CkieDough1.76oz');
+        const before = Number(await market.getAuditCount('Balance CkieDough1.76oz'));
+        await market.pressKeyCode(4);
+        await market.searchAndSelectAuditProduct('Balance C', 'Balance CkieDough1.76oz - pkg: 1', 'Balance CkieDough1.76oz');
+        expect(Number(await market.getAuditCount('Balance CkieDough1.76oz'))).toBe(before + 1);
+        expect(await market.getAuditProductRowCount('Balance CkieDough1.76oz')).toBe(1);
+      });
+    }
+  );
+
+  // M-TC-006/M-TC-007: BLOCKED 2026-08-22, not automated this session -
+  // both need a genuinely PENDING (not-yet-completed) Market checklist to
+  // verify (M-TC-006: task-category item counts updating; M-TC-007:
+  // Complete Delivery staying disabled then becoming enabled). Every
+  // Market-capable stop on Route 010/YESTERDAY (AETNA, CureLeaf - the only
+  // two accounts confirmed to expose a Market service at all today, see
+  // M-TC-004's own account-scoping note) got marked fully complete during
+  // this session's earlier testing, and the ad-hoc bootstrap path can't
+  // create a fresh one (M-TC-004's "Continue does nothing" defect blocks
+  // it for single-service accounts, and every other searched account shows
+  // "No items available" in the service picker - no clean workaround
+  // found). Revisit once either a fresh pending Market stop is available
+  // (different day/route) or the ad-hoc Continue defect is fixed.
+
+  // ORDERED BEFORE M-TC-008 and M-TC-013 deliberately (moved 2026-08-25):
+  // this TC's whole point is that Complete Delivery enables with Removals &
+  // Returns left UNTOUCHED, and on a day where Route 001 carries only the one
+  // Market stop (see reachPreferredMarketAccount's note) both of those tests
+  // would otherwise destroy that precondition first - M-TC-013 by adding a
+  // removal, M-TC-008 by completing the stop outright. This test only ASSERTS
+  // Complete Delivery is enabled, it never taps it, so it leaves the stop in a
+  // state M-TC-008 can still complete afterwards.
+  // REWRITTEN 2026-08-24 (build 0.1.90) to be independent, and driving the
+  // needed state itself rather than reading an AETNA leftover. Uses
+  // "United Collection Bureau, Inc." (Stop 2 of 2, real Order 13517385) -
+  // deliberately NOT Teva, since M-TC-008 completes Teva's Removals &
+  // Returns too and this TC specifically needs it left untouched. Live-
+  // verified the real requirement for Complete Delivery to enable on a
+  // genuine backend order: Before Photos + Delivery + Market Physical
+  // (Audit) + Money Operations, but NOT Removals & Returns - confirming
+  // the Excel's original claim still holds, just via a different
+  // combination of prerequisites than the ad-hoc AETNA order suggested.
+  test(
+    'M-TC-014: driver can proceed without recording any removal',
+    { tag: ['@Market-TC014'] },
+    async ({ driver }) => {
+      const dashboard = new DashboardScreen(driver);
+      const home = new HomeScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in, ensure Miami/Route 001, complete Start Day', async () => {
+        await loginAndStartDay(driver);
+      });
+
+      // PREREQUISITE (added 2026-08-25): this TC needs a Market stop whose
+      // Removals & Returns is still UNTOUCHED. That is a consumable, one-way,
+      // per-account, per-day resource, and which stops the route carries
+      // varies by day - so rather than pin an account name (which failed the
+      // moment United Collection Bureau wasn't scheduled) the prerequisite
+      // searches for a qualifying stop and bootstraps a fresh ad-hoc delivery
+      // when none exists. See reachStopWithUntouchedRemovals for the detail.
+      let stopName: string | null = null;
+      await test.step('PREREQUISITE: reach (or create) a Market stop whose Removals & Returns is untouched', async () => {
+        await home.returnToHome();
+        stopName = await reachStopWithUntouchedRemovals(driver, home, dashboard, market);
+        expect(
+          stopName,
+          'Could not find or bootstrap a Market stop with Removals & Returns untouched'
+        ).not.toBeNull();
+      });
+
+      await test.step('Complete Before Photos, Delivery, and Market Physical/Audit (each idempotent)', async () => {
+        await ensureAuditPrerequisites(market);
+        const auditChecked = await market.isChecklistIconChecked(
+          '//android.view.View[starts-with(@content-desc,"Audit") or starts-with(@content-desc,"Market Physical")]'
+        );
+        if (!auditChecked) {
+          await market.tapAuditTile();
+          // Count Type modal is once-per-account (see tapAuditTile's note).
+          if (await market.isCountTypeModalVisible()) {
+            await market.selectCountType('cycle');
+          }
+          await market.searchAndSelectAuditProduct('Balance C', 'Balance CkieDough1.76oz - pkg: 1', 'Balance CkieDough1.76oz');
+          await market.tap('~Continue');
+        }
+      });
+
+      await test.step('Complete Money Operations (skip money bag, save)', async () => {
+        if (!(await market.isChecklistIconChecked('//android.view.View[starts-with(@content-desc,"Money Operations")]'))) {
+          await market.skipMoneyOperations();
+        }
+      });
+
+      await test.step('M-TC-014: Removals & Returns is untouched, but Complete Delivery is still enabled', async () => {
+        const removalsRow = await driver.$('//android.view.View[starts-with(@content-desc,"Removals & Returns")]');
+        const removalsRowText = (await removalsRow.getAttribute('content-desc')) ?? '';
+        // The real checkmark icon carries no accessible text of its own
+        // (same "state exists only in the bitmap" class as elsewhere in
+        // this suite) - confirming via the row's own visited/checked
+        // background instead, reusing the same pixel-based detection
+        // already proven for exactly this class of icon.
+        const removalsChecked = await market.isChecklistIconChecked(
+          '//android.view.View[starts-with(@content-desc,"Removals & Returns")]'
+        );
+        expect(removalsRowText).toContain('Removals & Returns');
+        expect(removalsChecked).toBe(false);
+        const completeDeliveryEnabled = await market.isCompleteDeliveryEnabled();
+        expect(completeDeliveryEnabled).toBe(true);
+      });
+    }
+  );
+
+  // M-TC-008 "Driver proceeds and marks service station complete" -
+  // REWRITTEN 2026-08-24 (build 0.1.90) to be independent, driving a real
+  // completion itself rather than reading an already-completed leftover.
+  // Uses Teva Pharmaceutical (Stop 1 of 2, real Order 13517384) - the SAME
+  // account M-TC-005/013/015/016 use, deliberately: this test is the one
+  // that pushes it over the finish line (tapping Complete Delivery), and
+  // live-verified reopening the checklist afterward (M-TC-013/015/016's
+  // own re-entry into Removals/Audit) still works fine on a completed
+  // order - Completing Delivery doesn't lock the checklist from further
+  // edits. Live-verified Complete Delivery only enables once Before
+  // Photos, Delivery, Market Physical (Audit), AND Money Operations are
+  // all done; Removals & Returns is genuinely NOT required (see
+  // M-TC-014's own note below, confirmed on United Collection Bureau) - a
+  // real backend order behaves differently here than the ad-hoc-created
+  // AETNA order the original session tested this against.
+  test(
+    'M-TC-008: a completed service station shows a green tick and a fully-updated progress bar',
+    { tag: ['@Market-TC008'] },
+    async ({ driver }) => {
+      const dashboard = new DashboardScreen(driver);
+      const home = new HomeScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in, ensure Miami/Route 001, complete Start Day', async () => {
+        await loginAndStartDay(driver);
+      });
+
+      await test.step("Reach Teva Pharmaceutical's checklist (Stop 1)", async () => {
+        await home.returnToHome();
+        await reachMarketAccount(driver, 'Teva Pharmaceutical');
+        await dashboard.openFirstServiceStation('market');
+      });
+
+      // Before Photos, Delivery, and Market Physical/Audit are all
+      // idempotent no-ops if a previous test already completed them on
+      // this same account (isChecklistIconChecked-backed helpers below
+      // just skip re-doing work that's already checked).
+      await test.step('Ensure Before Photos and Delivery are complete (Audit\'s prerequisites)', async () => {
+        await ensureAuditPrerequisites(market);
+      });
+
+      await test.step('Ensure Market Physical/Audit is complete (count one product)', async () => {
+        const auditTileChecked = await market.isChecklistIconChecked(
+          '//android.view.View[starts-with(@content-desc,"Audit") or starts-with(@content-desc,"Market Physical")]'
+        );
+        if (!auditTileChecked) {
+          await market.tapAuditTile();
+          // The Count Type modal is a once-per-account, server-tracked event
+          // (see tapAuditTile's own note) - on an account that has already
+          // picked one, the tile lands straight on the Audit screen.
+          if (await market.isCountTypeModalVisible()) {
+            await market.selectCountType('cycle');
+          }
+          await market.searchAndSelectAuditProduct('Balance C', 'Balance CkieDough1.76oz - pkg: 1', 'Balance CkieDough1.76oz');
+          await market.tap('~Continue');
+        }
+      });
+
+      await test.step('Complete Money Operations (skip money bag, save)', async () => {
+        await market.skipMoneyOperations();
+      });
+
+      await test.step('M-TC-008: Complete Delivery is now enabled - tap it', async () => {
+        expect(await market.isCompleteDeliveryEnabled()).toBe(true);
+        await market.tap('~Complete Delivery');
+      });
+
+      await test.step('M-TC-008: the location detail screen shows a green tick and 100% progress', async () => {
+        const progress = await dashboard.getServiceStationProgress('market');
+        expect(progress).toBe(100);
+        const isComplete = await dashboard.isNthServiceStationComplete('market', 'first');
+        expect(isComplete).toBe(true);
+      });
+    }
+  );
+
+  // M-TC-009/M-TC-010/M-TC-011 "Numeric entry validation on Delivery
+  // product quantities" - all three live on the same Product fills
+  // Delivery field (CureLeaf/Baby Ruth 2.1oz, reached via the checklist's
+  // own Delivery tile, still reachable even though Home's own tile shows
+  // this stop as "Completed" - the checklist itself remains fully open for
+  // re-entry, Complete Delivery just starts disabled). Using
+  // enterFillQuantities' own paste-style value injection (see its own
+  // corrected note) rather than real keypad taps, since the real on-screen
+  // keypad has no letter or minus-sign keys at all - malformed text and
+  // negative numbers can never reach this field through genuine keypad
+  // interaction in the first place (same rationale already established for
+  // TC168/TC169's Add Product Qty checks). This probes the app's own
+  // server/business-logic validation against input a real user couldn't
+  // produce via the UI, not a UI-level typing gap.
+  //
+  // Live-verified 2026-08-22, all three FAIL: malformed text ("abc") and a
+  // negative number ("-5") are both accepted LITERALLY into the field (no
+  // stripping, no rejection), and Continue stays enabled throughout -
+  // before any entry, after malformed entry, after negative entry, and
+  // after a valid entry alike. This is a real gap, not just "the UI has no
+  // way to reach it" - Add Product's own Qty field (TC169) DOES reject
+  // pasted invalid input (disables Add), so Product fills' Delivery field
+  // is inconsistent with that sibling field's own validation.
+  test(
+    'M-TC-009/M-TC-010/M-TC-011: Delivery field accepts malformed/negative input unchanged; Continue never reflects validity',
+    { tag: ['@Market-TC009', '@Market-TC010', '@Market-TC011'] },
+    async ({ driver }) => {
+      const dashboard = new DashboardScreen(driver);
+      const home = new HomeScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Ensure a stable Home screen', async () => {
+        await home.returnToHome();
+      });
+
+      await test.step('Reach CureLeaf\'s Product fills, expand the first product row', async () => {
+        const completedTab = await driver.$('//android.view.View[contains(@content-desc,"Completed")]');
+        await completedTab.click();
+        const row = await driver.$(
+          '//android.view.View[contains(@content-desc,"Completed")]/following-sibling::android.view.View//*[@clickable="true" and @content-desc="CureLeaf"]'
+        );
+        await row.click();
+        await dashboard.openFirstServiceStation('market');
+        await market.openFills();
+        await market.expandProductFill('first');
+      });
+
+      await test.step('Baseline: Continue is already enabled before any entry', async () => {
+        expect(await market.isFillsContinueEnabled()).toBe(true);
+      });
+
+      await test.step('M-TC-009 (FAIL): malformed text "abc" is accepted literally, not rejected', async () => {
+        await market.enterFillQuantities('first', { delivered: 'abc' });
+        expect(await market.getFillFieldValue('first', 'Delivery')).toBe('abc');
+        expect(await market.isFillsContinueEnabled()).toBe(true);
+      });
+
+      await test.step('M-TC-010 (FAIL): negative "-5" is accepted literally, not rejected', async () => {
+        await market.enterFillQuantities('first', { delivered: '-5' });
+        expect(await market.getFillFieldValue('first', 'Delivery')).toBe('-5');
+        expect(await market.isFillsContinueEnabled()).toBe(true);
+      });
+
+      await test.step('M-TC-011 (partial): a valid positive number is accepted, but Continue was already enabled beforehand too', async () => {
+        await market.enterFillQuantities('first', { delivered: '7' });
+        expect(await market.getFillFieldValue('first', 'Delivery')).toBe('7');
+        expect(await market.isFillsContinueEnabled()).toBe(true);
+      });
+    }
+  );
+
+  // M-TC-012 "Scanning a product during Add Product dismisses search
+  // results and shows keypad" - BLOCKED, not automated: requires actually
+  // triggering a barcode scan (real scanner hardware, or an adb-broadcast
+  // intent the app's scan receiver listens for). No such mechanism exists
+  // anywhere in this suite yet (confirmed via search) - every existing
+  // scanner-related check only verifies the scanner ICON is present
+  // (isAddProductScannerIconVisible/isSearchScannerIconVisible), never a
+  // real scan result. Building one would need investigating the app's own
+  // scan-intent contract first, same class of investment already flagged
+  // as out of scope without real device access (see the permissions-
+  // capability precedent) - not attempted this session.
+
+  // M-TC-013 "Driver records removals with reason and quantity" - MANUALLY
+  // live-verified (real screenshots, not just this automated test): search
+  // surfaces a selectable "Baby Ruth 1.9oz" result, entering Qty=2 saves it
+  // with no separate Save/Done step (the checklist's own "Removals &
+  // Returns" tile gets a green checkmark immediately), and reopening the
+  // tile afterward shows the same product+Qty persisted. The "reason" half
+  // of Excel's claim (Damaged/Spoiled/Theft/Truck Return) doesn't exist in
+  // this build's UI at all (see MarketServiceScreen's own note on the real
+  // current structure) - only a single aggregate Qty per product.
+  //
+  // FLAKY 2026-08-22: this automated version of that same manual check
+  // fails consistently and reproducibly on its own FIRST
+  // openRemovalsAndReturns() call (search field never appears, even with a
+  // 30s wait) - yet the exact same steps (same locators, same tap, same
+  // wait) succeed reliably within ~3s when driven from a standalone
+  // throwaway script outside this file. Root cause not found despite
+  // extensive isolation attempts (checked: navigation reaches the right
+  // screen beforehand: confirmed; tap-retry assumption was wrong and
+  // fixed: didn't help; single generous wait: didn't help either). Given
+  // the underlying claim is already solidly confirmed manually, not
+  // sinking further time into this specific test-authoring mystery right
+  // now - revisit if it recurs.
+  // REWRITTEN 2026-08-24 (build 0.1.90) to be independent - uses Teva
+  // Pharmaceutical (Stop 1), the same account M-TC-005/008/015/016 use.
+  // Also fixed a real screen-structure change discovered live: selecting
+  // a product NOT yet added raises a "Document product" modal (4 plain
+  // EditText fields, Spoiled/Damaged/Theft/TruckReturns, then Save) -
+  // matching BaseScreen.performRemovalsAndReturns()'s own shape, not the
+  // single-inline-Qty flow searchAndSelectRemovalsProduct()/setRemovalsQty()
+  // assumed. The SAVED row afterward does display as a single aggregate
+  // Qty (confirmed via screenshot), so market-service.screen.ts's own
+  // getRemovalsProductQty() locator was fixed to find it (see that
+  // method's own note - no "Qty" content-desc label exists at all, only
+  // the numeric value itself is a real accessible node).
+  test(
+    'M-TC-013: Removals & Returns saves a product quantity and displays it on reopen',
+    { tag: ['@Market-TC013'] },
+    async ({ driver }) => {
+      const dashboard = new DashboardScreen(driver);
+      const home = new HomeScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in, ensure Miami/Route 001, complete Start Day', async () => {
+        await loginAndStartDay(driver);
+      });
+
+      await test.step("Reach Teva Pharmaceutical's checklist (Stop 1)", async () => {
+        await home.returnToHome();
+        await reachMarketAccount(driver, 'Teva Pharmaceutical');
+        await dashboard.openFirstServiceStation('market');
+      });
+
+      await test.step('M-TC-013: search, select, and save a removal quantity', async () => {
+        // Deliberately a fresh, never-touched product: re-selecting one
+        // ALREADY added to this account's Removals & Returns skips the
+        // "Document product" modal performRemovalsAndReturns drives (it
+        // goes straight to viewing the existing entry instead), so a
+        // stale product would stop this test exercising the real
+        // add-a-new-removal flow.
+        //
+        // CORRECTED 2026-08-25 (build 0.1.90, live-verified by dumping
+        // this account's Removals catalog): Removals & Returns has its OWN
+        // catalog that spells products out in FULL - "Balance Cookie Dough
+        // Bar (1.76oz)", "Balance Chocolate Craze Bar (1.76oz)" - whereas
+        // Fills/Audit use abbreviated names ("Balance CkieDough1.76oz").
+        // The two are NOT interchangeable: earlier attempts here searched
+        // the abbreviated forms ("Hrshy", "Balance Hny Pnut") and got zero
+        // results, which read as missing data but was really a
+        // wrong-catalog-naming mismatch.
+        //
+        // The search itself only matches a SINGLE LEADING TOKEN - live-
+        // verified 2026-08-25: "Balance" returns 7 rows, while "Balance
+        // Chocolate", "Chocolate Craze" and "Balance Chocolate Craze" all
+        // return ZERO. It is not a substring match over the whole name, so
+        // a multi-word term can never match anything here.
+        //
+        // Hence the bare "Balance" + position 0, which is "Balance
+        // Chocolate Craze Bar (1.76oz) - pkg: 6" (the catalog's stable
+        // ordering groups Chocolate Craze before Cookie Dough). Position 0
+        // deliberately lands on Chocolate Craze rather than Cookie Dough so
+        // this stays a different product from Audit's own ("Balance
+        // CkieDough1.76oz" IS Cookie Dough under the other catalog's
+        // naming), avoiding cross-test interaction with M-TC-015/016.
+        await market.performRemovalsAndReturns('Balance', { spoiled: '2' });
+        expect(await market.getRemovalsProductQty()).toBe('2');
+      });
+
+      await test.step('M-TC-013: reopening the tile shows the same saved quantity', async () => {
+        await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+        await market.openRemovalsAndReturns();
+        expect(await market.getRemovalsProductQty()).toBe('2');
+      });
+    }
+  );
+
+
 
   // Sub Area "Before Photo". Originally live-verified via Coffee's own
   // "Before Photos" tile (see coffee-service.spec.ts) because Route 10's
@@ -189,7 +1027,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // Jul 27, confirmed live to have real data.
   test(
     'TC015/TC021/TC022/TC024/TC025: Before Photos Skip-photo flow',
-    { tag: ['@Market-TC015', '@Market-TC021', '@Market-TC022', '@Market-TC024', '@Market-TC025'] },
+    { tag: ['@Market-TC015-legacy-before-photos', '@Market-TC021', '@Market-TC022', '@Market-TC024', '@Market-TC025'] },
     async ({ driver }, testInfo) => {
       // Full Start Day + LOB navigation + multi-step skip-photo flow in one
       // session - same reasoning as coffee-service.spec.ts's own timeout bump.

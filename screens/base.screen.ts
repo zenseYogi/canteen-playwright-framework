@@ -223,9 +223,9 @@ export class BaseScreen {
     return null;
   }
 
-  async waitFor(selector: string): Promise<void> {
+  async waitFor(selector: string, timeoutMs = mobileConfig.timeouts.element): Promise<void> {
     const el = await this.driver.$(selector);
-    await el.waitForDisplayed({ timeout: mobileConfig.timeouts.element });
+    await el.waitForDisplayed({ timeout: timeoutMs });
   }
 
   /**
@@ -632,7 +632,20 @@ export class BaseScreen {
    * could shift the icon's position or color).
    */
   private async isChecklistIconCheckedEl(el: any): Promise<boolean> {
-    const rect = await el.getElementRect(el.elementId);
+    // CORRECTED 2026-08-24 (build 0.1.90, live-verified on Route 990/Miami
+    // and Route 103/Charlotte): the raw protocol command getElementRect
+    // isn't meant to be called directly on an element at all - WebdriverIO's
+    // own internal usages (see node_modules/webdriverio/build/node.js)
+    // always call it on the browser/driver scope with an explicit
+    // elementId, never bare on the element. Calling el.getElementRect(...)
+    // - with OR without the elementId argument - throws inconsistently
+    // depending on the WDIO element handle's internal state (reproduced
+    // both as "Malformed type for elementId parameter" with the arg, and
+    // "Wrong parameters applied" without it). The stable, documented public
+    // API for this is getLocation()/getSize(), both plain element methods
+    // that resolve the same rect correctly regardless of route/element.
+    const [location, size] = await Promise.all([el.getLocation(), el.getSize()]);
+    const rect = { x: location.x, y: location.y, width: size.width, height: size.height };
     const base64 = await this.driver.takeScreenshot();
     const png = PNG.sync.read(Buffer.from(base64, 'base64'));
     const scanWidth = Math.min(140, rect.width - 10);
@@ -666,10 +679,30 @@ export class BaseScreen {
     }
   }
 
-  /** Checks every checklist icon currently matched by `selector` via pixel sampling (see isChecklistIconChecked) - skips any already checked, so a repeat call against a partially-completed screen is idempotent instead of unchecking already-done items. */
+  /**
+   * Checks every checklist icon currently matched by `selector` via pixel
+   * sampling (see isChecklistIconChecked) - skips any already checked, so a
+   * repeat call against a partially-completed screen is idempotent instead
+   * of unchecking already-done items.
+   *
+   * CORRECTED 2026-08-25 (build 0.1.90): re-resolves the match list on every
+   * iteration instead of holding the one `$$` snapshot taken up front.
+   * Clicking one icon can re-render the list and change how many nodes match
+   * (live-observed on Prep Tasks' Product collection, where the snapshot's
+   * element 2 then resolved against a 2-element list and threw "Index out of
+   * bounds! ... returned only 2 elements", failing Start Day outright). The
+   * loop is still bounded by the ORIGINAL count so a list that grows can't
+   * spin forever, and stops early if the list shrinks below the cursor.
+   */
   async selectAllChecklistIcons(selector: string): Promise<void> {
-    const elements = await this.driver.$$(selector);
-    for (const el of elements) {
+    const initial = [...(await this.driver.$$(selector))];
+    const total = initial.length;
+    for (let i = 0; i < total; i++) {
+      const current = [...(await this.driver.$$(selector))];
+      if (i >= current.length) {
+        break;
+      }
+      const el = current[i];
       if (!(await this.isChecklistIconCheckedEl(el))) {
         await el.click();
       }
@@ -688,7 +721,11 @@ export class BaseScreen {
    * presence detection, not a specific icon match.
    */
   async hasNonWhiteIconNearRightEdge(el: any): Promise<boolean> {
-    const rect = await el.getElementRect(el.elementId);
+    // Same fix as isChecklistIconCheckedEl's own note - getElementRect
+    // isn't meant to be called directly on an element; use getLocation()/
+    // getSize() instead.
+    const [location, size] = await Promise.all([el.getLocation(), el.getSize()]);
+    const rect = { x: location.x, y: location.y, width: size.width, height: size.height };
     const base64 = await this.driver.takeScreenshot();
     const png = PNG.sync.read(Buffer.from(base64, 'base64'));
     const stripStartX = rect.x + Math.round(rect.width * 0.85);
@@ -986,8 +1023,30 @@ export class BaseScreen {
     await this.fillRemovalsField(this.removalsTheftField, values.theft ?? '0');
     await this.fillRemovalsField(this.removalsTruckReturnsField, values.truckReturns ?? '0');
     await this.tap(this.removalsSaveButton);
-    await this.waitFor(this.removalsDoneButton);
-    await this.tap(this.removalsDoneButton);
+    // CORRECTED 2026-08-25 (build 0.1.90, live-verified by dumping the modal):
+    // the Document product modal's ONLY buttons are Cancel and Save - there is
+    // no "Done" button on it, nor on the Removals & Returns list it returns to
+    // (whose only controls are the sort/filter CTAs plus the saved rows). The
+    // unconditional Done wait+tap here was ported from RF and never verified
+    // live - see vending-service.screen.ts's own note flagging exactly these
+    // removals locators as unverified ports - and it failed M-TC-013 on a save
+    // that had actually SUCCEEDED (the row was persisted; only this step
+    // threw). Tapping Done only when one really appears keeps any build that
+    // does have it working, while a build without it just confirms the modal
+    // closed.
+    const done = await this.driver.$(this.removalsDoneButton);
+    const hasDone = await done.waitForDisplayed({ timeout: 5_000 }).catch(() => false);
+    if (hasDone) {
+      await done.click();
+      return;
+    }
+    await this.waitForGone(this.documentProductTitle);
+  }
+
+  /** Waits until `selector` is no longer displayed - the inverse of waitFor(), for confirming a modal/overlay has actually closed rather than guessing with a fixed pause. */
+  protected async waitForGone(selector: string, timeoutMs = mobileConfig.timeouts.element): Promise<void> {
+    const el = await this.driver.$(selector);
+    await el.waitForDisplayed({ timeout: timeoutMs, reverse: true });
   }
 
   /** Clicks then sets a value on one of Removals & Returns' custom-keypad-driven quantity fields - see performRemovalsAndReturns's own note on why a bare setValue() isn't enough. */

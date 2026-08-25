@@ -16,7 +16,15 @@ import { BaseScreen } from './base.screen';
  */
 export class AdhocDeliveryScreen extends BaseScreen {
   private readonly titleText = '//android.view.View[@content-desc="Add Delivery"]';
-  private readonly customerField = '//android.view.View[@hint="Customer"]';
+  // CORRECTED 2026-08-20 (live-verified via raw uiautomator dump): this
+  // field now carries NO hint/content-desc attribute at all (placeholder
+  // text "Search account, location, or kiosk" isn't exposed via any
+  // accessible attribute either) - the original hint="Customer" locator
+  // never matches anymore. It's the only clickable android.view.View in
+  // the Add Delivery screen's content area, immediately below the title -
+  // targeted positionally, same rationale as RouteSetupScreen's own
+  // operationField/routeField.
+  private readonly customerField = '(//android.view.View[@clickable="true"])[1]';
   private readonly addDeliveryButton = '//android.widget.Button[@content-desc="Add Delivery"]';
   private readonly addAnotherDeliveryButton = '~+ Add Another Delivery';
 
@@ -144,6 +152,30 @@ export class AdhocDeliveryScreen extends BaseScreen {
   }
 
   /**
+   * Opens the Service picker and selects the "- Market" service belonging to
+   * a NAMED account, falling back to the first Market service of any account
+   * if that account has none listed.
+   *
+   * Needed because this picker is NOT scoped to the customer chosen a step
+   * earlier (see serviceField's own note - it lists every service station
+   * across every account, each tagged with its LOB): selectFirstMarketService()
+   * therefore happily attaches a DIFFERENT account's Market station, creating
+   * the delivery against the wrong stop. Callers that bootstrap a specific
+   * account (e.g. M-TC-014's find-or-create prerequisite, which needs "Pet
+   * SuperMarket Sunrise" itself) must match on the account name too.
+   */
+  async selectMarketServiceFor(accountName: string): Promise<void> {
+    await this.tap(this.serviceField);
+    const scoped = `//android.view.View[contains(@content-desc,"${accountName}") and contains(@content-desc,"- Market")]`;
+    const row = await this.driver.$(scoped);
+    if (await row.waitForDisplayed({ timeout: 5_000 }).catch(() => false)) {
+      await row.click();
+      return;
+    }
+    await this.tap(this.marketServiceRow);
+  }
+
+  /**
    * Opens the Service picker and selects whichever service row comes
    * first, regardless of LOB - unlike selectFirstCoffeeService, which only
    * matches the "OCS/Pantry" tag. Used by ensureAnyDeliveryExistsToday,
@@ -159,8 +191,23 @@ export class AdhocDeliveryScreen extends BaseScreen {
     return desc.split('\n')[0] ?? '';
   }
 
-  /** Opens the Service type picker and selects the given type (e.g. "FULL"). */
+  /**
+   * Opens the Service type picker and selects the given type (e.g. "FULL").
+   *
+   * CORRECTED 2026-08-21 (build 0.1.86, live-verified): for an account with
+   * only ONE service station (e.g. AETNA/"Aetna Plantation - Market"), this
+   * screen skips the Service type picker entirely - selecting the service
+   * lands directly on a form with just a "Continue" button, no
+   * serviceTypeField at all. Tapping serviceTypeField in that case used to
+   * hang for the full element timeout with no useful error. Now a no-op
+   * when the field never appears, so callers don't need to know in advance
+   * whether the selected account is single- or multi-service.
+   */
   async selectServiceType(type: string): Promise<void> {
+    const fieldPresent = await this.isVisible(this.serviceTypeField);
+    if (!fieldPresent) {
+      return;
+    }
     await this.tap(this.serviceTypeField);
     await this.tap(this.serviceTypeOption(type));
   }
@@ -169,7 +216,19 @@ export class AdhocDeliveryScreen extends BaseScreen {
     return this.isEnabled(this.addDeliveryButton);
   }
 
+  /**
+   * CORRECTED 2026-08-21 (build 0.1.86, live-verified): the submit button's
+   * own label is "Add Delivery" for a multi-service account (matches
+   * addDeliveryButton), but "Continue" for a single-service account whose
+   * Service type picker was skipped (see selectServiceType's own note) -
+   * trying whichever one is actually present rather than assuming the
+   * "Add Delivery" label always applies.
+   */
   async submitAddDelivery(): Promise<void> {
-    await this.tap(this.addDeliveryButton);
+    if (await this.isVisible(this.addDeliveryButton)) {
+      await this.tap(this.addDeliveryButton);
+      return;
+    }
+    await this.tap(this.continueButton);
   }
 }

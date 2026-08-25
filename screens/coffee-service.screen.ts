@@ -48,7 +48,16 @@ export class CoffeeServiceScreen extends BaseScreen {
   // from the Add Equipment form's own submit Button, which shares the same
   // "Add equipment" label (same disambiguation-by-tag-name pattern already
   // used for Market's Add Product screen).
-  private readonly addEquipmentTrigger = '//android.view.View[@content-desc="Add equipment"]';
+  /**
+   * CORRECTED 2026-08-25 (build 0.1.90, live-verified on Coffee/Equipment
+   * audit): the labelled "Add equipment" button is GONE from the empty
+   * state - the only add control left is an untitled header icon whose
+   * content-desc is the internal id "section_header_add_cta" (the same
+   * unlabelled section_header_*_cta family Market's screens now use).
+   * Matching either, so this keeps working on both builds.
+   */
+  private readonly addEquipmentTrigger =
+    '//*[@content-desc="Add equipment" or @content-desc="section_header_add_cta"]';
   private readonly addEquipmentTitle = '//android.view.View[@content-desc="Add equipment"]';
   private readonly addEquipmentSubmitButton = '//android.widget.Button[@content-desc="Add equipment"]';
   private addEquipmentFieldSelector(label: string): string {
@@ -554,9 +563,25 @@ export class CoffeeServiceScreen extends BaseScreen {
     await this.tap(this.noButton);
   }
 
-  /** Excel TC213 - confirms the dialog via Yes, navigating to Signing Order. */
+  /**
+   * Excel TC213 - confirms the dialog via Yes, navigating to Signing Order.
+   *
+   * REMOVED FROM THE APP as of build 0.1.90 - confirmed by Anthony (QA)
+   * 2026-08-25: "there will be no popup anymore. Client asked to remove it."
+   * Tapping Continue on Delivery now lands directly on Signing Order.
+   * Live-observed the same day: no dialog appeared at all.
+   *
+   * Kept (rather than deleted) only so existing TC212/TC213 call sites keep
+   * compiling, but it is now a NO-OP when no dialog is present instead of
+   * hanging on a Yes button that will never exist. TC212/TC213 themselves
+   * should be retired from the suite - they assert a flow the client has
+   * deliberately removed.
+   */
   async confirmDeliveryConfirmDialog(): Promise<void> {
-    await this.tap(this.yesButton);
+    const yes = await this.driver.$(this.yesButton);
+    if (await yes.waitForDisplayed({ timeout: 5_000 }).catch(() => false)) {
+      await yes.click();
+    }
     await this.waitFor(this.signingOrderTitle);
   }
 
@@ -759,6 +784,207 @@ export class CoffeeServiceScreen extends BaseScreen {
       addEquipment: await this.isVisible(this.addEquipmentTrigger),
       done: await this.isVisible(this.doneButton)
     };
+  }
+
+  // ==== C-TC-002: Signing Order -> "Order payment" screen ====
+  //
+  // Live-verified 2026-08-25 (build 0.1.90, Charlotte 103 / 24Hundred
+  // Marketplace, a stop with a REAL seeded order). Reached from Signing
+  // Order's own "Payment | Add payment for order delivered" row - a NEW
+  // screen in this build (confirmed by Anthony 2026-08-25), and NOT
+  // mandatory: only Sign Off is required for Continue to enable.
+  //
+  // CRITICAL for anyone extending this: every input on this screen exposes
+  // NO content-desc and NO text until typed into - the ONLY identifying
+  // attribute is `hint` ("Amount*", "Check Number*", "Comments"). A page
+  // dump filtered on content-desc/text being non-empty shows NOTHING of
+  // them and reads as "the fields don't exist", which is exactly the wrong
+  // conclusion drawn here first time round. Always match on hint.
+  //
+  // Mandatory vs optional is conveyed ONLY by a trailing asterisk in the
+  // hint - "Amount*" and "Check Number*" are required, "Comments" is not.
+  private readonly paymentRow = '//*[contains(@content-desc,"Payment")]';
+  private readonly orderPaymentTitle = '~Order payment';
+  private readonly paymentTypeField = '//*[contains(@content-desc,"Payment type")]';
+  private paymentInputByHint(hint: string): string {
+    return `//android.widget.EditText[@hint="${hint}"]`;
+  }
+
+  /** C-TC-002 - opens the Order payment screen from Signing Order's Payment row. */
+  async openOrderPayment(): Promise<void> {
+    await this.tap(this.paymentRow);
+    await this.waitFor(this.orderPaymentTitle);
+  }
+
+  /** C-TC-002 - the currently selected payment type, read off the field's own "Payment type\nX" content-desc. */
+  async getPaymentType(): Promise<string> {
+    const el = await this.driver.$(this.paymentTypeField);
+    await el.waitForDisplayed({ timeout: 15_000 });
+    const desc = (await el.getAttribute('content-desc')) ?? '';
+    return desc.split('\n').slice(1).join(' ').trim();
+  }
+
+  /** C-TC-002 - the payment types the selector offers (live-verified: Cash, Check). */
+  async getPaymentTypeOptions(): Promise<string[]> {
+    await this.tap(this.paymentTypeField);
+    await this.waitFor('~Cash');
+    const opts: string[] = [];
+    for (const o of [...(await this.driver.$$('//android.view.View[@clickable="true"]'))]) {
+      const d = (await o.getAttribute('content-desc')) ?? '';
+      if (d && d !== 'Dismiss') opts.push(d);
+    }
+    return opts;
+  }
+
+  /** C-TC-002 - picks a payment type from the already-open selector. */
+  async selectPaymentType(type: 'Cash' | 'Check'): Promise<void> {
+    await this.tap(`~${type}`);
+    await this.waitFor(this.orderPaymentTitle);
+  }
+
+  /** C-TC-002 - opens the selector and picks a type in one step. */
+  async choosePaymentType(type: 'Cash' | 'Check'): Promise<void> {
+    await this.tap(this.paymentTypeField);
+    await this.waitFor(`~${type}`);
+    await this.selectPaymentType(type);
+  }
+
+  /** C-TC-002 - whether an Order payment input is rendered, matched by its hint (see this section's own note on why hint is the only usable attribute). */
+  async isPaymentFieldVisible(hint: string): Promise<boolean> {
+    return this.isVisible(this.paymentInputByHint(hint));
+  }
+
+  // ==== C-TC-004: the signature-discard confirmation ====
+  //
+  // Live-verified 2026-08-25 (build 0.1.90, Charlotte 103): pressing BACK on
+  // the Customer Signature screen behaves differently depending on whether a
+  // signature has been drawn:
+  //   - UNSIGNED -> returns straight to Signing Order, no prompt at all.
+  //   - SIGNED   -> raises "Are you sure? / Your signature will be lost if you
+  //                 go back without saving." with Cancel and "Go Back".
+  // Cancel returns to the signature screen with the signature still intact;
+  // "Go Back" is the discard path.
+  private readonly signatureDiscardPrompt = '//*[starts-with(@content-desc,"Are you sure?")]';
+  private readonly signatureDiscardCancel = '//android.widget.Button[@content-desc="Cancel"]';
+  private readonly signatureDiscardConfirm = '//android.widget.Button[@content-desc="Go Back"]';
+
+  /** C-TC-004 - whether we are back on the Signing Order summary screen. */
+  async isSigningOrderTitleVisible(): Promise<boolean> {
+    return this.isVisible(this.signingOrderTitle);
+  }
+
+  /** C-TC-004 - whether the "Are you sure?" signature-discard prompt is showing. */
+  async isSignatureDiscardPromptVisible(): Promise<boolean> {
+    return this.isVisible(this.signatureDiscardPrompt);
+  }
+
+  /** C-TC-004 - the discard prompt's full message, for asserting its wording. */
+  async getSignatureDiscardPromptText(): Promise<string> {
+    const el = await this.driver.$(this.signatureDiscardPrompt);
+    await el.waitForDisplayed({ timeout: 15_000 });
+    return ((await el.getAttribute('content-desc')) ?? '').replace(/\n/g, ' ');
+  }
+
+  /** C-TC-004 - dismisses the discard prompt via Cancel, staying on the signature screen with the signature kept. */
+  async cancelSignatureDiscard(): Promise<void> {
+    await this.tap(this.signatureDiscardCancel);
+    await this.waitFor('~Customer signature here:');
+  }
+
+  /** C-TC-004 - confirms the discard via "Go Back", losing the signature and returning to Signing Order. */
+  async confirmSignatureDiscard(): Promise<void> {
+    await this.tap(this.signatureDiscardConfirm);
+    await this.waitFor(this.signingOrderTitle);
+  }
+
+  /** C-TC-003 - types into an Order payment input, matched by hint. */
+  async typePaymentField(hint: string, value: string): Promise<void> {
+    const f = await this.driver.$(this.paymentInputByHint(hint));
+    await f.waitForDisplayed({ timeout: 15_000 });
+    await f.click();
+    await f.setValue(value);
+  }
+
+  /** C-TC-003 - reads back an Order payment input's current value. */
+  async getPaymentFieldValue(hint: string): Promise<string> {
+    const f = await this.driver.$(this.paymentInputByHint(hint));
+    await f.waitForDisplayed({ timeout: 15_000 });
+    return (await f.getAttribute('text')) ?? '';
+  }
+
+  /** C-TC-003 - clears an Order payment input. */
+  async clearPaymentField(hint: string): Promise<void> {
+    const f = await this.driver.$(this.paymentInputByHint(hint));
+    await f.click();
+    await f.clearValue();
+  }
+
+  /**
+   * C-TC-003 - taps the Order payment screen's Done.
+   *
+   * Note this button stays ENABLED even when mandatory fields are empty -
+   * validation fires on tap, showing an inline "Cannot be empty" message and
+   * keeping the user on the screen, rather than gating the button. Same
+   * validate-on-submit shape as Market's own Continue (see M-TC-015).
+   */
+  async tapPaymentDone(): Promise<void> {
+    await this.tap('//android.widget.Button[@content-desc="Done"]');
+  }
+
+  /** C-TC-003 - whether Done is currently enabled (live-verified: true even with mandatory fields empty). */
+  async isPaymentDoneEnabled(): Promise<boolean> {
+    return this.isEnabled('//android.widget.Button[@content-desc="Done"]');
+  }
+
+  /** C-TC-003 - the inline validation message raised by submitting with a mandatory field empty. */
+  async isPaymentValidationErrorVisible(): Promise<boolean> {
+    return this.isVisible('~Cannot be empty');
+  }
+
+  /**
+   * C-TC-002 - whether the field carrying `label` is optional. This screen
+   * marks mandatory fields with a trailing asterisk in the hint and nothing
+   * else, so "optional" means an un-asterisked hint exists for that label.
+   */
+  async isPaymentFieldOptional(label: string): Promise<boolean> {
+    const plain = await this.isVisible(this.paymentInputByHint(label));
+    const required = await this.isVisible(this.paymentInputByHint(`${label}*`));
+    return plain && !required;
+  }
+
+  /**
+   * C-TC-001 - the Add Equipment form's Audit Date.
+   *
+   * Live-verified 2026-08-25 (build 0.1.90, Coffee/Equipment audit): this
+   * field exposes NO accessibility label whatsoever - its content-desc is
+   * the literal string "null" and the value lives only in `text` (e.g.
+   * "08/25/2026"). It can therefore only be matched on the SHAPE of its own
+   * value: a 10-character MM/DD/YYYY string. Same unlabelled-element pattern
+   * as this screen's own section_header_add_cta (see addEquipmentTrigger).
+   * If a second date-shaped value is ever added to this form, this locator
+   * needs revisiting - there is no more specific hook available today.
+   */
+  private readonly auditDateField =
+    '//android.view.View[contains(@text,"/") and string-length(@text)=10]';
+
+  /** C-TC-001 - the auto-populated Audit Date's own value, as displayed (MM/DD/YYYY). */
+  async getAuditDate(): Promise<string> {
+    const el = await this.driver.$(this.auditDateField);
+    await el.waitForDisplayed({ timeout: 15_000 });
+    return (await el.getAttribute('text')) ?? '';
+  }
+
+  /**
+   * C-TC-001 - whether the Audit Date can be changed by the driver. Reads
+   * BOTH signals rather than just one: a field is editable if it is either
+   * clickable (opens a date picker) or a real EditText (accepts typing).
+   */
+  async isAuditDateEditable(): Promise<boolean> {
+    const el = await this.driver.$(this.auditDateField);
+    await el.waitForDisplayed({ timeout: 15_000 });
+    const clickable = await el.getAttribute('clickable');
+    const cls = (await el.getAttribute('class')) ?? '';
+    return clickable === 'true' || cls.endsWith('EditText');
   }
 
   /** Excel TC030 - opens the Add Equipment form from the empty-state's own trigger, confirms its title. */

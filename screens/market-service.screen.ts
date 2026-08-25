@@ -12,13 +12,25 @@ export class MarketServiceScreen extends BaseScreen {
   // the same fix and full context.
   private readonly marketLob = '//android.widget.ImageView[contains(@content-desc,"market")]';
   private readonly fillsTitle = '~Product fills';
-  private readonly audit = '//android.view.View[starts-with(@content-desc,"Audit")]';
-  // Excel TC010 "view the delivery header" - the account/location name
-  // (e.g. "CuraLeaf") shown as the bold header on the service stop's
-  // checklist screen (Before Photos, Removals & Returns, Delivery, Audit,
-  // After Photos, Market Transfers). Live-verified 2026-07-27: it's a plain
-  // View with no fixed prefix (varies per location) - located structurally,
-  // immediately preceding the Before Photos tile.
+  // CORRECTED 2026-08-24 (build 0.1.90, live-verified on Route 001/Teva
+  // Pharmaceutical): this checklist tile's own label is account/order-
+  // dependent - some stops show "Audit", others show "Market Physical",
+  // both carrying the identical "Review existing stock at market"
+  // description and identical underlying Count Type modal/Audit screen
+  // flow. Matching either label so this locator keeps working regardless
+  // of which one a given stop happens to render.
+  private readonly audit =
+    '//android.view.View[starts-with(@content-desc,"Audit") or starts-with(@content-desc,"Market Physical")]';
+  // Excel TC010 "view the delivery header" - the bold header on the service
+  // stop's checklist screen (Before Photos, Removals & Returns, Delivery,
+  // Audit, After Photos, Market Transfers), located structurally as
+  // immediately preceding the Before Photos tile (no fixed prefix of its
+  // own). Originally live-verified 2026-07-27 as the account/location name
+  // (e.g. "CuraLeaf") - CORRECTED 2026-08-21 (build 0.1.86, re-verified via
+  // raw uiautomator dump): it now reads "Order {orderNumber}" instead (e.g.
+  // "Order 13517362") - the account name doesn't appear anywhere on this
+  // screen at all. See market-service.spec.ts's TC010/M-TC-002 test for the
+  // assertion capturing this as a real, documented FAIL.
   private readonly serviceStopLocationHeader =
     '//android.view.View[starts-with(@content-desc,"Before Photos")]/preceding-sibling::android.view.View[1]';
   // Excel TC015/TC021/TC022/TC025 ("Before Photo" sub-area) - live-verified
@@ -231,6 +243,23 @@ export class MarketServiceScreen extends BaseScreen {
     return this.isEnabled(this.continueButton);
   }
 
+  // M-TC-007/M-TC-014 - the checklist's OWN submit button, a distinct
+  // element from Product fills' "Continue" (isFillsContinueEnabled above,
+  // a DIFFERENT screen/button) - live-verified this one's own label is
+  // literally "Complete Delivery", not "Continue".
+  private readonly completeDeliveryButton = '~Complete Delivery';
+
+  /** M-TC-007/M-TC-014 - whether the checklist's own "Complete Delivery" button is currently enabled. */
+  async isCompleteDeliveryEnabled(): Promise<boolean> {
+    return this.isEnabled(this.completeDeliveryButton);
+  }
+
+  /** M-TC-009/M-TC-010/M-TC-011 - the current literal text in a Theft/Damaged/Returned/Spoiled/Delivery field, to check whether an injected value was accepted, rejected, or silently reverted. */
+  async getFillFieldValue(position: Position, hint: 'Theft' | 'Damaged' | 'Returned' | 'Spoiled' | 'Delivery'): Promise<string> {
+    const el = await this.driver.$(this.fillFieldByHint(position, hint));
+    return el.getText();
+  }
+
   /**
    * Excel TC112 "enter valid data in all visible rows -> Continue enabled" -
    * expands and fills the Delivery field of every CURRENTLY RENDERED
@@ -266,9 +295,24 @@ export class MarketServiceScreen extends BaseScreen {
     return this.isVisible(this.serviceStopLocationHeader);
   }
 
-  async getServiceStopLocationHeaderText(): Promise<string> {
-    const el = await this.driver.$(this.serviceStopLocationHeader);
-    return (await el.getAttribute('content-desc')) ?? '';
+  // CORRECTED 2026-08-21 (build 0.1.86, live-verified): immediately after
+  // navigating here, this header's content-desc briefly holds the literal
+  // string "null" (a real placeholder while the order data is still
+  // loading), not an actual order/account value - polling past it the same
+  // way BaseScreen's other settle-delay fixes do, rather than returning the
+  // placeholder as if it were real content.
+  async getServiceStopLocationHeaderText(timeoutMs = 15_000): Promise<string> {
+    const start = Date.now();
+    // Re-locate on every poll, not just re-read the same handle - once the
+    // order data loads, the app replaces this node rather than mutating it
+    // in place, so a cached element reference keeps returning the stale
+    // "null" placeholder forever instead of ever seeing the real value.
+    let text = (await (await this.driver.$(this.serviceStopLocationHeader)).getAttribute('content-desc')) ?? '';
+    while (text === 'null' && Date.now() - start < timeoutMs) {
+      await this.driver.pause(500);
+      text = (await (await this.driver.$(this.serviceStopLocationHeader)).getAttribute('content-desc')) ?? '';
+    }
+    return text;
   }
 
   /** Opens the Before Photos step's "Add supporting photo" modal - see BaseScreen's openPhotoTrigger/isPhotoModalVisible/openSkipPhotoReasonSheet for the shared skip-photo flow beyond this. */
@@ -279,6 +323,89 @@ export class MarketServiceScreen extends BaseScreen {
   /** Opens the After Photos step's "Add supporting photo" modal - see this class's own note above afterPhotos on the tiles that must be completed first, and BaseScreen's openPhotoTrigger/isPhotoModalVisible/openSkipPhotoReasonSheet for the shared skip-photo flow beyond this. */
   async openAfterPhotos(): Promise<void> {
     await this.openPhotoTrigger(this.afterPhotos);
+  }
+
+  // M-TC-013/M-TC-014 "Removals & Returns" - CORRECTED 2026-08-22, build
+  // 0.1.86, live-verified: this screen's real structure no longer matches
+  // BaseScreen.performRemovalsAndReturns()'s own assumptions at all (no
+  // Spoiled/Damaged/Theft/Truck Returns fields, no "Document product"
+  // title, no Save/Done buttons) - that shared method has zero existing
+  // callers anywhere in this suite (confirmed via search), so it's left
+  // as-is rather than "fixed" against a UI change not yet confirmed to
+  // also apply to Coffee/Vending's own Removals & Returns screens. The
+  // REAL current screen: a "Look up product" search field, and - once a
+  // product is selected - a single aggregate "Qty" EditText per product
+  // row (driven by the same custom keypad family as Product fills' own
+  // Delivery field, per fillRemovalsField's own note - click() then
+  // setValue(), no separate reason/category selection at all). Entering a
+  // Qty auto-saves and marks the checklist's own "Removals & Returns" tile
+  // complete (green checkmark) with NO separate Save/Done step - live-
+  // verified: reopening the tile afterward shows the same product
+  // name+Pkg+Qty persisted, satisfying M-TC-013's "saved and displayed"
+  // claim, just without any distinct Damaged/Spoiled/Theft/Truck Return
+  // categorization in the UI.
+  // CORRECTED 2026-08-24 (build 0.1.90, live-verified on Route 001/Teva
+  // Pharmaceutical): the hint text this locator depended on ("Scan or
+  // search name, sku") is gone - the field is now a plain EditText with no
+  // hint/content-desc at all (confirmed via raw uiautomator dump). Falls
+  // back to a positional locator - it's the only EditText on this screen.
+  private readonly removalsSearchField = '//android.widget.EditText';
+  // CORRECTED 2026-08-24 (build 0.1.90, live-verified on Route 001/Teva
+  // Pharmaceutical): there is no "Qty" content-desc label anywhere in the
+  // tree at all - the row's product name, "Pkg: n", and "Qty" label are
+  // all baked into a bitmap render with zero accessible signal (same class
+  // of icon-only-rendering gap as elsewhere in this app); only the numeric
+  // Qty VALUE itself renders as a real accessible node, as a plain
+  // clickable android.view.View (not an EditText) with its own `text`
+  // attribute. Locating it as the row's own clickable leaf node with
+  // non-empty text - the only such node on this screen once a product is
+  // added.
+  private removalsProductQtyField(): string {
+    return '//android.view.View[@clickable="true" and string-length(@text) > 0]';
+  }
+
+  /**
+   * Taps the checklist's own "Removals & Returns" tile and waits (with a
+   * generous timeout) for the destination screen's own search field to
+   * render.
+   *
+   * CORRECTED 2026-08-22 (live-verified): an earlier version of this
+   * method retried the TAP itself when the field was slow to appear - a
+   * mistake, unlike the Route Setup Operation field this pattern was
+   * copied from (where a failed tap leaves the SAME field still on-screen
+   * to retry). Tapping "Removals & Returns" is a one-way navigation - a
+   * successful first tap leaves the checklist screen entirely, so any
+   * retry attempt (triggered by mere slow rendering, not a real failure)
+   * re-taps a tile that no longer exists on the new screen and hangs for
+   * the full internal element timeout instead of failing fast. A single
+   * tap plus one generous wait is the correct fix.
+   */
+  async openRemovalsAndReturns(): Promise<void> {
+    await this.tap(this.removalsAndReturns);
+    await this.waitFor(this.removalsSearchField, 30_000);
+  }
+
+  /** Searches for a product on the Removals & Returns screen and selects the first matching result - same list-then-tap shape as AdhocDeliveryScreen's own searchCustomer/selectFirstSearchedCustomer. */
+  async searchAndSelectRemovalsProduct(term: string): Promise<void> {
+    await this.tap(this.removalsSearchField);
+    const field = await this.driver.$(this.removalsSearchField);
+    await field.setValue(term);
+    const row = await this.driver.$('//android.view.View[@clickable="true" and contains(@content-desc,"\n")]');
+    await row.waitForDisplayed({ timeout: 10_000 });
+    await row.click();
+  }
+
+  /** Sets a selected product's Qty field via the custom keypad's own click()+setValue() pattern (see this section's own note on why a bare setValue() alone isn't reliable here). */
+  async setRemovalsQty(value: string): Promise<void> {
+    const field = await this.driver.$(this.removalsProductQtyField());
+    await field.click();
+    await field.setValue(value);
+  }
+
+  /** The currently-saved Qty value shown for a product already added to Removals & Returns (e.g. after reopening the tile). */
+  async getRemovalsProductQty(): Promise<string> {
+    const field = await this.driver.$(this.removalsProductQtyField());
+    return field.getText();
   }
 
   async isProductFillsTitleVisible(): Promise<boolean> {
@@ -401,16 +528,42 @@ export class MarketServiceScreen extends BaseScreen {
     };
   }
 
-  /** PBI 611013 step 3: enter Theft/Damaged/Returned/Spoiled quantities, then the Delivered quantity - assumes expandProductFill() was already called for this position. */
+  /**
+   * PBI 611013 step 3: enter Theft/Damaged/Returned/Spoiled quantities,
+   * then the Delivered quantity - assumes expandProductFill() was already
+   * called for this position.
+   *
+   * CORRECTED 2026-08-22 (M-TC-009/M-TC-010/M-TC-011, live-verified): this
+   * used BaseScreen.type() (a bare setValue(), no prior clear) - against a
+   * field that already holds a committed default value (e.g. "10"),
+   * setValue() without clearing first APPENDS rather than replaces, so
+   * "abc" became "10abc" and got silently reverted, making every entry
+   * this method wrote look like it "did nothing" regardless of validity -
+   * a false negative, not evidence the field rejects anything. Clearing
+   * first (same pattern already proven correct for TC168/169's own
+   * paste-bypass checks) fixes this. Note this is still a PASTE-style
+   * direct value injection, not real keypad taps (see tapKeypadDigit's own
+   * note for why - the real on-screen keypad has no letter/minus keys at
+   * all, so malformed/negative text can never reach this field through
+   * genuine user interaction in the first place; this method exists to
+   * probe the app's OWN validation logic against input a real user
+   * couldn't produce, same rationale as TC168/169).
+   */
   async enterFillQuantities(
     position: Position = 'first',
     values: { theft?: string; damaged?: string; returned?: string; spoiled?: string; delivered?: string } = {}
   ): Promise<void> {
-    if (values.theft !== undefined) await this.type(this.fillFieldByHint(position, 'Theft'), values.theft);
-    if (values.damaged !== undefined) await this.type(this.fillFieldByHint(position, 'Damaged'), values.damaged);
-    if (values.returned !== undefined) await this.type(this.fillFieldByHint(position, 'Returned'), values.returned);
-    if (values.spoiled !== undefined) await this.type(this.fillFieldByHint(position, 'Spoiled'), values.spoiled);
-    if (values.delivered !== undefined) await this.type(this.fillFieldByHint(position, 'Delivery'), values.delivered);
+    const setField = async (hint: string, value: string) => {
+      const el = await this.driver.$(this.fillFieldByHint(position, hint));
+      await el.clearValue();
+      await el.setValue(value);
+      await this.driver.pause(300);
+    };
+    if (values.theft !== undefined) await setField('Theft', values.theft);
+    if (values.damaged !== undefined) await setField('Damaged', values.damaged);
+    if (values.returned !== undefined) await setField('Returned', values.returned);
+    if (values.spoiled !== undefined) await setField('Spoiled', values.spoiled);
+    if (values.delivered !== undefined) await setField('Delivery', values.delivered);
   }
 
   /**
@@ -629,6 +782,42 @@ export class MarketServiceScreen extends BaseScreen {
     return count;
   }
 
+  /**
+   * Makes Product fills submittable, adding a product first when the stop has
+   * nothing to fill. Returns whether Continue ended up enabled.
+   *
+   * Needed for AD-HOC created stops, which carry NO backend order: live-
+   * verified 2026-08-25 on "Pet SuperMarket Sunrise" (a manually-added ad-hoc
+   * delivery, header reads "No Orders"), whose Product fills screen shows
+   * "No fill operations found." with **Continue DISABLED**. submitFills-
+   * AndReturnToChecklist() then taps a dead button and hangs waiting for a
+   * "saved successfully" toast that can never appear - which is exactly how
+   * M-TC-014's bootstrap path first failed. Its Add CTA is live though, so
+   * adding any one product gives the stop a real fill operation and enables
+   * Continue.
+   *
+   * A no-op on a normal backend-ordered stop, where Continue is already
+   * enabled on arrival - so callers can invoke it unconditionally.
+   *
+   * Several search terms are tried because Add Product's catalog is per-stop
+   * and not necessarily the same one Fills/Audit/Removals expose (this suite
+   * has already been bitten three separate times by assuming one shared
+   * product catalog - see M-TC-013's own note).
+   */
+  async ensureFillsSubmittable(searchTerms: string[] = ['Balance', 'Bar', 'a']): Promise<boolean> {
+    if (await this.isFillsContinueEnabled()) {
+      return true;
+    }
+    for (const term of searchTerms) {
+      if (await this.addFirstSearchResultProduct(term)) {
+        if (await this.isFillsContinueEnabled()) {
+          return true;
+        }
+      }
+    }
+    return this.isFillsContinueEnabled();
+  }
+
   /** Searches for `name` via Add Product and adds the FIRST result if any match; returns whether a product was actually added. */
   private async addFirstSearchResultProduct(name: string): Promise<boolean> {
     await this.openAddProduct();
@@ -674,11 +863,29 @@ export class MarketServiceScreen extends BaseScreen {
     await this.waitFor(this.skipMoneyBagCheckbox);
   }
 
-  /** Checks "Skip money bag" and continues - simpler alternative to performMoneyOperations() when the actual bag code/coins/bills/refund values don't matter for the flow being exercised. */
+  /**
+   * Checks "Skip money bag" and continues - simpler alternative to
+   * performMoneyOperations() when the actual bag code/coins/bills/refund
+   * values don't matter for the flow being exercised.
+   *
+   * CORRECTED 2026-08-24 (build 0.1.90, live-verified on Route 001/United
+   * Collection Bureau, an account with real pre-existing money bags): this
+   * screen has no "Continue" button at all when real bags already exist -
+   * unlike whatever ad-hoc-created state this method was originally
+   * verified against. Committing the change instead requires backing out,
+   * which raises a "Save Changes?" confirmation (Cancel/No/Save) - tapping
+   * Save is what actually persists the skip-checkbox change and returns
+   * to the checklist.
+   */
   async skipMoneyOperations(): Promise<void> {
     await this.openMoneyOperations();
     await this.setCheckboxState(this.skipMoneyBagCheckbox, true);
-    await this.tap(this.continueButton);
+    await this.pressKeyCode(4);
+    const saveButton = await this.driver.$('~Save');
+    const saveDialogShown = await saveButton.waitForDisplayed({ timeout: 5_000 }).catch(() => false);
+    if (saveDialogShown) {
+      await saveButton.click();
+    }
   }
 
   async performMoneyOperations(
@@ -745,10 +952,149 @@ export class MarketServiceScreen extends BaseScreen {
     await this.tap(this.doneButton);
   }
 
-  /** Opens Audit without searching/continuing - lets callers assert the search field/scanner icon first. Assumes the tile is already enabled (see this class's own note above afterPhotos on Audit's own prerequisites - Before Photos, Removals & Returns, and Delivery). */
-  async openAudit(): Promise<void> {
+  // M-TC-015 - build 0.1.86's Audit flow, live-verified 2026-08-24 on
+  // AETNA/Route 010. Tapping the checklist's Audit tile no longer opens the
+  // Audit screen directly: it first raises a "Count Type" modal offering
+  // "Cycle count" / "Full audit" / "Cancel" (all real Buttons). Only after
+  // choosing one does the Audit screen itself render - which then ALSO
+  // carries its own "Audit type" Cycle count/Full audit toggle (plain
+  // Views, not Buttons - hence the class-qualified locators below, the two
+  // pairs share content-descs).
+  private readonly countTypeModalTitle = '~Count Type';
+  private readonly countTypeCycleButton = '//android.widget.Button[@content-desc="Cycle count"]';
+  private readonly countTypeFullButton = '//android.widget.Button[@content-desc="Full audit"]';
+  private readonly countTypeCancelButton = '//android.widget.Button[@content-desc="Cancel"]';
+  private readonly auditTypeCycleToggle = '//android.view.View[@content-desc="Cycle count"]';
+  private readonly auditTypeFullToggle = '//android.view.View[@content-desc="Full audit"]';
+
+  /**
+   * M-TC-015 - taps the checklist's Audit tile and stops at the Count Type
+   * modal, so a caller can assert the modal itself before committing to a
+   * count type.
+   *
+   * CORRECTED 2026-08-24 (build 0.1.90, live-verified on Route 001/Teva
+   * Pharmaceutical): this modal only ever appears the FIRST time an
+   * account's Audit is opened - once a count type has been chosen once,
+   * every later tap of the tile (even across separate app sessions, since
+   * this is server-tracked state) skips straight to the Audit screen
+   * itself. Tolerating that here rather than throwing, so callers written
+   * against a genuinely fresh account still work once that account's
+   * Audit has since been "used up" by an earlier test run.
+   */
+  async tapAuditTile(): Promise<void> {
     await this.tap(this.audit);
-    await this.waitFor(this.audit);
+    let modalShown = false;
+    try {
+      const el = await this.driver.$(this.countTypeModalTitle);
+      modalShown = await el.waitForDisplayed({ timeout: 5_000 });
+    } catch {
+      modalShown = false;
+    }
+    if (!modalShown) {
+      await this.waitFor(this.searchField);
+    }
+  }
+
+  /** M-TC-015 - the Count Type modal raised by tapping the Audit tile, before the Audit screen itself exists. */
+  async isCountTypeModalVisible(): Promise<boolean> {
+    return this.isVisible(this.countTypeModalTitle);
+  }
+
+  /** M-TC-015 - which choices the Count Type modal offers. */
+  async getCountTypeOptions(): Promise<{ cycleCount: boolean; fullAudit: boolean; cancel: boolean }> {
+    return {
+      cycleCount: await this.isVisible(this.countTypeCycleButton),
+      fullAudit: await this.isVisible(this.countTypeFullButton),
+      cancel: await this.isVisible(this.countTypeCancelButton)
+    };
+  }
+
+  /** M-TC-015 - picks a count type on the Count Type modal, landing on the Audit screen itself. */
+  async selectCountType(type: 'cycle' | 'full'): Promise<void> {
+    await this.tap(type === 'cycle' ? this.countTypeCycleButton : this.countTypeFullButton);
+    await this.waitFor(this.searchField);
+  }
+
+  /**
+   * Opens Audit and lands on the Audit screen itself. Assumes the tile is
+   * already enabled (see this class's own note above afterPhotos on Audit's
+   * own prerequisites - Before Photos, Removals & Returns, and Delivery).
+   *
+   * Single-tap + one generous wait deliberately, NOT a retry-tap: the tile
+   * is a one-way navigation trigger, so re-tapping a slow-but-successful
+   * tap hangs against an element that no longer exists (the same lesson
+   * already paid for on openRemovalsAndReturns).
+   *
+   * CORRECTED 2026-08-25 (build 0.1.90): delegates to tapAuditTile() so it
+   * inherits that method's tolerance of the Count Type modal being a
+   * once-per-account, server-tracked event. `type` is only honoured when
+   * the modal actually appears; on an account whose count type was already
+   * chosen, the tile navigates straight to the Audit screen and there is
+   * nothing left to pick. Callers that need a specific type on such an
+   * account should follow up with switchAuditType().
+   */
+  async openAudit(type: 'cycle' | 'full' = 'cycle'): Promise<void> {
+    await this.tapAuditTile();
+    if (await this.isCountTypeModalVisible()) {
+      await this.selectCountType(type);
+    }
+  }
+
+  /** M-TC-015 - the Audit screen's own Audit type toggle (a mode switch over the SAME product list - live-verified 2026-08-24: switching to Full audit keeps the already-counted rows and their counts intact, it does not open a separate list). */
+  async switchAuditType(type: 'cycle' | 'full'): Promise<void> {
+    await this.tap(type === 'cycle' ? this.auditTypeCycleToggle : this.auditTypeFullToggle);
+  }
+
+  /** M-TC-015/M-TC-016 - a counted product's row on the Audit screen, keyed by its display name (rows read e.g. "Baby Ruth 1.9oz\nPkg: 1"). */
+  private auditProductRow(productName: string): string {
+    return `//android.view.View[starts-with(@content-desc,"${productName}")]`;
+  }
+
+  /** M-TC-015/M-TC-016 - the editable count "pill" inside a counted product's row. */
+  private auditCountField(productName: string): string {
+    return `${this.auditProductRow(productName)}//android.widget.EditText`;
+  }
+
+  /**
+   * M-TC-015 - searches the Audit screen's product search and selects one
+   * result by its own content-desc prefix. Not BaseScreen.searchAndSelect:
+   * results here read "<name> - pkg: <n>\nSKU: <id>", so the SAME product
+   * appears once per pack size and a positional pick would silently drift
+   * between pack sizes - matching the exact prefix keeps it deterministic.
+   * `productName` is the counted row's own display name afterwards (the
+   * result label without its " - pkg: n" suffix).
+   */
+  async searchAndSelectAuditProduct(searchTerm: string, resultPrefix: string, productName: string): Promise<void> {
+    const field = await this.driver.$(this.searchField);
+    await field.click();
+    await this.driver.pause(800);
+    await field.setValue(searchTerm);
+    await this.driver.pause(2000);
+    await this.tap(`//android.view.View[starts-with(@content-desc,"${resultPrefix}")]`);
+    await this.waitFor(this.auditCountField(productName));
+  }
+
+  /** M-TC-015/M-TC-016 - the current count on a product's pill. */
+  async getAuditCount(productName: string): Promise<string> {
+    const el = await this.driver.$(this.auditCountField(productName));
+    return (await el.getText()) || ((await el.getAttribute('text')) ?? '');
+  }
+
+  /** M-TC-015 - how many rows currently exist for a product name, to prove re-selecting increments an existing row rather than adding a duplicate. */
+  async getAuditProductRowCount(productName: string): Promise<number> {
+    const rows = await this.driver.$$(this.auditProductRow(productName));
+    return rows.length;
+  }
+
+  /** M-TC-015 - focuses a product's count pill so the shared in-app numeric keypad opens against it. */
+  async focusAuditCount(productName: string): Promise<void> {
+    await this.tap(this.auditCountField(productName));
+    await this.waitFor(this.numericKeypadDigit('1'));
+  }
+
+  /** M-TC-015 - whether the Audit screen's own Continue is currently enabled. */
+  async isAuditContinueEnabled(): Promise<boolean> {
+    return this.isEnabled(this.continueButton);
   }
 
   /** Excel TC244 - opens Audit and searches/selects a product, stopping right before Continue - lets a caller inspect whatever quantity-entry control appears (e.g. the shared numeric keypad) before committing. */

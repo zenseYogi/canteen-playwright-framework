@@ -404,8 +404,48 @@ export class VendingServiceScreen extends BaseScreen {
     await this.selectServiceLocation(this.vendingLob, position);
   }
 
+  /**
+   * New as of build 0.1.86 (live-verified 2026-08-20): opening a machine now
+   * lands on an interim service-type confirmation screen first ("FULL
+   * SERVICE" / "Order: No Order Available" / Continue, with FINAL/SPOT as
+   * other options) - previously this went straight to the task tile list
+   * (Before Photos/Money Operations/Fills.../Checks). Tapping its Continue
+   * button reveals the real task tiles. Detected by the Fills tile's
+   * absence (this interim screen has no such tile yet) rather than by its
+   * own text, since that text wasn't captured in a locator-friendly way
+   * live and the Continue button here is the same generic ~Continue used
+   * everywhere else in this screen's flow.
+   */
+  private async dismissServiceTypeConfirmationIfPresent(): Promise<void> {
+    const onFillsTile = await this.isVisible(this.fills);
+    if (!onFillsTile && (await this.isVisible(this.continueButton))) {
+      await this.tap(this.continueButton);
+    }
+  }
+
+  /**
+   * New as of build 0.1.86 (live-verified 2026-08-20): Fills & Ending
+   * Inventory is now sequentially gated behind Money Operations - the tile
+   * stays grey/disabled (clickable="false") until Money Operations is
+   * completed, confirmed live by manually completing Money Operations and
+   * watching Fills flip to enabled. Detected via the Fills tile's own
+   * `clickable` attribute rather than a separate "is Money Operations
+   * done" signal, since that's the actual gate the app enforces. Submits
+   * Money Operations with its own defaults (see performMoneyOperations)
+   * when still gated.
+   */
+  private async ensureMoneyOperationsComplete(): Promise<void> {
+    const fillsEl = await this.driver.$(this.fills);
+    const clickable = await fillsEl.getAttribute('clickable').catch(() => 'true');
+    if (clickable !== 'true') {
+      await this.performMoneyOperations();
+    }
+  }
+
   /** Opens Product fills without continuing - lets callers assert the list/Sort/Filter before committing. */
   async openFills(): Promise<void> {
+    await this.dismissServiceTypeConfirmationIfPresent();
+    await this.ensureMoneyOperationsComplete();
     await this.tap(this.fills);
     await this.waitFor(this.productFillsTitle);
   }
@@ -476,7 +516,35 @@ export class VendingServiceScreen extends BaseScreen {
     const refund = await this.driver.$(this.refundField);
     await refund.click();
     await refund.setValue(values.refund ?? '0.05');
-    await this.driver.hideKeyboard().catch(() => {});
+    // CORRECTED 2026-08-20 (live-verified): hideKeyboard() only dismisses
+    // the real Android IME - it's a no-op against this app's own custom
+    // on-screen keypad (same family documented throughout this file),
+    // which setValue() on the Refund field leaves open and covering the
+    // Continue button below it, causing tap() to time out. Reusing this
+    // class's own dismissNumericKeypad() (taps the keypad's confirm
+    // checkmark) actually closes it first.
+    await this.dismissNumericKeypad();
+    // CORRECTED 2026-08-20 (live-verified): once the keypad is dismissed,
+    // Continue sits below the fold on a fully-expanded form (Bag code +
+    // both expanded Replenishment Amount/Refund sections push it off
+    // screen) - isVisible/tap() alone can't find it without scrolling
+    // there first, same scrollGesture pattern already used elsewhere in
+    // this file (fillAllProductDeliveryQuantities).
+    // Retries the scroll (not just a single attempt) - live-verified a lone
+    // scrollGesture can occasionally land short of actually revealing
+    // Continue (same class of flake as this file's other scroll-driven
+    // loops), so re-checking visibility and scrolling again beats a single
+    // shot before falling through to tap()'s own timeout.
+    for (let attempt = 0; attempt < 3 && !(await this.isVisible(this.continueButton)); attempt++) {
+      await this.driver.execute('mobile: scrollGesture', {
+        left: 100,
+        top: 800,
+        width: 800,
+        height: 1200,
+        direction: 'down',
+        percent: 1.0
+      });
+    }
     await this.tap(this.continueButton);
   }
 

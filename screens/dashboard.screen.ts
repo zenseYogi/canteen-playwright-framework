@@ -64,10 +64,42 @@ export class DashboardScreen extends BaseScreen {
   // instead of relying on the row's own text.
   private nthServiceStationUnder(lob: Lob, position: Position): string {
     // +1: the card header's immediate first View sibling is a non-clickable
-    // numeric badge (content-desc "0", live-verified) - not a service
-    // station row at all. Actual station rows start at the second sibling.
+    // numeric badge - not a service station row at all. Actual station rows
+    // start at the second sibling.
+    //
+    // CORRECTED 2026-08-22 (M-TC-008, live-verified): this badge isn't a
+    // fixed "0" - it's the LOB card's real completion progress as a plain
+    // integer percentage (content-desc "0" before any station is actioned,
+    // "100" once fully complete). See serviceStationProgress()/
+    // getServiceStationProgress() below, which read this same node
+    // properly instead of just skipping past it.
     const index = positionToIndex(position, 1) + 1;
     return `//android.widget.ImageView[starts-with(@content-desc,"${lob}")]/following-sibling::android.view.View[${index}]`;
+  }
+
+  /** M-TC-008 "updated progress bar" - the LOB card's completion-progress node, immediately following its header (see nthServiceStationUnder's own corrected note). */
+  private serviceStationProgress(lob: Lob): string {
+    return `//android.widget.ImageView[starts-with(@content-desc,"${lob}")]/following-sibling::android.view.View[1]`;
+  }
+
+  /** M-TC-008 "updated progress bar" - reads the LOB card's completion percentage (0-100). Assumes the card is already expanded (see openFirstServiceStation/openNthServiceStation). */
+  async getServiceStationProgress(lob: Lob): Promise<number> {
+    const el = await this.driver.$(this.serviceStationProgress(lob));
+    const text = (await el.getAttribute('content-desc')) ?? '0';
+    return parseInt(text, 10) || 0;
+  }
+
+  /**
+   * M-TC-008 "green tick" - whether a given service station row shows its
+   * completed/green-checkmark visual state. Same "no accessibility signal,
+   * state exists only in the rendered bitmap" situation BaseScreen's
+   * isChecklistIconChecked already solves for Prep Tasks/Checks checkboxes -
+   * live-verified 2026-08-22 this reuses cleanly here too (a completed
+   * station row's light-green tinted background registers the same way).
+   * Assumes the card is already expanded.
+   */
+  async isNthServiceStationComplete(lob: Lob, position: Position): Promise<boolean> {
+    return this.isChecklistIconChecked(this.nthServiceStationUnder(lob, position));
   }
 
   /** Like openFirstServiceStation, but for LOBs with more than one service station per stop (confirmed needed for Vending, and for Market stops like FedEx's "Breakroom" + "Homestead Warehouse"). */
@@ -138,6 +170,15 @@ export class DashboardScreen extends BaseScreen {
   // separate element directly above the address (see getStopHeaderText's
   // own note) - this is that name-only element, one level up.
   private readonly stopLocationName = `${this.stopOverviewBadge}/following-sibling::android.view.View[1]`;
+  // Market TC003/M-TC-003 "view the delivery address" - CORRECTED
+  // 2026-08-21: getStopHeaderText() below actually reads the "Stop N of M"
+  // badge, not "location name + full address" as its own comment claims
+  // (no assertion had ever checked its actual string content, only
+  // length>0, so the mismatch went uncaught) - there was no real address
+  // getter at all until now. Live-verified (Route 010/CureLeaf): the
+  // address is a separate plain View immediately below stopLocationName
+  // (e.g. "19000 SW 192nd St Miami Florida 33187-1908").
+  private readonly stopLocationAddress = `${this.stopLocationName}/following-sibling::android.view.View[1]`;
 
   /** TC039 "view stop details" - the "Stop N of M" badge is the most reliable signal this screen (not some other) is showing. */
   async isStopOverviewVisible(): Promise<boolean> {
@@ -158,6 +199,12 @@ export class DashboardScreen extends BaseScreen {
   /** Market TC004 "view the service location name" - assumes the Stop Overview screen is already open. */
   async getStopLocationName(): Promise<string> {
     const el = await this.driver.$(this.stopLocationName);
+    return (await el.getAttribute('content-desc')) ?? '';
+  }
+
+  /** Market TC003/M-TC-003 "view the delivery address" - assumes the Stop Overview screen is already open. */
+  async getStopLocationAddress(): Promise<string> {
+    const el = await this.driver.$(this.stopLocationAddress);
     return (await el.getAttribute('content-desc')) ?? '';
   }
 

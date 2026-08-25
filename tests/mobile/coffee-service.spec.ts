@@ -1,5 +1,6 @@
 import { test, expect } from '../../fixtures/appium.fixture';
 import { loginAndEnsureRoute, ensureCoffeeDeliveryExists } from '../../utils/login-flow';
+import { AdhocDeliveryScreen } from '../../screens/adhoc-delivery.screen';
 import { PrepTasksScreen } from '../../screens/prep-tasks.screen';
 import { DashboardScreen } from '../../screens/dashboard.screen';
 import { CoffeeServiceScreen } from '../../screens/coffee-service.screen';
@@ -28,6 +29,80 @@ import { mobileConfig } from '../../config/mobile.config';
 // modal (Take photo / Skip photo), and a single tap of Skip photo there
 // goes straight to the reason sheet - no separate live-preview screen or
 // intermediate confirmation modal was observed.
+
+/**
+ * Leaves the caller on a Coffee service station's checklist, returning the
+ * stop's name. Finds any scheduled stop that actually exposes a Coffee LOB
+ * and, only if none does, bootstraps one as an ad-hoc delivery.
+ *
+ * The bootstrap is not optional insurance - live-confirmed 2026-08-25 that
+ * Route 010/YESTERDAY had ZERO Coffee stops left. FedEx, which every existing
+ * Coffee test in this file attaches its ad-hoc delivery to, has been reduced
+ * to a single Market station ("Fed Ex Homestead"), taking the route's last
+ * Coffee host with it. ensureCoffeeDeliveryExists() cannot recover from that
+ * because it has to OPEN the named stop before it can add Coffee to it.
+ *
+ * Bootstrap pairing: customer "Covista" + service "Adtalem - Miramar -
+ * OCS/Pantry" - the only OCS/Pantry (Coffee) service the picker offers on
+ * this route. The two belong to different accounts on purpose: the Service
+ * picker is NOT scoped to the selected customer (see
+ * AdhocDeliveryScreen.selectMarketServiceFor's own note on the Market
+ * equivalent), so the resulting stop shows as "Covista" on Home while its
+ * checklist header reads "Adtalem - Miramar". That mismatch is expected.
+ */
+/**
+ * CURRENTLY UNUSED - retained deliberately, not dead code.
+ *
+ * C-TC-001 used this until 2026-08-25, when all Coffee C-TC cases moved to
+ * Charlotte 103 (real ordered stops) and stopped needing a bootstrap. It is
+ * kept because Anthony (QA) has asked for ad-hoc order CREATION to be covered
+ * as a scenario in its own right, and this encodes the one pairing confirmed
+ * to work on this data: customer "Covista" + service "Adtalem - Miramar -
+ * OCS/Pantry", the only OCS/Pantry service the picker offers on Route 010.
+ * Re-verify before reusing - ad-hoc stops may not survive the schedule's
+ * delta refresh.
+ */
+async function reachCoffeeServiceStation(driver: any): Promise<string> {
+  const home = new HomeScreen(driver);
+  const dashboard = new DashboardScreen(driver);
+
+  await home.returnToHome();
+  const names: string[] = [];
+  for (const tab of ['Pending action', 'Completed']) {
+    await (await driver.$(`//android.view.View[contains(@content-desc,"${tab}")]`)).click();
+    await driver.pause(2_000);
+    for (const row of [...(await driver.$$('//*[@clickable="true" and @content-desc!=""]'))]) {
+      const n = ((await row.getAttribute('content-desc')) ?? '').split('\n')[0].trim();
+      const chrome = /^(Open navigation menu|Edit schedule|Pending action|Completed)/.test(n);
+      if (n && !chrome && !names.includes(n)) names.push(n);
+    }
+  }
+
+  for (const name of names) {
+    await dashboard.clickLocationByName(name);
+    if (await dashboard.isLobCardVisible('coffee').catch(() => false)) {
+      await dashboard.openFirstServiceStation('coffee');
+      return name;
+    }
+    await home.returnToHome();
+  }
+
+  const BOOTSTRAP = 'Covista';
+  await home.returnToHome();
+  await home.openAdhocDeliveryCreation();
+  const adhoc = new AdhocDeliveryScreen(driver);
+  await adhoc.searchCustomer(BOOTSTRAP);
+  await adhoc.selectCustomer(BOOTSTRAP);
+  await adhoc.selectFirstCoffeeService();
+  await adhoc.selectServiceType('FULL');
+  await adhoc.submitAddDelivery();
+
+  await home.returnToHome();
+  await dashboard.clickLocationByName(BOOTSTRAP);
+  await dashboard.openFirstServiceStation('coffee');
+  return BOOTSTRAP;
+}
+
 test.describe('Coffee - Before Photos / Skip photo', () => {
   test(
     'Skip photo flow: reason sheet appears, validates non-blank input, and submits without saving a photo',
@@ -916,4 +991,291 @@ test.describe('Coffee - After Photos / Skip photo', () => {
       });
     }
   );
+
+});
+
+test.describe('Coffee - Equipment audit (regression suite C-TC-xxx)', () => {
+  // ==== C-TC-001 (regression suite "Coffee", build 0.1.90) ====
+  //
+  // "Audit date is included automatically and is not editable."
+  //
+  // MOVED to Charlotte 103 on 2026-08-25: this originally ran on Route 010 and
+  // BOOTSTRAPPED its own Coffee stop ad-hoc, because Route 010 has no Coffee
+  // data left. Two reasons that is no longer right. First, Anthony confirmed
+  // Coffee orders live on Charlotte 103 and that we should test service WITH
+  // orders first, treating ad-hoc creation as its own separate scenario -
+  // 24Hundred Marketplace is a real ordered stop. Second, ad-hoc stops may not
+  // survive the schedule's delta refresh (one we created on Miami 001 vanished
+  // the same day), so depending on one is inherently fragile. Keeping every
+  // Coffee C-TC on one route also stops the batch switching routes, which was
+  // repeatedly tripping the Route dropdown defect (empty until the search
+  // field's X is tapped - see RouteSetupScreen.populateModalListViaClearIcon).
+  //
+  // IMPORTANT - the regression sheet's own Expected text is WRONG and must
+  // NOT be automated literally. It reads "an Audit Date reflecting THE
+  // BUSINESS DATE should be included", but Anthony confirmed 2026-08-25 that
+  // the SYSTEM date is the intended default. The two only agree when the
+  // selected route day happens to be today: live-verified on Route
+  // 010/YESTERDAY (business date 24 Aug 2026, header shows "24 Aug 2026")
+  // the field renders "08/25/2026" - the real calendar date. Asserting the
+  // sheet's wording would report a false defect against dev on every
+  // non-today route, so this asserts the confirmed intent instead.
+  test(
+    'C-TC-001: Audit Date is auto-populated with the system date and is not editable',
+    { tag: ['@Coffee-C-TC-001'] },
+    async ({ driver }) => {
+      test.setTimeout(300_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step("Open 24Hundred Marketplace's Coffee service station", async () => {
+        await dashboard.clickLocationByName('24Hundred Marketplace');
+        await dashboard.openFirstServiceStation('coffee');
+      });
+
+      await test.step('Open Equipment audit and the Add Equipment form', async () => {
+        await coffee.openEquipmentAudit();
+        await coffee.openAddEquipmentFromEmptyState();
+      });
+
+      await test.step('C-TC-001: the Audit Date is auto-populated with the system date', async () => {
+        const now = new Date();
+        const expected = `${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}/${now.getFullYear()}`;
+        expect(await coffee.getAuditDate()).toBe(expected);
+      });
+
+      await test.step('C-TC-001: the driver cannot change the Audit Date', async () => {
+        expect(await coffee.isAuditDateEditable()).toBe(false);
+      });
+    }
+  );
+});
+
+
+test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
+  // ==== C-TC-002 (regression suite "Coffee", build 0.1.90) ====
+  //
+  // "Cash payment type selection hides Check Number field."
+  //
+  // Runs on CHARLOTTE 103, not Miami - confirmed by Anthony 2026-08-25 that
+  // Coffee orders live there. Miami Route 010 has no Coffee stop at all any
+  // more (FedEx, its only ad-hoc Coffee host, is down to a single Market
+  // station) and Miami 001 has none on any business date. Charlotte 103's
+  // stops carry REAL seeded fills, so the Delivery -> Signing Order ->
+  // Payment path is reachable without hand-building an ad-hoc order.
+  //
+  // The Payment screen itself is new in this build and is NOT mandatory -
+  // only Sign Off gates Continue - so this test deliberately stops at
+  // inspecting the form and never submits it, leaving the stop untouched
+  // for other cases.
+  test(
+    'C-TC-002: selecting Cash hides Check Number, and Comments stays optional',
+    { tag: ['@Coffee-C-TC-002'] },
+    async ({ driver }) => {
+      test.setTimeout(420_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Open the Coffee stop and reach Signing Order via Delivery', async () => {
+        await dashboard.clickLocationByName('24Hundred Marketplace');
+        await dashboard.openFirstServiceStation('coffee');
+        await coffee.openDelivery();
+        expect(await coffee.isDeliveryContinueEnabled()).toBe(true);
+        // No confirmation dialog any more - removed at customer request
+        // (Anthony, 2026-08-25); Continue lands straight on Signing Order.
+        await coffee.tapDeliveryContinue();
+      });
+
+      await test.step('Open the Order payment screen', async () => {
+        await coffee.openOrderPayment();
+      });
+
+      await test.step('C-TC-002: the payment type selector offers Cash and Check', async () => {
+        expect(await coffee.getPaymentTypeOptions()).toEqual(expect.arrayContaining(['Cash', 'Check']));
+        await coffee.selectPaymentType('Check');
+      });
+
+      // Establish the contrast first: under Check the field IS present. Without
+      // this, "Check Number is absent under Cash" proves nothing - the field
+      // might simply not exist on the screen at all.
+      await test.step('C-TC-002 (control): Check shows the Check Number field', async () => {
+        expect(await coffee.getPaymentType()).toBe('Check');
+        expect(await coffee.isPaymentFieldVisible('Check Number*')).toBe(true);
+      });
+
+      await test.step('C-TC-002: switching to Cash hides Check Number', async () => {
+        await coffee.choosePaymentType('Cash');
+        expect(await coffee.getPaymentType()).toBe('Cash');
+        expect(await coffee.isPaymentFieldVisible('Check Number*')).toBe(false);
+      });
+
+      await test.step('C-TC-002: Comments remains present and optional under Cash', async () => {
+        // Optionality is conveyed ONLY by the absence of a trailing asterisk
+        // in the hint - Amount* and Check Number* carry one, Comments does not.
+        expect(await coffee.isPaymentFieldOptional('Comments')).toBe(true);
+        expect(await coffee.isPaymentFieldVisible('Amount*')).toBe(true);
+      });
+    }
+  );
+  // ==== C-TC-003 (regression suite "Coffee", build 0.1.90) ====
+  //
+  // "Check payment requires mandatory Check Number with max 10 digits."
+  //
+  // Shares C-TC-002's screen and route (Charlotte 103 - see that test's own
+  // note on why not Miami). Deliberately never submits successfully: the
+  // only Done tap here is the one that must FAIL validation, so the stop is
+  // left exactly as found for other cases.
+  test(
+    'C-TC-003: Check Number is mandatory and caps at 10 digits',
+    { tag: ['@Coffee-C-TC-003'] },
+    async ({ driver }) => {
+      test.setTimeout(420_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach the Order payment screen and select Check', async () => {
+        await dashboard.clickLocationByName('24Hundred Marketplace');
+        await dashboard.openFirstServiceStation('coffee');
+        await coffee.openDelivery();
+        await coffee.tapDeliveryContinue();
+        await coffee.openOrderPayment();
+        await coffee.choosePaymentType('Check');
+      });
+
+      await test.step('C-TC-003: the Check Number field is displayed and marked mandatory', async () => {
+        // Mandatory is signalled by the trailing asterisk in the hint - the
+        // only marker this screen provides.
+        expect(await coffee.isPaymentFieldVisible('Check Number*')).toBe(true);
+      });
+
+      // Two input paths deliberately: setValue can bypass validation that real
+      // per-character keystrokes respect (a bypass this suite has been bitten
+      // by before), so a cap proven only via setValue would not be trustworthy.
+      // Live-verified 2026-08-25 that BOTH truncate at 10.
+      await test.step('C-TC-003: 15 digits entered via setValue are capped at 10', async () => {
+        await coffee.typePaymentField('Check Number*', '123456789012345');
+        expect(await coffee.getPaymentFieldValue('Check Number*')).toBe('1234567890');
+      });
+
+      await test.step('C-TC-003: 15 digits entered as real keystrokes are capped at 10', async () => {
+        await coffee.clearPaymentField('Check Number*');
+        for (const ch of '987654321098765') {
+          await driver.keys(ch);
+        }
+        expect(await coffee.getPaymentFieldValue('Check Number*')).toBe('9876543210');
+      });
+
+      // Not part of the TC's own wording, but it defines what "digits" means
+      // here and is cheap to lock down: the field silently strips non-numerics.
+      await test.step('C-TC-003 (extra): non-numeric characters are stripped', async () => {
+        await coffee.clearPaymentField('Check Number*');
+        for (const ch of 'ab12cd34') {
+          await driver.keys(ch);
+        }
+        expect(await coffee.getPaymentFieldValue('Check Number*')).toBe('1234');
+      });
+
+      await test.step('C-TC-003: submitting with Check Number empty is rejected', async () => {
+        await coffee.clearPaymentField('Check Number*');
+        await coffee.typePaymentField('Amount*', '10');
+        // Done is NOT gated - it stays enabled and validates on tap.
+        expect(await coffee.isPaymentDoneEnabled()).toBe(true);
+        await coffee.tapPaymentDone();
+        expect(await coffee.isPaymentValidationErrorVisible()).toBe(true);
+      });
+    }
+  );
+
+  // ==== C-TC-004 (regression suite "Coffee", build 0.1.90) ====
+  //
+  // "Customer Signature screen validates back navigation before and after
+  // signing."
+  //
+  // Same Charlotte 103 stop as C-TC-002/003. Leaves the stop CLEAN: the
+  // signature drawn here is deliberately discarded via "Go Back" at the end,
+  // and Sign off is never submitted, so the order is untouched for other cases.
+  test(
+    'C-TC-004: back navigation prompts only after signing, and Cancel keeps the signature',
+    { tag: ['@Coffee-C-TC-004'] },
+    async ({ driver }) => {
+      test.setTimeout(480_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach Signing Order', async () => {
+        await dashboard.clickLocationByName('24Hundred Marketplace');
+        await dashboard.openFirstServiceStation('coffee');
+        await coffee.openDelivery();
+        await coffee.tapDeliveryContinue();
+      });
+
+      await test.step('C-TC-004: Back before signing returns to Signing Order with no prompt', async () => {
+        await coffee.openSignOff();
+        // Sign off stays disabled until the pad is actually drawn on - that is
+        // also this test's signal for whether a signature exists at all.
+        expect(await coffee.isSignOffEnabled()).toBe(false);
+        await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+        expect(await coffee.isSignatureDiscardPromptVisible()).toBe(false);
+        expect(await coffee.isSigningOrderTitleVisible()).toBe(true);
+      });
+
+      await test.step('C-TC-004: Back after signing raises the "Are you sure?" prompt', async () => {
+        await coffee.openSignOff();
+        await coffee.drawSignature();
+        expect(await coffee.isSignOffEnabled()).toBe(true);
+        await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+        expect(await coffee.isSignatureDiscardPromptVisible()).toBe(true);
+        expect(await coffee.getSignatureDiscardPromptText()).toContain('signature will be lost');
+      });
+
+      await test.step('C-TC-004: Cancel returns to the signature screen with the signature retained', async () => {
+        await coffee.cancelSignatureDiscard();
+        // Sign off being enabled is the only available proof the signature
+        // survived - the pad itself exposes no readable content of its own.
+        expect(await coffee.isSignOffEnabled()).toBe(true);
+      });
+
+      await test.step('Cleanup: discard the signature so the order is left untouched', async () => {
+        await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+        await coffee.confirmSignatureDiscard();
+      });
+    }
+  );
+
 });

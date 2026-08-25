@@ -38,8 +38,9 @@ test.describe('Start of The Day - Stop preview', () => {
         '@Market-TC002',
         '@Market-TC003',
         '@Market-TC004',
-        '@Market-TC007',
-        '@Market-TC008'
+        '@Market-TC003-legacy-service-date',
+        '@Market-TC007-legacy-dropdown',
+        '@Market-TC008-legacy-station-list'
       ]
     },
     async ({ driver }) => {
@@ -65,15 +66,38 @@ test.describe('Start of The Day - Stop preview', () => {
         expect(await dashboard.isLobCardVisible('market')).toBe(true);
       });
 
-      // Market TC003 "view the service date" / TC004 "view the service
-      // location name" / TC007 "view the Market dropdown" / TC008 "open
-      // the list of service stations" - live-verified 2026-08-10: Excel's
+      // CORRECTED 2026-08-21: this step's own "Market TC003 'view the
+      // service date'" claim is from an OLDER TC-numbering scheme (this
+      // file predates the Final_Optimized workbook's M-TC-XXX renumbering).
+      // Current Excel's own M-TC-003 is a DIFFERENT claim entirely ("Each
+      // delivery location displays its own address by service line") - see
+      // the dedicated M-TC-003 step below. Tagged
+      // @Market-TC003-legacy-service-date to avoid conflating the two under
+      // the same @Market-TC003 tag, which would make status tracking wrong
+      // either way. Same collision for the OLD "TC007 'view the Market
+      // dropdown'"/"TC008 'open the list of service stations'" claims -
+      // retagged @Market-TC007-legacy-dropdown/@Market-TC008-legacy-station-list;
+      // current Excel's own M-TC-007 ("Complete Delivery button gating") and
+      // M-TC-008 ("green tick + progress bar on completion") are unrelated
+      // claims, covered separately in market-service.spec.ts. TC004 "view
+      // the service location name" - live-verified 2026-08-10: Excel's
       // literal Test Data ("Market (3 Services)", 3 named stations) don't
       // match this route's real data (CureLeaf has exactly 1 market
-      // station) - asserting the real, generic tile-with-count/dropdown
-      // and station-list behavior instead, same substitution pattern as
-      // TC001/TC002 above.
-      await test.step('TC003/TC004/TC007/TC008: verify the date, location name, Market dropdown tile, and its station list', async () => {
+      // station) - asserting the real, generic tile-with-count/dropdown and
+      // station-list behavior instead, same substitution pattern as
+      // TC001/TC002 above. This same mechanism (station names appear
+      // directly under the expanded LOB card, no further dropdown/selection
+      // needed to see them) is also current Excel's own M-TC-005
+      // ("Scheduled markets display immediately after selecting a stop") -
+      // NOT tagged here though: this whole test's own loginAndEnsureRoute()
+      // call started failing consistently (5 straight attempts, including
+      // after a full app restart) on the Route Setup Operation-search
+      // modal - a genuinely reproducible app defect, not flakiness, but
+      // orthogonal to what M-TC-005 itself claims. See M-TC-005's own test
+      // in market-service.spec.ts, which verifies the identical mechanism
+      // via a route-switch-free path (AETNA, already reachable via the
+      // Completed tab) to avoid that blocker entirely.
+      await test.step('TC003(legacy)/TC004/TC007(legacy)/TC008(legacy): verify the date, location name, Market dropdown tile, and its station list', async () => {
         expect(await dashboard.isStopOverviewDateVisible()).toBe(true);
         const locationName = await dashboard.getStopLocationName();
         expect(locationName.length).toBeGreaterThan(0);
@@ -81,6 +105,21 @@ test.describe('Start of The Day - Stop preview', () => {
         expect(lobCardText).toContain('Service stations');
         const stationNames = await dashboard.getServiceStationNames('market');
         expect(stationNames.length).toBeGreaterThan(0);
+      });
+
+      // M-TC-003 (current Excel numbering) "Each delivery location displays
+      // its own address by service line" - live-verified 2026-08-21 (Route
+      // 010/CureLeaf): the address is a separate plain View directly below
+      // the location name (see DashboardScreen.getStopLocationAddress's own
+      // note - there was no dedicated address getter until now).
+      await test.step('M-TC-003: the Market delivery location shows its own delivery address', async () => {
+        const address = await dashboard.getStopLocationAddress();
+        expect(address.length).toBeGreaterThan(0);
+        // Loose shape check (contains a digit, the way a street address
+        // does) rather than a literal string match - same rationale as
+        // TC001/TC002's own substitution note: don't hardcode this
+        // environment's specific seeded address.
+        expect(address).toMatch(/\d/);
       });
 
       // TC041/TC042 "About this location" / "Close button" - opens a

@@ -60,10 +60,30 @@ export const mobileConfig = {
   // a dedicated test route, not a real business route like the other two.
   // Day is passed per-call (not fixed here) since TC028 specifically needs to
   // exercise all three.
+  // CORRECTED 2026-08-24 (build 0.1.90): this route is no longer empty -
+  // live-verified it now carries 2 real, seeded Market deliveries (Teva
+  // Pharmaceutical Industries LTB / Order 13517384, and United Collection
+  // Bureau, Inc. / Order 13517385). Same physical route as miamiRoute001
+  // below - kept as its own named entry rather than merged, since
+  // adhoc-scheduling.spec.ts's TC025/TC028 still assume it's empty and
+  // that assumption now needs re-verifying, not silently overwritten here.
   emptyRoute: {
     operationSearch: process.env.EMPTY_ROUTE_OPERATION_SEARCH || 'Miami',
     operationLabel: process.env.EMPTY_ROUTE_OPERATION_LABEL || 'Miami, FL',
     routeSearch: process.env.EMPTY_ROUTE_SEARCH || 'Route 001',
     routeLabel: process.env.EMPTY_ROUTE_LABEL || 'Route 001'
+  },
+  // M-TC-005/008/013/014/015/016 (build 0.1.90) - same physical route as
+  // emptyRoute above, now used deliberately FOR its 2 real seeded Market
+  // deliveries rather than for being empty. See market-service.spec.ts's
+  // own note on why these tests moved off AETNA/CureLeaf (ad-hoc-created
+  // orders have no seeded Delivery products and can't reach a meaningful
+  // checklist state).
+  miamiRoute001: {
+    operationSearch: process.env.MIAMI_001_OPERATION_SEARCH || 'Miami',
+    operationLabel: process.env.MIAMI_001_OPERATION_LABEL || 'Miami, FL',
+    routeSearch: process.env.MIAMI_001_ROUTE_SEARCH || '001',
+    routeLabel: process.env.MIAMI_001_ROUTE_LABEL || 'Route 001',
+    day: (process.env.MIAMI_001_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'TODAY'
   }
 };
