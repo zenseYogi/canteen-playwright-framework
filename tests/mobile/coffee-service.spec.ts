@@ -1451,8 +1451,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
         // picking a result returns to the form with the product attached.
         await coffee.typeAddPresalesProduct('sugar');
         await coffee.selectPresaleProductOption('Canteen Granulated Sugar Canister (20oz) - pkg: 1');
-        // Dismiss the quantity keypad the selection opens over the form.
-        await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+        await coffee.dismissPresaleKeypadIfPresent();
         const chosen = await coffee.selectFirstAvailableDeliveryDate();
         expect(chosen).not.toBe('');
         expect(await coffee.getAddPresalesDeliveryDate()).not.toBe('');
@@ -1469,6 +1468,72 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
         // when the stop has no presales at all.
         expect(await coffee.isPresalesEmptyStateVisible()).toBe(true);
         expect(await coffee.isPresalesContinueEnabled()).toBe(false);
+      });
+    }
+  );
+
+  // ==== C-TC-010 (regression suite "Coffee", build 0.1.90) ====
+  //
+  // "Driver creates a presale order with valid delivery date and product."
+  //
+  // The SAVE counterpart of C-TC-007's cancel path, and the reason it runs on
+  // AMEROCK rather than 24Hundred Marketplace: saving a presale permanently
+  // removes that stop's Pre-sales empty state, which C-TC-007 asserts. Amerock
+  // is the ad-hoc stop we already use as a mutation sandbox (see
+  // reachEmptyCoffeeDeliveries), so the two cases cannot collide.
+  //
+  // Written to tolerate presales left by earlier runs: a saved presale cannot
+  // be removed from the app, so this asserts that OUR order is present by its
+  // own delivery date rather than asserting a total count.
+  test(
+    'C-TC-010: a presale saves and shows its Items count and Delivery Date',
+    { tag: ['@Coffee-C-TC-010'] },
+    async ({ driver }) => {
+      test.setTimeout(600_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step("Open Amerock's Coffee stop and start a presale", async () => {
+        await dashboard.clickLocationByName('Amerock');
+        await dashboard.openFirstServiceStation('coffee');
+        await coffee.tapAddPresaleTrigger();
+        await coffee.openAddPresalesOrder();
+      });
+
+      let expectedDate = '';
+      await test.step('C-TC-010: add a valid product and delivery date', async () => {
+        await coffee.typeAddPresalesProduct('sugar');
+        // Any valid product satisfies this TC, so take the first result rather
+        // than naming one - see selectFirstPresaleSearchResult on why the
+        // by-name helper can select the wrong row.
+        const product = await coffee.selectFirstPresaleSearchResult();
+        expect(product).not.toBe('');
+        // Guarded, not a blind BACK - see dismissPresaleKeypadIfPresent.
+        await coffee.dismissPresaleKeypadIfPresent();
+        await coffee.selectFirstAvailableDeliveryDate();
+        expectedDate = await coffee.getAddPresalesDeliveryDate();
+        expect(expectedDate).not.toBe('');
+        expect(await coffee.isAddPresalesSaveEnabled()).toBe(true);
+      });
+
+      await test.step('C-TC-010: saving shows the presale with Items count and Delivery Date', async () => {
+        await coffee.saveAddPresalesOrder();
+        expect(await coffee.isPresalesSummaryVisible()).toBe(true);
+        // "Items\n1" - assert a real count is rendered, not the exact total,
+        // since earlier runs may have left presales on this stop.
+        expect(await coffee.getPresalesSummaryItemsText()).toMatch(/Items[\s\S]*\d/);
+        expect(await coffee.getSavedPresaleDeliveryDate()).toBe(expectedDate);
+        // Continue only enables once the stop actually has a saved presale.
+        expect(await coffee.isPresalesContinueEnabled()).toBe(true);
       });
     }
   );

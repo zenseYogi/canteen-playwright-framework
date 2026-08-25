@@ -228,6 +228,72 @@ export class CoffeeServiceScreen extends BaseScreen {
     await this.waitFor(this.addPresalesOrderAnchor);
   }
 
+  /**
+   * C-TC-010 - selects the FIRST product row in the presale search results,
+   * returning its display name.
+   *
+   * Deliberately positional rather than by name. selectPresaleProductOption()
+   * matches on `contains(@content-desc, term)` and taps the first hit, which
+   * live-verified 2026-08-25 can resolve to a CONTAINER overlapping the first
+   * row rather than the named row itself - asking for "Canteen Granulated
+   * Sugar Canister (20oz) - pkg: 1" actually added "A&W Zero Sugar Root Beer".
+   * Cases that just need *a* valid product should use this instead; only a
+   * case that genuinely depends on one specific product should risk the
+   * by-name path, and should assert what it actually got.
+   */
+  async selectFirstPresaleSearchResult(): Promise<string> {
+    const resultRow = '//android.view.View[contains(@content-desc,"pkg:")]';
+    // The results list populates asynchronously after typing - wait for a real
+    // row rather than reading immediately (or sleeping a fixed amount).
+    await this.driver.waitUntil(
+      async () => [...(await this.driver.$$(resultRow))].length > 0,
+      { timeout: 15_000, timeoutMsg: 'No presale product results appeared after searching' }
+    );
+    const rows = [...(await this.driver.$$(resultRow))];
+    if (!rows.length) {
+      throw new Error('No presale product results to select');
+    }
+    const name = ((await rows[0].getAttribute('content-desc')) ?? '').split('\n')[0];
+    await rows[0].click();
+    return name;
+  }
+
+  /**
+   * C-TC-007/C-TC-010 - dismisses the numeric keypad that opens over the Add
+   * Presale form when a product is selected, and confirms we are STILL on the
+   * form afterwards.
+   *
+   * A blind BACK press here is unsafe: if the keypad happens not to be up, the
+   * same press exits the form back to the Pre-sales summary. That is silent
+   * and then misleads the NEXT step - once the stop has a saved presale, the
+   * summary carries its own "Delivery Date" field, so the date-picker icon
+   * still resolves and opens the wrong thing. Live-observed as an intermittent
+   * "Save order still not displayed" timeout that only appeared in batch runs.
+   */
+  async dismissPresaleKeypadIfPresent(): Promise<void> {
+    if (await this.isVisible('//android.widget.Button[@content-desc="7"]')) {
+      await this.pressKeyCode(4);
+    }
+    await this.waitFor(this.addPresalesOrderAnchor);
+  }
+
+  /** C-TC-010 - saves the in-progress presale. */
+  async saveAddPresalesOrder(): Promise<void> {
+    await this.tap(this.addPresalesOrderAnchor);
+    await this.waitFor(this.presalesSummaryTitle);
+  }
+
+  /**
+   * C-TC-010 - the Delivery Date shown against a SAVED presale on the
+   * Pre-sales summary (e.g. "Wed 26 Aug"). Same hint-anchored field as the
+   * Add Presale form's own - the summary reuses the component read-only.
+   */
+  async getSavedPresaleDeliveryDate(): Promise<string> {
+    const el = await this.driver.$(this.deliveryDateField);
+    await el.waitForDisplayed({ timeout: 15_000 });
+    return (await el.getAttribute('text')) ?? '';
+  }
+
   /** C-TC-007 - whether the Pre-sales screen's own Continue is enabled (stays disabled while the stop has no saved presales). */
   async isPresalesContinueEnabled(): Promise<boolean> {
     return this.isEnabled(this.presalesContinueButton);
