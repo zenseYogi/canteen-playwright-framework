@@ -550,7 +550,12 @@ export class CoffeeServiceScreen extends BaseScreen {
   // product is added, its own Delivered field is a LATER EditText in the
   // tree - last() targets whichever product was most recently added,
   // which is exactly what a single-product test flow needs.
-  private readonly deliveredQtyField = '(//android.widget.EditText)[last()]';
+  // CORRECTED 2026-08-25 (build 0.1.90): was '(//android.widget.EditText)[last()]',
+  // a positional guess that silently targets whatever EditText happens to be
+  // last in the tree - on the Deliveries screen that is not necessarily the
+  // Delivered field (the "Search product" input is also an EditText). The
+  // field carries hint="Delivered", which identifies it directly.
+  private readonly deliveredQtyField = '//android.widget.EditText[@hint="Delivered"]';
   private readonly deliveryConfirmDialog =
     '//android.view.View[starts-with(@content-desc,"Coffee Delivery!")]';
   private readonly orderNumberChip = '//android.view.View[starts-with(@content-desc,"Order #")]';
@@ -1011,6 +1016,90 @@ export class CoffeeServiceScreen extends BaseScreen {
   /** C-TC-002 - whether an Order payment input is rendered, matched by its hint (see this section's own note on why hint is the only usable attribute). */
   async isPaymentFieldVisible(hint: string): Promise<boolean> {
     return this.isVisible(this.paymentInputByHint(hint));
+  }
+
+  // ==== C-TC-011 / C-TC-014: delivery product rows ====
+  //
+  // Live-verified 2026-08-25 (build 0.1.90). A product row reads
+  // "CanteenSugrCanister20oz (Pkg: 24) (Price: 117.26)\nOrdered\n-" with a
+  // sibling EditText hinted "Delivered". Deleting is a swipe-left on the row,
+  // which reveals an UNLABELLED Button inside it (desc="null"), then a
+  // "Delete Product / Are you sure you want to delete the X?" dialog with
+  // No/Yes.
+  private readonly deliveryProductRowAny = '//android.view.View[contains(@content-desc,"Pkg:")]';
+  private readonly deleteProductConfirm = '//*[starts-with(@content-desc,"Delete Product")]';
+
+  /** C-TC-011/C-TC-014 - how many product rows the Deliveries list currently shows. */
+  async getDeliveryProductRowCount(): Promise<number> {
+    return [...(await this.driver.$$(this.deliveryProductRowAny))].length;
+  }
+
+  /** C-TC-014 - whether the row's editable "Delivered" quantity field is present. */
+  async isDeliveredQtyFieldVisible(): Promise<boolean> {
+    return this.isVisible(this.deliveredQtyField);
+  }
+
+  /** C-TC-014 - the current Delivered quantity. */
+  async getDeliveredQty(): Promise<string> {
+    const f = await this.driver.$(this.deliveredQtyField);
+    await f.waitForDisplayed({ timeout: 15_000 });
+    return (await f.getAttribute('text')) ?? '';
+  }
+
+  /**
+   * C-TC-011/C-TC-014 - adds the FIRST product in the Deliveries search
+   * results, returning its name. Positional for the same reason as
+   * selectFirstPresaleSearchResult: the by-name helper can resolve to a
+   * container and select the wrong row.
+   */
+  async addFirstDeliverySearchResult(term: string): Promise<string> {
+    await this.openAddDeliveryProduct();
+    await this.searchDeliveryProductOption(term);
+    const resultRow = '//android.view.View[contains(@content-desc,"pkg:")]';
+    await this.driver.waitUntil(
+      async () => [...(await this.driver.$$(resultRow))].length > 0,
+      { timeout: 15_000, timeoutMsg: `No delivery products matched "${term}"` }
+    );
+    const rows = [...(await this.driver.$$(resultRow))];
+    const name = ((await rows[0].getAttribute('content-desc')) ?? '').split('\n')[0];
+    await rows[0].click();
+    return name;
+  }
+
+  /** C-TC-011 - swipes the first product row left, revealing its delete control. */
+  async revealDeliveryProductDelete(): Promise<void> {
+    const row = await this.driver.$(this.deliveryProductRowAny);
+    await row.waitForDisplayed({ timeout: 15_000 });
+    const loc = await row.getLocation();
+    const size = await row.getSize();
+    await this.swipe(loc.x + size.width - 10, loc.y + size.height / 2, loc.x + 10, loc.y + size.height / 2);
+  }
+
+  /** C-TC-011 - taps the delete control revealed by revealDeliveryProductDelete(). It carries no label, so it is located as the row's own Button child. */
+  async tapRevealedDeliveryProductDelete(): Promise<void> {
+    await this.tap(`${this.deliveryProductRowAny}/android.widget.Button`);
+  }
+
+  /** C-TC-011 - whether the "Delete Product" confirmation is showing. */
+  async isDeleteProductConfirmVisible(): Promise<boolean> {
+    return this.isVisible(this.deleteProductConfirm);
+  }
+
+  /** C-TC-011 - the confirmation's full message, for asserting it names the product. */
+  async getDeleteProductConfirmText(): Promise<string> {
+    const el = await this.driver.$(this.deleteProductConfirm);
+    await el.waitForDisplayed({ timeout: 15_000 });
+    return ((await el.getAttribute('content-desc')) ?? '').replace(/\n/g, ' ');
+  }
+
+  /** C-TC-011 - confirms the deletion. */
+  async confirmDeleteProduct(): Promise<void> {
+    await this.tap('//android.widget.Button[@content-desc="Yes"]');
+  }
+
+  /** C-TC-011 - declines the deletion, leaving the product in place. */
+  async declineDeleteProduct(): Promise<void> {
+    await this.tap('//android.widget.Button[@content-desc="No"]');
   }
 
   // ==== C-TC-005: the Deliveries screen's empty state ====

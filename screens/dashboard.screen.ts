@@ -141,6 +141,48 @@ export class DashboardScreen extends BaseScreen {
     await this.tap(row);
   }
 
+  /**
+   * Like clickLocationByName(), but SCROLLS the schedule list to bring the row
+   * into view first.
+   *
+   * clickLocationByName() only ever sees what Home currently renders, which is
+   * a handful of rows - live-confirmed 2026-08-25 that Charlotte 103 carries
+   * 49 stops, so any stop past the first few is simply unreachable by name
+   * without this. Checks both tabs, since a stop moves to "Completed" once
+   * serviced. Returns false rather than throwing when the stop genuinely is
+   * not on the schedule, so callers can treat that as "does not qualify".
+   */
+  async scrollToAndClickLocationByName(name: string, maxScrolls = 25): Promise<boolean> {
+    // NOT the tab-anchored following-sibling path clickLocationByName() uses:
+    // the "Pending action" header itself scrolls out of the accessibility tree
+    // as soon as the list moves, so that path can never match a scrolled-to
+    // row. Live-confirmed 2026-08-25. A plain clickable+content-desc match is
+    // what actually resolves; stop names are distinctive enough to be safe.
+    const rowFor = (_tab: string) => `//*[@clickable="true" and @content-desc="${name}"]`;
+    for (const tab of ['Pending action', 'Completed']) {
+      await this.tap(`//android.view.View[contains(@content-desc,"${tab}")]`);
+      await this.driver.pause(1_200);
+      for (let i = 0; i < maxScrolls; i++) {
+        if (await this.isVisible(rowFor(tab))) {
+          await this.tap(rowFor(tab));
+          return true;
+        }
+        await this.driver.executeScript('mobile: scrollGesture', [
+          { left: 100, top: 600, width: 800, height: 1200, direction: 'down', percent: 0.8 }
+        ]);
+        await this.driver.pause(500);
+      }
+      // Restore the list to the top before trying the other tab - Home's own
+      // "Deliveries" title scrolls off, and returnToHome() waits on it.
+      for (let i = 0; i < maxScrolls; i++) {
+        await this.driver.executeScript('mobile: scrollGesture', [
+          { left: 100, top: 600, width: 800, height: 1200, direction: 'up', percent: 1.0 }
+        ]);
+      }
+    }
+    return false;
+  }
+
   /** Market TC001 "view the list of market stops" - same row locator as clickLocationByName(), without tapping it. */
   async isLocationVisible(name: string): Promise<boolean> {
     await this.ensurePendingActionTabSelected();

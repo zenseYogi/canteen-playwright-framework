@@ -139,11 +139,11 @@ async function reachCoffeeStop(
 
   const attempt = async (name: string): Promise<boolean> => {
     await home.returnToHome();
-    try {
-      await dashboard.clickLocationByName(name);
-    } catch {
-      return false; // No longer on the schedule.
-    }
+    // Must SCROLL to the row - Home renders only a few of the route's stops at
+    // a time (49 on Charlotte 103), so a plain by-name click can only ever
+    // reach the first few.
+    const opened = await dashboard.scrollToAndClickLocationByName(name).catch(() => false);
+    if (!opened) return false;
     if (!(await dashboard.isLobCardVisible('coffee').catch(() => false))) return false;
     await dashboard.openFirstServiceStation('coffee');
     return qualify(coffee).catch(() => false);
@@ -1625,6 +1625,72 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
         expect(await coffee.getSavedPresaleDeliveryDate()).toBe(expectedDate);
         // Continue only enables once the stop actually has a saved presale.
         expect(await coffee.isPresalesContinueEnabled()).toBe(true);
+      });
+    }
+  );
+
+  // ==== C-TC-011 (regression suite "Coffee", build 0.1.90) ====
+  //
+  // "Driver deletes a manually added product with confirmation."
+  //
+  // Self-cleaning by construction: it adds a product and then deletes it, so
+  // the stop ends exactly as it started. That is why it can safely share
+  // C-TC-005's "empty Deliveries" precondition rather than needing a sandbox
+  // stop of its own.
+  //
+  // The delete affordance is a swipe-left on the row revealing an UNLABELLED
+  // Button (desc="null"), located as the row's own Button child - see
+  // revealDeliveryProductDelete/tapRevealedDeliveryProductDelete.
+  test(
+    'C-TC-011: deleting a manually added product requires confirmation and removes it',
+    { tag: ['@Coffee-C-TC-011'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      let product = '';
+      await test.step('Reach an empty Deliveries screen and add a product manually', async () => {
+        await reachCoffeeStopWithEmptyDeliveries(driver);
+        expect(await coffee.getDeliveryProductRowCount()).toBe(0);
+        product = await coffee.addFirstDeliverySearchResult('sugar');
+        expect(product).not.toBe('');
+        // Selecting a product opens the quantity keypad over the list.
+        await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+        expect(await coffee.getDeliveryProductRowCount()).toBe(1);
+      });
+
+      await test.step('C-TC-011: swiping the row and tapping delete raises a confirmation naming the product', async () => {
+        await coffee.revealDeliveryProductDelete();
+        await coffee.tapRevealedDeliveryProductDelete();
+        expect(await coffee.isDeleteProductConfirmVisible()).toBe(true);
+        expect(await coffee.getDeleteProductConfirmText()).toContain('Are you sure you want to delete');
+      });
+
+      // The confirmation must actually GATE the delete - without this step,
+      // "deletes with confirmation" would pass even if the dialog were purely
+      // decorative and the row had already gone.
+      await test.step('C-TC-011: declining the confirmation keeps the product', async () => {
+        await coffee.declineDeleteProduct();
+        expect(await coffee.getDeliveryProductRowCount()).toBe(1);
+      });
+
+      await test.step('C-TC-011: confirming removes the product from the delivery list', async () => {
+        await coffee.revealDeliveryProductDelete();
+        await coffee.tapRevealedDeliveryProductDelete();
+        expect(await coffee.isDeleteProductConfirmVisible()).toBe(true);
+        await coffee.confirmDeleteProduct();
+        expect(await coffee.getDeliveryProductRowCount()).toBe(0);
+        // Back to the empty state we started from, so the stop is left clean.
+        expect(await coffee.isDeliveriesEmptyStateVisible()).toBe(true);
       });
     }
   );

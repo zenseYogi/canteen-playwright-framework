@@ -377,6 +377,35 @@ export class HomeScreen extends BaseScreen {
     }
     await this.tap(this.hamburgerIcon);
     await this.tap('~Schedule overview');
+    await this.scrollScheduleToTop();
     await this.waitFor(this.deliveriesTitle);
+  }
+
+  /**
+   * Scrolls Home's schedule list back to the top.
+   *
+   * Necessary because the "Deliveries" title this method waits on is part of
+   * the SCROLLING content, not a fixed header - it scrolls out of the
+   * accessibility tree entirely once the list moves. Any caller that scrolled
+   * looking for a stop (see DashboardScreen.scrollToAndClickLocationByName,
+   * needed at all because a route can carry 150+ stops) would otherwise leave
+   * every subsequent returnToHome() failing with "Deliver... still not
+   * displayed" - live-hit twice on 2026-08-25, each time presenting as a
+   * login failure several tests later rather than at its real cause.
+   *
+   * Cheap and idempotent: scrolling up on an already-top list is a no-op, so
+   * this runs unconditionally rather than trying to detect whether it is
+   * needed.
+   */
+  private async scrollScheduleToTop(maxScrolls = 15): Promise<void> {
+    for (let i = 0; i < maxScrolls; i++) {
+      if (await this.isVisible(this.deliveriesTitle)) {
+        return;
+      }
+      await this.driver.executeScript('mobile: scrollGesture', [
+        { left: 100, top: 600, width: 800, height: 1200, direction: 'up', percent: 1.0 }
+      ]);
+      await this.driver.pause(300);
+    }
   }
 }
