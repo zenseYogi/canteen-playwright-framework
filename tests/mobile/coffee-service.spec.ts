@@ -51,98 +51,172 @@ import { mobileConfig } from '../../config/mobile.config';
  * checklist header reads "Adtalem - Miramar". That mismatch is expected.
  */
 /**
- * CURRENTLY UNUSED - retained deliberately, not dead code.
+ * ---------------------------------------------------------------------------
+ * Runtime stop discovery
+ * ---------------------------------------------------------------------------
  *
- * C-TC-001 used this until 2026-08-25, when all Coffee C-TC cases moved to
- * Charlotte 103 (real ordered stops) and stopped needing a bootstrap. It is
- * kept because Anthony (QA) has asked for ad-hoc order CREATION to be covered
- * as a scenario in its own right, and this encodes the one pairing confirmed
- * to work on this data: customer "Covista" + service "Adtalem - Miramar -
- * OCS/Pantry", the only OCS/Pantry service the picker offers on Route 010.
- * Re-verify before reusing - ad-hoc stops may not survive the schedule's
- * delta refresh.
+ * These tests must NOT name a stop. The schedule is explicitly dynamic:
+ * Anthony (QA) confirmed 2026-08-25 that "deltas keep updating the screen -
+ * if a new order is created it will be automatically pulled in", and we have
+ * watched a stop vanish and return within one day, an order number change
+ * under us, a completed stop revert to Pending, and an ad-hoc stop disappear
+ * entirely. A hardcoded stop name therefore fails for DATA reasons and reads
+ * as a regression, which is exactly the confusion the suite exists to remove.
+ *
+ * So a test states its PRECONDITION and this layer finds a stop that satisfies
+ * it, bootstrapping one only as a last resort.
+ *
+ * Note also that Charlotte 103 carries 49 stops, not the handful Home shows
+ * without scrolling - an earlier version of this file drew conclusions from
+ * the first five rows and was wrong to.
  */
-async function reachCoffeeServiceStation(driver: any): Promise<string> {
-  const home = new HomeScreen(driver);
-  const dashboard = new DashboardScreen(driver);
 
+/** Cache of label -> stop name that satisfied it, so one scan is shared across tests in a run. */
+const qualifyingStopCache = new Map<string, string>();
+let cachedStopNames: string[] | null = null;
+
+/** Every stop on the current route, scrolling both tabs (Home renders only a few rows at a time). */
+async function enumerateAllStops(driver: any): Promise<string[]> {
+  if (cachedStopNames) return cachedStopNames;
+  const home = new HomeScreen(driver);
   await home.returnToHome();
-  const names: string[] = [];
+  const seen: string[] = [];
   for (const tab of ['Pending action', 'Completed']) {
     await (await driver.$(`//android.view.View[contains(@content-desc,"${tab}")]`)).click();
-    await driver.pause(2_000);
-    for (const row of [...(await driver.$$('//*[@clickable="true" and @content-desc!=""]'))]) {
-      const n = ((await row.getAttribute('content-desc')) ?? '').split('\n')[0].trim();
-      const chrome = /^(Open navigation menu|Edit schedule|Pending action|Completed)/.test(n);
-      if (n && !chrome && !names.includes(n)) names.push(n);
+    await driver.pause(1_500);
+    let stagnant = 0;
+    for (let i = 0; i < 30 && stagnant < 3; i++) {
+      const before = seen.length;
+      for (const row of [...(await driver.$$('//*[@clickable="true" and @content-desc!=""]'))]) {
+        const n = ((await row.getAttribute('content-desc')) ?? '').split('\n')[0].trim();
+        const chrome = /^(Open navigation menu|Edit schedule|Pending action|Completed)/.test(n);
+        if (n && !chrome && !seen.includes(n)) seen.push(n);
+      }
+      stagnant = seen.length === before ? stagnant + 1 : 0;
+      await driver.executeScript('mobile: scrollGesture', [
+        { left: 100, top: 600, width: 800, height: 1200, direction: 'down', percent: 0.8 }
+      ]);
+      await driver.pause(700);
     }
-  }
-
-  for (const name of names) {
-    await dashboard.clickLocationByName(name);
-    if (await dashboard.isLobCardVisible('coffee').catch(() => false)) {
-      await dashboard.openFirstServiceStation('coffee');
-      return name;
+    // MUST restore the scroll position. Home's "Deliveries" title is what
+    // returnToHome() waits on, and it scrolls off the top - leaving the list
+    // scrolled makes every subsequent returnToHome() fail at login, which is
+    // exactly how this first went wrong.
+    for (let i = 0; i < 12; i++) {
+      await driver.executeScript('mobile: scrollGesture', [
+        { left: 100, top: 600, width: 800, height: 1200, direction: 'up', percent: 1.0 }
+      ]);
     }
-    await home.returnToHome();
+    await driver.pause(700);
   }
-
-  const BOOTSTRAP = 'Covista';
-  await home.returnToHome();
-  await home.openAdhocDeliveryCreation();
-  const adhoc = new AdhocDeliveryScreen(driver);
-  await adhoc.searchCustomer(BOOTSTRAP);
-  await adhoc.selectCustomer(BOOTSTRAP);
-  await adhoc.selectFirstCoffeeService();
-  await adhoc.selectServiceType('FULL');
-  await adhoc.submitAddDelivery();
-
-  await home.returnToHome();
-  await dashboard.clickLocationByName(BOOTSTRAP);
-  await dashboard.openFirstServiceStation('coffee');
-  return BOOTSTRAP;
+  cachedStopNames = seen;
+  return seen;
 }
 
-
 /**
- * Leaves the caller on a Coffee stop whose Deliveries screen is EMPTY, which
- * C-TC-005 needs and no seeded stop on Charlotte 103 provides - 24Hundred
- * Marketplace, the route's only real Coffee stop, has requested fills.
+ * Leaves the caller wherever `qualify` left them on a Coffee stop that
+ * satisfies it, and returns that stop's name.
  *
- * An ad-hoc delivery is the intended way to get this state: Anthony (QA)
- * confirmed 2026-08-25 that ad-hoc orders have NO products by design and must
- * be filled manually, so a fresh one lands exactly on "No Deliveries
- * Requested."
+ * `qualify` runs with the stop's Coffee checklist open and may navigate freely
+ * - whatever screen it ends on is what the caller inherits, so it can double
+ * as the test's own navigation.
  *
- * Uses Amerock deliberately, NOT 24Hundred Marketplace: C-TC-002/003/004 all
- * drive 24Hundred, and adding a second Coffee station there would change which
- * one openFirstServiceStation('coffee') picks and break them. Live-verified
- * the ad-hoc Service picker is scoped to the chosen customer on this route,
- * and Amerock offers exactly one OCS/Pantry service ("Maint: Amerock").
- * Idempotent - only creates the stop if Amerock has no Coffee card yet.
+ * Order tried: the stop cached for this label (fast path, usually one open),
+ * then `preferred`, then every other stop on the route. Bounded by `maxScan`
+ * so a route where nothing qualifies fails in reasonable time with a clear
+ * message rather than walking all 49 stops indefinitely.
  */
-async function reachEmptyCoffeeDeliveries(driver: any): Promise<void> {
+async function reachCoffeeStop(
+  driver: any,
+  label: string,
+  qualify: (coffee: CoffeeServiceScreen) => Promise<boolean>,
+  preferred: string[] = [],
+  maxScan = 10
+): Promise<string> {
   const home = new HomeScreen(driver);
   const dashboard = new DashboardScreen(driver);
   const coffee = new CoffeeServiceScreen(driver);
 
-  await home.returnToHome();
-  await dashboard.clickLocationByName('Amerock');
-  const alreadyHasCoffee = await dashboard.isLobCardVisible('coffee').catch(() => false);
-  await home.returnToHome();
+  const attempt = async (name: string): Promise<boolean> => {
+    await home.returnToHome();
+    try {
+      await dashboard.clickLocationByName(name);
+    } catch {
+      return false; // No longer on the schedule.
+    }
+    if (!(await dashboard.isLobCardVisible('coffee').catch(() => false))) return false;
+    await dashboard.openFirstServiceStation('coffee');
+    return qualify(coffee).catch(() => false);
+  };
 
-  if (!alreadyHasCoffee) {
-    const adhoc = new AdhocDeliveryScreen(driver);
+  const cached = qualifyingStopCache.get(label);
+  const ordered = [...(cached ? [cached] : []), ...preferred];
+  for (const name of ordered) {
+    if (await attempt(name)) {
+      qualifyingStopCache.set(label, name);
+      return name;
+    }
+  }
+
+  let scanned = 0;
+  for (const name of await enumerateAllStops(driver)) {
+    if (ordered.includes(name)) continue;
+    if (scanned++ >= maxScan) break;
+    if (await attempt(name)) {
+      qualifyingStopCache.set(label, name);
+      return name;
+    }
+  }
+  throw new Error(
+    `No Coffee stop satisfying "${label}" found (tried ${ordered.length} preferred + ${scanned} scanned).`
+  );
+}
+
+/**
+ * Leaves the caller on a Coffee stop whose Deliveries screen is EMPTY - the
+ * precondition C-TC-005 needs.
+ *
+ * Discovery first: a real stop with no requested fills is far better evidence
+ * than one we manufactured. Only if the route genuinely has none does this
+ * bootstrap an ad-hoc Coffee delivery, which by design arrives with no
+ * products (Anthony, 2026-08-25) and so lands exactly on "No Deliveries
+ * Requested."
+ *
+ * The bootstrap deliberately targets an account OTHER than whichever stop the
+ * with-deliveries tests settled on, so it cannot disturb them, and is
+ * idempotent - it only creates a stop when that account has no Coffee card.
+ */
+async function reachCoffeeStopWithEmptyDeliveries(driver: any): Promise<void> {
+  try {
+    await reachCoffeeStop(driver, 'coffee-empty-deliveries', async (c) => {
+      await c.openDelivery();
+      return c.isDeliveriesEmptyStateVisible();
+    }, ['Amerock']);
+    return;
+  } catch {
+    // Fall through to bootstrapping one.
+  }
+
+  const home = new HomeScreen(driver);
+  const dashboard = new DashboardScreen(driver);
+  const coffee = new CoffeeServiceScreen(driver);
+  const adhoc = new AdhocDeliveryScreen(driver);
+  const BOOTSTRAP = 'Amerock';
+
+  await home.returnToHome();
+  await dashboard.clickLocationByName(BOOTSTRAP);
+  const hasCoffee = await dashboard.isLobCardVisible('coffee').catch(() => false);
+  await home.returnToHome();
+  if (!hasCoffee) {
     await home.openAdhocDeliveryCreation();
-    await adhoc.searchCustomer('Amerock');
-    await adhoc.selectCustomer('Amerock');
+    await adhoc.searchCustomer(BOOTSTRAP);
+    await adhoc.selectCustomer(BOOTSTRAP);
     await adhoc.selectCoffeeServiceFor('Maint: Amerock');
     await adhoc.selectServiceType('FULL');
     await adhoc.submitAddDelivery();
     await home.returnToHome();
   }
-
-  await dashboard.clickLocationByName('Amerock');
+  await dashboard.clickLocationByName(BOOTSTRAP);
   await dashboard.openFirstServiceStation('coffee');
   await coffee.openDelivery();
 }
@@ -1081,9 +1155,8 @@ test.describe('Coffee - Equipment audit (regression suite C-TC-xxx)', () => {
         await home.returnToHome();
       });
 
-      await test.step("Open 24Hundred Marketplace's Coffee service station", async () => {
-        await dashboard.clickLocationByName('24Hundred Marketplace');
-        await dashboard.openFirstServiceStation('coffee');
+      await test.step('Reach any Coffee service station', async () => {
+        await reachCoffeeStop(driver, 'any-coffee', async () => true, ['24Hundred Marketplace']);
       });
 
       await test.step('Open Equipment audit and the Add Equipment form', async () => {
@@ -1138,11 +1211,13 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
         await home.returnToHome();
       });
 
-      await test.step('Open the Coffee stop and reach Signing Order via Delivery', async () => {
-        await dashboard.clickLocationByName('24Hundred Marketplace');
-        await dashboard.openFirstServiceStation('coffee');
-        await coffee.openDelivery();
-        expect(await coffee.isDeliveryContinueEnabled()).toBe(true);
+      await test.step('Reach Signing Order on a Coffee stop that has requested deliveries', async () => {
+        // Precondition, not a stop name: Delivery must be submittable, which
+        // requires the stop to actually have requested fills.
+        await reachCoffeeStop(driver, 'coffee-with-deliveries', async (c) => {
+          await c.openDelivery();
+          return c.isDeliveryContinueEnabled();
+        }, ['24Hundred Marketplace']);
         // No confirmation dialog any more - removed at customer request
         // (Anthony, 2026-08-25); Continue lands straight on Signing Order.
         await coffee.tapDeliveryContinue();
@@ -1205,9 +1280,10 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       });
 
       await test.step('Reach the Order payment screen and select Check', async () => {
-        await dashboard.clickLocationByName('24Hundred Marketplace');
-        await dashboard.openFirstServiceStation('coffee');
-        await coffee.openDelivery();
+        await reachCoffeeStop(driver, 'coffee-with-deliveries', async (c) => {
+          await c.openDelivery();
+          return c.isDeliveryContinueEnabled();
+        }, ['24Hundred Marketplace']);
         await coffee.tapDeliveryContinue();
         await coffee.openOrderPayment();
         await coffee.choosePaymentType('Check');
@@ -1283,9 +1359,10 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       });
 
       await test.step('Reach Signing Order', async () => {
-        await dashboard.clickLocationByName('24Hundred Marketplace');
-        await dashboard.openFirstServiceStation('coffee');
-        await coffee.openDelivery();
+        await reachCoffeeStop(driver, 'coffee-with-deliveries', async (c) => {
+          await c.openDelivery();
+          return c.isDeliveryContinueEnabled();
+        }, ['24Hundred Marketplace']);
         await coffee.tapDeliveryContinue();
       });
 
@@ -1348,7 +1425,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       });
 
       await test.step('Reach a Coffee stop with no requested deliveries', async () => {
-        await reachEmptyCoffeeDeliveries(driver);
+        await reachCoffeeStopWithEmptyDeliveries(driver);
       });
 
       await test.step('C-TC-005: date, route and Deliveries heading are shown', async () => {
@@ -1400,7 +1477,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       await prepTasks.openFromHamburgerMenu();
       await prepTasks.ensureFullDayPrepComplete();
       await home.returnToHome();
-      await reachEmptyCoffeeDeliveries(driver);
+      await reachCoffeeStopWithEmptyDeliveries(driver);
 
       expect(await coffee.isDeliveryFeeLineVisible('Shipping & Handling')).toBe(true);
       expect(await coffee.isDeliveryFeeLineVisible('Delivery Charge')).toBe(true);
@@ -1438,11 +1515,15 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
         await home.returnToHome();
       });
 
-      await test.step('Open the Coffee stop and start a new presale order', async () => {
-        await dashboard.clickLocationByName('24Hundred Marketplace');
-        await dashboard.openFirstServiceStation('coffee');
-        await coffee.openAddPresaleFromChecklist();
-        expect(await coffee.isPresalesEmptyStateVisible()).toBe(true);
+      await test.step('Reach a Coffee stop whose Pre-sales is empty, and start an order', async () => {
+        // Precondition: the stop must have NO saved presales, since the final
+        // assertion is that the empty state is still there after cancelling.
+        // Discovering this at runtime also means C-TC-010 consuming one stop's
+        // empty state simply pushes this test onto another.
+        await reachCoffeeStop(driver, 'coffee-empty-presales', async (c) => {
+          await c.tapAddPresaleTrigger();
+          return c.isPresalesEmptyStateVisible();
+        }, ['24Hundred Marketplace']);
         await coffee.openAddPresalesOrder();
       });
 
@@ -1502,10 +1583,20 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
         await home.returnToHome();
       });
 
-      await test.step("Open Amerock's Coffee stop and start a presale", async () => {
-        await dashboard.clickLocationByName('Amerock');
-        await dashboard.openFirstServiceStation('coffee');
-        await coffee.tapAddPresaleTrigger();
+      await test.step('Reach a Coffee stop and start a presale', async () => {
+        // Saving a presale destroys a stop's Pre-sales empty state, which
+        // C-TC-007 needs - so deliberately prefer a stop OTHER than the one
+        // C-TC-007 settled on, and let discovery sort it out if that is gone.
+        const usedByCancelTest = qualifyingStopCache.get('coffee-empty-presales');
+        await reachCoffeeStop(
+          driver,
+          'coffee-for-presale-save',
+          async (c) => {
+            await c.tapAddPresaleTrigger();
+            return true;
+          },
+          ['Amerock', '24Hundred Marketplace'].filter((n) => n !== usedByCancelTest)
+        );
         await coffee.openAddPresalesOrder();
       });
 
