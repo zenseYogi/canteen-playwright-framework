@@ -277,6 +277,34 @@ export class CoffeeServiceScreen extends BaseScreen {
     await this.waitFor(this.addPresalesOrderAnchor);
   }
 
+  /** C-TC-031 - how many product rows the presale search returned. */
+  async getPresaleSearchResultCount(): Promise<number> {
+    return [...(await this.driver.$$('//android.view.View[contains(@content-desc,"pkg:")]'))].length;
+  }
+
+  /**
+   * C-TC-031 - the Add Presale form's own product row, read from its HINT
+   * (e.g. "A&WZeroSugarRtBeer 20oz | SKU : 6217 | pkg: 1 | Qty"), or '' if no
+   * product has been added yet.
+   *
+   * Read as a whole rather than matched against the name the search results
+   * showed: live-verified 2026-08-26 the two screens use DIFFERENT name forms
+   * for the same product - the results list carries the full catalogue name
+   * while the form shows an abbreviated one - so asserting the search name
+   * appears verbatim on the form would fail for a correctly added product.
+   * What the case actually needs is that the product's details (name, SKU,
+   * packaging, quantity) landed on the parent screen at all.
+   */
+  async getPresaleFormProductHint(): Promise<string> {
+    for (const el of [...(await this.driver.$$('//android.widget.EditText'))]) {
+      const hint = ((await el.getAttribute('hint')) ?? '').replace(/\n/g, ' | ');
+      if (hint.includes('SKU')) {
+        return hint;
+      }
+    }
+    return '';
+  }
+
   /** C-TC-010 - saves the in-progress presale. */
   async saveAddPresalesOrder(): Promise<void> {
     await this.tap(this.addPresalesOrderAnchor);
@@ -1081,6 +1109,30 @@ export class CoffeeServiceScreen extends BaseScreen {
     return `//android.widget.EditText[@hint="${hint}"]`;
   }
 
+  /**
+   * Focus-tolerant locator for READING or WRITING a payment input.
+   *
+   * Live-verified 2026-08-26: this screen's `hint` SWAPS WITH FOCUS. Unfocused,
+   * the Amount input reports its floating label "Amount*"; once focused it
+   * reports the in-field placeholder "Enter amount*" instead. So an exact-hint
+   * locator resolves fine, and then fails on the very next call after any
+   * interaction focused the field - which is exactly how C-TC-023 broke, with
+   * a misleading "Amount* still not displayed" for a field plainly on screen.
+   *
+   * Matches the label's core word case-insensitively (the placeholder
+   * lower-cases it), so it holds in either state.
+   *
+   * NOTE the asterisk is stripped here, which is why this must NOT be used for
+   * the mandatory-vs-optional checks: those depend on distinguishing "Amount*"
+   * from "Amount", and they keep using the exact matcher above.
+   */
+  private paymentInputByLabel(label: string): string {
+    const core = label.replace(/\*+$/, '').toLowerCase();
+    const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const lower = 'abcdefghijklmnopqrstuvwxyz';
+    return `//android.widget.EditText[contains(translate(@hint,'${upper}','${lower}'),'${core}')]`;
+  }
+
   /** C-TC-002 - opens the Order payment screen from Signing Order's Payment row. */
   async openOrderPayment(): Promise<void> {
     await this.tap(this.paymentRow);
@@ -1379,6 +1431,27 @@ export class CoffeeServiceScreen extends BaseScreen {
     await this.waitFor(this.signingOrderTitle);
   }
 
+  /**
+   * C-TC-054 - the delivery's order number as displayed, or '' if none.
+   *
+   * Matched in JS rather than XPath for two reasons. The label has been seen
+   * in more than one shape ("Order #..." here, bare "Order 13517404" on
+   * Market), so an exact prefix is unsafe; and a loose contains("Order") would
+   * also match the Deliveries list's own "Ordered" column header, which is a
+   * false positive on precisely the thing under test - the same trap as
+   * contains("Tax") matching "(Taxable)".
+   */
+  async getDeliveryOrderNumber(): Promise<string> {
+    for (const el of [...(await this.driver.$$('//*[contains(@content-desc,"Order")]'))]) {
+      const desc = ((await el.getAttribute('content-desc')) ?? '').replace(/\n/g, ' ');
+      const match = desc.match(/Order\s*#?\s*(\d{3,})/);
+      if (match) {
+        return match[0];
+      }
+    }
+    return '';
+  }
+
   /** C-TC-002/C-TC-022 - whether the Order payment screen itself is still displayed (its own title). */
   async isOrderPaymentScreenVisible(): Promise<boolean> {
     return this.isVisible(this.orderPaymentTitle);
@@ -1386,7 +1459,7 @@ export class CoffeeServiceScreen extends BaseScreen {
 
   /** C-TC-003 - types into an Order payment input, matched by hint. */
   async typePaymentField(hint: string, value: string): Promise<void> {
-    const f = await this.driver.$(this.paymentInputByHint(hint));
+    const f = await this.driver.$(this.paymentInputByLabel(hint));
     await f.waitForDisplayed({ timeout: 15_000 });
     await f.click();
     await f.setValue(value);
@@ -1394,14 +1467,14 @@ export class CoffeeServiceScreen extends BaseScreen {
 
   /** C-TC-003 - reads back an Order payment input's current value. */
   async getPaymentFieldValue(hint: string): Promise<string> {
-    const f = await this.driver.$(this.paymentInputByHint(hint));
+    const f = await this.driver.$(this.paymentInputByLabel(hint));
     await f.waitForDisplayed({ timeout: 15_000 });
     return (await f.getAttribute('text')) ?? '';
   }
 
   /** C-TC-003 - clears an Order payment input. */
   async clearPaymentField(hint: string): Promise<void> {
-    const f = await this.driver.$(this.paymentInputByHint(hint));
+    const f = await this.driver.$(this.paymentInputByLabel(hint));
     await f.click();
     await f.clearValue();
   }

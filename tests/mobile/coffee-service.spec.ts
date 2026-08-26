@@ -2154,6 +2154,521 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
     }
   );
 
+  // ==== C-TC-023 / C-TC-024 / C-TC-025 (regression suite "Coffee") ====
+  //
+  // Three sheet rows, all Order Payment "Amount" validation on one screen:
+  //   C-TC-023  empty field   -> driver may proceed, Done stays enabled
+  //   C-TC-024  negatives     -> values rejected, Done stays enabled
+  //   C-TC-025  valid positive-> value accepted and retained, Done stays enabled
+  //
+  // Grouped because reaching this screen is the expensive part (login, Start
+  // Day, stop discovery, Delivery, Continue, Payment - about 50s) and all three
+  // are non-destructive reads and keystrokes against the same field.
+  //
+  // CASH is selected deliberately: it hides Check Number (proven in C-TC-002),
+  // so Amount is the only field in play and a validation error cannot be
+  // mis-attributed to the mandatory Check Number that C-TC-003/C-TC-022 cover.
+  //
+  // NEVER SUBMITS. Done is only ever inspected, never successfully tapped, so
+  // no payment is recorded against a real order. "Allow the driver to proceed"
+  // in C-TC-023's wording is therefore covered as far as the Done button's own
+  // enabled state - actually completing a save is C-TC-026's subject, which is
+  // a real data mutation and is kept separate on purpose.
+  test(
+    'C-TC-023/024/025: Order Payment Amount takes positives, rejects negatives, and never gates Done',
+    { tag: ['@Coffee-C-TC-023', '@Coffee-C-TC-024', '@Coffee-C-TC-025'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach the Order payment screen with Cash selected', async () => {
+        await reachCoffeeStop(driver, 'coffee-with-deliveries', async (c) => {
+          await c.openDelivery();
+          return c.isDeliveryContinueEnabled();
+        }, ['24Hundred Marketplace']);
+        await coffee.tapDeliveryContinue();
+        await coffee.openOrderPayment();
+        await coffee.choosePaymentType('Cash');
+        expect(await coffee.isPaymentFieldVisible('Amount*')).toBe(true);
+      });
+
+      await test.step('C-TC-023: with Amount empty, Done stays enabled', async () => {
+        await coffee.clearPaymentField('Amount*');
+        // Logged because this field's "empty" is not necessarily '' - the
+        // Delivered quantity field elsewhere in this suite clears to "0"
+        // instead, and knowing which matters for reading the assertions below.
+        console.log(`[C-TC-023] Amount after clear = "${await coffee.getPaymentFieldValue('Amount*')}"`);
+        expect(await coffee.isPaymentDoneEnabled()).toBe(true);
+      });
+
+      await test.step('C-TC-025: a valid positive value is accepted and retained', async () => {
+        // Amount is a CURRENCY field that fills from the RIGHT in cents.
+        // Live-verified 2026-08-26: typing "10" lands as 0.1, NOT 10 - the
+        // digits shift in behind two decimal places. So "$10.00" is typed as
+        // "1000". Genuinely surprising, and every later payment test depends on
+        // it (C-TC-026 pays $1.00 by typing "100"), which is why it is spelled
+        // out here rather than hidden in a magic string.
+        await coffee.typePaymentField('Amount*', '1000');
+        expect(Number(await coffee.getPaymentFieldValue('Amount*'))).toBe(10);
+        expect(await coffee.isPaymentDoneEnabled()).toBe(true);
+        // Recorded, not asserted: the cents behaviour above is what makes the
+        // raw "10" case interesting, and whether the field takes a typed
+        // decimal point is not something any of these three cases states.
+        await coffee.clearPaymentField('Amount*');
+        await coffee.typePaymentField('Amount*', '10');
+        console.log(`[C-TC-025] Amount after typing "10" = "${await coffee.getPaymentFieldValue('Amount*')}" (cents fill)`);
+        await coffee.clearPaymentField('Amount*');
+        await coffee.typePaymentField('Amount*', '12.34');
+        console.log(`[C-TC-025] Amount after typing "12.34" = "${await coffee.getPaymentFieldValue('Amount*')}"`);
+      });
+
+      await test.step('C-TC-024: a negative is rejected on the real keypad, and Done stays enabled', async () => {
+        // Live-verified 2026-08-26, and the two input paths DISAGREE:
+        //   setValue("-50")    -> "-50"   (negative survives)
+        //   keystrokes "-50"   -> "0.50"  (the minus is dropped; 5 and 0 fill
+        //                                  in as cents, per C-TC-025's note)
+        //
+        // The KEYSTROKE path is the one asserted, because it is the only one a
+        // driver can actually perform - and on it the app rejects the negative
+        // exactly as C-TC-024 requires. setValue writes straight to the field
+        // and bypasses the IME filter that does the rejecting, so its result is
+        // a harness artefact, NOT a defect. Reporting one off setValue alone
+        // would have been a false positive; the disagreement is recorded here
+        // so the next person does not re-raise it.
+        await coffee.clearPaymentField('Amount*');
+        for (const ch of '-50') {
+          await driver.keys(ch);
+        }
+        const viaKeys = await coffee.getPaymentFieldValue('Amount*');
+        console.log(`[C-TC-024] keystrokes "-50" -> "${viaKeys}"`);
+        expect(viaKeys.startsWith('-')).toBe(false);
+        expect(Number(viaKeys)).toBeGreaterThanOrEqual(0);
+        // Done is never gated on the Amount's validity - the other half of the
+        // case, and true regardless of which path put the value there.
+        expect(await coffee.isPaymentDoneEnabled()).toBe(true);
+      });
+
+      await test.step('Leave without saving, so no payment is recorded', async () => {
+        await coffee.clearPaymentField('Amount*');
+        await coffee.pressKeyCode(4);
+      });
+    }
+  );
+
+  // ==== C-TC-026 (regression suite "Coffee", build 0.1.90) ====
+  //
+  // "Payment can be saved without entering comments" -> payment details should
+  // be saved successfully, and the driver should navigate back to the Signing
+  // Order screen.
+  //
+  // THIS TEST RECORDS A REAL PAYMENT. Unlike every other Coffee C-TC written so
+  // far, it cannot be undone from the app: the whole point of the case is a
+  // successful save, so it commits an Amount against a live order on Charlotte
+  // 103. Explicitly authorised by the user 2026-08-26. Deliberate mitigations:
+  //   - CASH, so no Check Number is required and the save is the simplest
+  //     possible one (see C-TC-003/C-TC-022 for the Check path's validation)
+  //   - an Amount of $1.00 (typed as "100" - the field fills in cents), the
+//     smallest clean value that still proves a save
+  //   - it re-reads the value afterwards rather than trusting the navigation,
+  //     because "navigated back" alone does not prove anything was stored
+  //
+  // Comments is left EMPTY on purpose - that IS the case. Its optionality is
+  // asserted first, since this screen signals optional-vs-mandatory ONLY by the
+  // absence of a trailing asterisk (Amount* and Check Number* carry one).
+  test(
+    'C-TC-026: a payment saves with Comments left empty and returns to Signing Order',
+    { tag: ['@Coffee-C-TC-026'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach the Order payment screen', async () => {
+        await reachCoffeeStop(driver, 'coffee-with-deliveries', async (c) => {
+          await c.openDelivery();
+          return c.isDeliveryContinueEnabled();
+        }, ['24Hundred Marketplace']);
+        await coffee.tapDeliveryContinue();
+        await coffee.openOrderPayment();
+        // Logged so a re-run against an order that already carries a payment
+        // from a previous run is readable in the output rather than confusing.
+        console.log(`[C-TC-026] Amount on arrival = "${await coffee.getPaymentFieldValue('Amount*')}"`);
+      });
+
+      await test.step('C-TC-026: Comments is optional, Amount is mandatory', async () => {
+        await coffee.choosePaymentType('Cash');
+        expect(await coffee.isPaymentFieldOptional('Comments')).toBe(true);
+        expect(await coffee.isPaymentFieldVisible('Amount*')).toBe(true);
+      });
+
+      await test.step('C-TC-026: enter an Amount, leave Comments blank, and save', async () => {
+        await coffee.clearPaymentField('Amount*');
+        // "100", not "1" - the field fills from the right in cents, so "1"
+        // would record $0.01. See C-TC-025's own note. This records $1.00.
+        await coffee.typePaymentField('Amount*', '100');
+        // Read, never cleared. Unlike Amount, the Comments placeholder ("Write
+        // brief about payment") shares no word with its label, so once focused
+        // it cannot be re-resolved by label at all - and there is nothing to
+        // clear anyway, since leaving it untouched IS the case.
+        expect(await coffee.getPaymentFieldValue('Comments')).toBe('');
+        expect(await coffee.isPaymentDoneEnabled()).toBe(true);
+        await coffee.tapPaymentDone();
+      });
+
+      await test.step('C-TC-026: the save is accepted with no validation error', async () => {
+        // Asserted BEFORE the navigation check: if the app rejected the blank
+        // Comments, the error would be the real finding and "did not navigate"
+        // would only be its symptom.
+        expect(await coffee.isPaymentValidationErrorVisible()).toBe(false);
+      });
+
+      await test.step('C-TC-026: the driver is returned to the Signing Order screen', async () => {
+        await expect.poll(() => coffee.isSigningOrderTitleVisible(), { timeout: 20_000 }).toBe(true);
+        expect(await coffee.isOrderPaymentScreenVisible()).toBe(false);
+      });
+
+      await test.step('C-TC-026: the payment persisted - reopening Payment shows the saved Amount', async () => {
+        // The case says "saved successfully", and navigating back does not
+        // prove that on its own - the value has to still be there.
+        await coffee.openOrderPayment();
+        console.log(`[C-TC-026] Amount after save = "${await coffee.getPaymentFieldValue('Amount*')}"`);
+        expect(Number(await coffee.getPaymentFieldValue('Amount*'))).toBe(1);
+      });
+    }
+  );
+
+  // ==== C-TC-054 (regression suite "Coffee") ====
+  //
+  // "Order number displays on Delivery page when an order exists; when the
+  // driver opens a delivery with no associated order, 'No Orders' should be
+  // displayed instead."
+  //
+  // The Coffee counterpart of Market's M-TC-004, which already proves this
+  // shape on its own LOB. Both halves are asserted here on Coffee, because the
+  // sub-feature row covers Coffee explicitly and a Market pass is not evidence
+  // about a different LOB's screen.
+  //
+  // Needs TWO stops - one with a real backend order, one without - so both are
+  // reached by precondition rather than by name. The no-order side is the same
+  // empty-Deliveries stop C-TC-005/011/014 use, which is ad-hoc and therefore
+  // has no order by design (Anthony, 2026-08-25).
+  //
+  // NON-DESTRUCTIVE: reads only.
+  test(
+    'C-TC-054: a Delivery page with no associated order states that no fills are requested',
+    { tag: ['@Coffee-C-TC-054'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('C-TC-054: a stop with NO order communicates that no fills are requested', async () => {
+        await reachCoffeeStopWithEmptyDeliveries(driver);
+        console.log(`[C-TC-054] Deliveries text (no order): ${await coffee.getVisibleScreenText()}`);
+        // Coffee's wording is "No Deliveries Requested.", NOT the "No Orders"
+        // the case names - see the second gap test below. What IS true, and
+        // worth guarding, is that the screen states the absence explicitly and
+        // shows no order number.
+        expect(await coffee.isDeliveriesEmptyStateVisible()).toBe(true);
+        expect(await coffee.getDeliveryOrderNumber()).toBe('');
+      });
+    }
+  );
+
+  // FAILING HALF of C-TC-054 - no order number is rendered on the Delivery page.
+  //
+  // Live-verified 2026-08-26 on a stop with a REAL backend order (two products,
+  // Ordered 8 each). The Deliveries screen's entire text is:
+  //   "Deliveries | section_header_add_cta | section_header_sort_cta |
+  //    Delivery Charge (Nontaxable) $12.00 | Shipping & Handling (Taxable)
+  //    $1.06 | Hi-C Pop Pnk Lmnade BIB 5gal (Pkg: 1) (Price: 119.6) Ordered 8 |
+  //    Texas Pete Pkts 200ct (Pkg: 1) (Price: 41.09) Ordered 8 | Continue"
+  // - no order number anywhere.
+  //
+  // This is the SAME absence C-TC-033's gap case records on Signing Order, so
+  // order numbers appear to be missing from the Coffee delivery flow generally
+  // in build 0.1.90, not from one screen. Directly relevant to the delivery-
+  // header question already open with Anthony.
+  //
+  // Asserted as INTENDED behaviour under test.fail() so it flags when fixed.
+  test(
+    'C-TC-054 (gap): the Delivery page shows an order number when an order exists',
+    { tag: ['@Coffee-C-TC-054'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+      await prepTasks.openFromHamburgerMenu();
+      await prepTasks.ensureFullDayPrepComplete();
+      await home.returnToHome();
+
+      await reachCoffeeStop(driver, 'coffee-with-deliveries', async (c) => {
+        await c.openDelivery();
+        return c.isDeliveryContinueEnabled();
+      }, ['24Hundred Marketplace']);
+
+      expect(await coffee.getDeliveryOrderNumber()).not.toBe('');
+    }
+  );
+
+  // SECOND FAILING HALF of C-TC-054 - the "No Orders" wording.
+  //
+  // Kept as its own test rather than folded into the order-number gap above,
+  // because they are independent defects: one is a missing value, the other a
+  // missing label, and either could be fixed without the other. (C-TC-033's
+  // gap groups four clauses and therefore will not flag on a partial fix -
+  // avoided here.)
+  //
+  // Live-verified 2026-08-26: a Coffee stop with no associated order renders
+  //   "Information | i | No Deliveries Requested. | This service stop doesn't
+  //    have any requested fills. ..."
+  // - it never uses the string "No Orders". Market's M-TC-004 asserts exactly
+  // that string and passes on its own LOB, so this is a CROSS-LOB
+  // INCONSISTENCY on a sheet row whose sub-feature covers both, not simply a
+  // mis-specified case. Measured claim: the screen does communicate the
+  // absence, so this is a labelling difference rather than a functional break.
+  test(
+    'C-TC-054 (gap): a Delivery page with no order shows "No Orders", as Market does',
+    { tag: ['@Coffee-C-TC-054'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+      await prepTasks.openFromHamburgerMenu();
+      await prepTasks.ensureFullDayPrepComplete();
+      await home.returnToHome();
+
+      await reachCoffeeStopWithEmptyDeliveries(driver);
+      expect(await coffee.isSummaryLineVisible('No Orders')).toBe(true);
+    }
+  );
+
+  // ==== C-TC-051 / C-TC-052 / C-TC-053 (regression suite "Coffee") ====
+  //
+  // Numeric entry validation on delivery product quantities:
+  //   C-TC-051  malformed text  -> reject values, keep Continue disabled
+  //   C-TC-052  negative numbers-> reject values, keep Continue disabled
+  //   C-TC-053  valid positives -> accept values, enable Continue
+  //
+  // The Coffee counterparts of Market's M-TC-009/010/011. Those found the
+  // Market Delivery field ACCEPTS malformed and negative input unchanged, with
+  // Continue never reflecting validity - so C-TC-051/052 may well fail here
+  // too. Deliberately NOT assumed: this is a different LOB and a different
+  // widget (Coffee's Delivered quantity uses the app's own keypad), and the
+  // Order Payment field earlier today rejected negatives on the real keypad
+  // while accepting them via setValue. Evidence first.
+  //
+  // This run therefore LOGS the malformed/negative outcomes and asserts only
+  // C-TC-053, which is already known-good from C-TC-014. The other two get
+  // their assertions once the behaviour is known.
+  //
+  // Self-cleaning: the product added here is deleted again, restoring the empty
+  // Deliveries state C-TC-005/011/014 depend on.
+  test(
+    'C-TC-051/052/053: delivery quantity validation - positives accepted, negatives and non-numerics rejected',
+    { tag: ['@Coffee-C-TC-051', '@Coffee-C-TC-052', '@Coffee-C-TC-053'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach an empty Deliveries screen and add one product to type into', async () => {
+        await reachCoffeeStopWithEmptyDeliveries(driver);
+        expect(await coffee.getDeliveryProductRowCount()).toBe(0);
+        expect(await coffee.addFirstDeliverySearchResult('sugar')).not.toBe('');
+        await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+        await expect.poll(() => coffee.getDeliveryProductRowCount(), { timeout: 15_000 }).toBe(1);
+      });
+
+      await test.step('C-TC-053: a valid positive quantity is accepted and enables Continue', async () => {
+        await coffee.setDeliveredQuantity('4');
+        // Compared numerically - this field clears to "0" rather than empty, so
+        // setting 4 lands as the TEXT "04".
+        expect(Number(await coffee.getDeliveredQty())).toBe(4);
+        expect(await coffee.isDeliveriesContinueEnabled()).toBe(true);
+      });
+
+      // Live-verified 2026-08-26 via setValue:
+      //   "abc" -> "0abc", Continue DISABLED
+      //   "-5"  -> "05",   Continue ENABLED
+      //
+      // Read carefully, both are correct behaviour, and neither is the failure
+      // the sheet's wording implies:
+      //
+      // C-TC-051 (malformed): the app's protection is that Continue goes
+      // DISABLED while the field holds something non-numeric, which is what is
+      // asserted. The text landing in the field at all is a HARNESS artefact -
+      // this is the app's own keypad, which has no letter keys, so no driver
+      // can type "abc" here. setValue bypasses it, exactly as it bypassed the
+      // Order Payment field's minus filter earlier today.
+      //
+      // C-TC-052 (negative): the minus IS rejected - "-5" becomes 5. Continue
+      // then enabling is CORRECT, because the sanitised value is a valid
+      // quantity. The sheet's "keep Continue disabled" presumes the value stays
+      // invalid, which it does not; that clause is mis-specified rather than a
+      // defect, so it is documented here instead of being raised against dev
+      // (same call as C-TC-001's business-date wording).
+      await test.step('C-TC-051: non-numeric content keeps Continue disabled', async () => {
+        await coffee.setDeliveredQuantity('abc');
+        const malformed = await coffee.getDeliveredQty();
+        console.log(`[C-TC-051] "abc" -> "${malformed}"`);
+        expect(await coffee.isDeliveriesContinueEnabled()).toBe(false);
+      });
+
+      await test.step('C-TC-052: a negative is rejected, leaving a non-negative quantity', async () => {
+        await coffee.setDeliveredQuantity('-5');
+        const negative = await coffee.getDeliveredQty();
+        console.log(`[C-TC-052] "-5" -> "${negative}"`);
+        // Mechanism-agnostic, as in C-TC-024: what matters is that the field
+        // cannot end up holding a negative, not HOW that is prevented.
+        expect(negative.startsWith('-')).toBe(false);
+        expect(Number(negative)).toBeGreaterThanOrEqual(0);
+      });
+
+      await test.step('Cleanup: remove the added product, restoring the empty state', async () => {
+        await coffee.revealDeliveryProductDelete();
+        await coffee.tapRevealedDeliveryProductDelete();
+        await coffee.confirmDeleteProduct();
+        await coffee.waitForDeleteProductConfirmGone();
+        await expect.poll(() => coffee.getDeliveryProductRowCount(), { timeout: 15_000 }).toBe(0);
+      });
+    }
+  );
+
+  // ==== C-TC-027 / C-TC-031 (regression suite "Coffee") ====
+  //
+  //   C-TC-027  Presale Continue is disabled until at least one product is
+  //             added, then becomes enabled
+  //   C-TC-031  Search returns matching products, and the selected product's
+  //             details appear on the parent screen
+  //
+  // One test because C-TC-031's search happens INSIDE the very order whose
+  // existence flips C-TC-027's Continue - running them apart would mean saving
+  // and deleting a presale twice for no gain.
+  //
+  // SELF-CLEANING, and that is what makes the C-TC-027 assertion meaningful:
+  // it asserts Continue disabled, creates an order, asserts Continue enabled,
+  // then DELETES the order and asserts Continue is disabled once more. The
+  // round trip proves the gate actually tracks the order rather than happening
+  // to be in the right state - and it leaves the stop's Pre-sales empty, which
+  // is the precondition C-TC-007 depends on.
+  test(
+    'C-TC-027/031: presale search shows matching products, and Continue tracks whether an order exists',
+    { tag: ['@Coffee-C-TC-027', '@Coffee-C-TC-031'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      let baseline = 0;
+      await test.step('Reach a Coffee stop whose Pre-sales screen has no saved order', async () => {
+        // Precondition, not a stop name - and it has to be the EMPTY state,
+        // since "Continue is disabled" is only meaningful before any order
+        // exists.
+        await reachCoffeeStop(driver, 'coffee-empty-presales', async (c) => {
+          await c.tapAddPresaleTrigger();
+          return c.isPresalesEmptyStateVisible();
+        }, ['24Hundred Marketplace', 'Amerock']);
+        baseline = await coffee.getSavedPresaleCount();
+        expect(baseline).toBe(0);
+      });
+
+      await test.step('C-TC-027: Continue is disabled while no product has been added', async () => {
+        expect(await coffee.isPresalesContinueEnabled()).toBe(false);
+      });
+
+      await test.step('C-TC-031: searching returns matching products', async () => {
+        await coffee.openAddPresalesOrder();
+        await coffee.typeAddPresalesProduct('sugar');
+        // The results populate asynchronously, so poll rather than read once -
+        // the same race that produced C-TC-011's batch flake.
+        await expect.poll(() => coffee.getPresaleSearchResultCount(), { timeout: 15_000 }).toBeGreaterThan(0);
+      });
+
+      await test.step("C-TC-031: the selected product's details appear on the Add Presale form", async () => {
+        const chosen = await coffee.selectFirstPresaleSearchResult();
+        expect(chosen).not.toBe('');
+        await coffee.dismissPresaleKeypadIfPresent();
+        const onForm = await coffee.getPresaleFormProductHint();
+        console.log(`[C-TC-031] search result "${chosen}" -> form row "${onForm}"`);
+        // Asserted on the DETAILS, not the name: the two screens use different
+        // name forms for the same product (see getPresaleFormProductHint), so a
+        // verbatim name match would fail on a correctly added product.
+        expect(onForm).toContain('SKU');
+        expect(onForm).toContain('Qty');
+      });
+
+      await test.step('C-TC-027: saving the order enables Continue', async () => {
+        await coffee.selectFirstAvailableDeliveryDate();
+        expect(await coffee.isAddPresalesSaveEnabled()).toBe(true);
+        await coffee.saveAddPresalesOrder();
+        await expect.poll(() => coffee.getSavedPresaleCount(), { timeout: 15_000 }).toBe(baseline + 1);
+        expect(await coffee.isPresalesContinueEnabled()).toBe(true);
+      });
+
+      await test.step('C-TC-027: deleting the order disables Continue again', async () => {
+        // The other half of the gate, and the cleanup in one - see this test's
+        // own header on why the round trip matters.
+        await coffee.revealSavedPresaleDelete();
+        await coffee.tapRevealedSavedPresaleDelete();
+        expect(await coffee.isDeletePresaleConfirmVisible()).toBe(true);
+        await coffee.confirmDeletePresale();
+        await coffee.waitForDeletePresaleConfirmGone();
+        await expect.poll(() => coffee.getSavedPresaleCount(), { timeout: 15_000 }).toBe(baseline);
+        expect(await coffee.isPresalesContinueEnabled()).toBe(false);
+      });
+    }
+  );
+
   // ==== C-TC-012 (regression suite "Coffee", build 0.1.90) ====
   //
   // "Driver deletes a saved presale order with confirmation."
