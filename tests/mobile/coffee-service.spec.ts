@@ -2669,6 +2669,455 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
     }
   );
 
+  // ==== C-TC-013 / C-TC-020 / C-TC-032 / C-TC-041 / C-TC-043 / C-TC-049 ====
+  //
+  // THE DESTRUCTIVE BATCH. Everything here permanently completes work on a real
+  // Charlotte 103 stop and CANNOT be undone from the app.
+  //
+  //   C-TC-013  save a signature, tap Continue, Delivery marked complete
+  //   C-TC-032  Signing Order completes with NO payment entered
+  //   C-TC-041  the Coffee service completes without any photos attached
+  //   C-TC-020  Equipment Audit stays optional and does not block completion
+  //   C-TC-049  the service station shows a green tick and full progress
+  //   C-TC-043  Complete Stop navigates to the Schedule screen
+  //
+  // ONE test, deliberately. These are six facets of a SINGLE irreversible
+  // journey - sign off, complete the delivery, complete the station, complete
+  // the stop - so splitting them would burn six stops to learn what one can
+  // show. The sheet itself treats the same walk as end-to-end cases
+  // (C-TC-038/039/040).
+  //
+  // FAIL-SAFE ORDERING. Every read-only assertion and every log happens BEFORE
+  // the first irreversible tap, so a wrong assumption about the UI costs a run
+  // but NOT a stop. The first destructive action is submitSignOff().
+  //
+  // STOP CHOICE. It deliberately avoids whichever stop the rest of the suite
+  // cached as 'coffee-with-deliveries', because completing that one would pull
+  // the precondition out from under eight other tests. Runtime discovery would
+  // recover, but slowly and confusingly.
+  test(
+    'C-TC-013/020/032/041/043/049: sign off, complete the delivery, the station, and the stop',
+    {
+      tag: [
+        '@Coffee-C-TC-013',
+        '@Coffee-C-TC-020',
+        '@Coffee-C-TC-032',
+        '@Coffee-C-TC-041',
+        '@Coffee-C-TC-043',
+        '@Coffee-C-TC-049'
+      ]
+    },
+    async ({ driver }) => {
+      test.setTimeout(1_200_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      let stopName = '';
+      await test.step('Reach a Coffee stop with deliveries, avoiding the one other tests rely on', async () => {
+        // NO preferred list on purpose. An earlier version filtered out
+        // whichever stop the cache held for 'coffee-with-deliveries', which
+        // does nothing when this test runs in ISOLATION - the cache is
+        // process-scoped and empty, so the filter removed nothing and the run
+        // completed the very stop eight other tests depend on. Letting
+        // discovery scan means it lands on whatever stop qualifies, rather than
+        // preferring the shared one by name.
+        stopName = await reachCoffeeStop(
+          driver,
+          'coffee-to-complete',
+          async (c) => {
+            // TWO conditions, and the second matters as much as the first: the
+            // stop must have deliveries AND be UNWORKED. An earlier run signed
+            // off on 24Hundred Marketplace without finishing, and because that
+            // stop is simply first in scan order, discovery kept returning to
+            // it - so the run failed on its own baseline instead of finding a
+            // clean stop. Requiring "Delivery not already complete" makes
+            // discovery skip any partially-worked stop by itself, which is
+            // more robust than naming stops to avoid.
+            await c.openDelivery();
+            if (!(await c.isDeliveryContinueEnabled())) {
+              return false;
+            }
+            await c.pressKeyCode(4);
+            await driver.pause(1_500);
+            // "Complete Delivery" still present == the service is NOT yet
+            // finished. This replaces an earlier check on the Delivery TILE's
+            // green, which was semantically wrong: the tile turns green once
+            // the order is SIGNED, well before the service is complete, so it
+            // rejected a stop that was still perfectly workable and the scan
+            // then exhausted itself having skipped the only viable candidate.
+            return c.isVisible('~Complete Delivery');
+          },
+          []
+        );
+        console.log(`[DESTRUCTIVE] completing stop "${stopName}"`);
+      });
+
+      await test.step('C-TC-041/C-TC-020 (baseline): photos and Equipment audit are NOT complete', async () => {
+        // Recorded BEFORE anything is completed - this baseline is the whole
+        // basis for C-TC-041 and C-TC-020. Without it, "completed without
+        // photos" could not be distinguished from "photos happened to be done".
+        // Already on the checklist - the qualifier above leaves us here.
+        console.log(`[DESTRUCTIVE] checklist before completion: ${await coffee.getVisibleScreenText()}`);
+        expect(await coffee.isChecklistTileComplete('Before Photos')).toBe(false);
+        expect(await coffee.isChecklistTileComplete('After Photos')).toBe(false);
+        expect(await coffee.isChecklistTileComplete('Equipment audit')).toBe(false);
+        // The service itself is not yet complete. Asserted via the Complete
+        // Delivery button rather than the Delivery tile's colour, for the
+        // reason given in the qualifier above - green there means "signed".
+        expect(await coffee.isVisible('~Complete Delivery')).toBe(true);
+      });
+
+      await test.step('Reach Signing Order (still reversible up to this point)', async () => {
+        await coffee.openDelivery();
+        expect(await coffee.isDeliveryContinueEnabled()).toBe(true);
+        await coffee.tapDeliveryContinue();
+        expect(await coffee.isSigningOrderTitleVisible()).toBe(true);
+      });
+
+      await test.step('C-TC-032: no payment is entered, and Continue is still gated only by the signature', async () => {
+        // The payment row exists and is left alone - that IS the case. Anthony
+        // confirmed Payment is NOT mandatory; only Sign off gates Continue.
+        expect(await coffee.isSummaryLineVisible('Payment')).toBe(true);
+        expect(await coffee.isDeliveryContinueEnabled()).toBe(false);
+      });
+
+      // ---- everything below this line is IRREVERSIBLE ----
+      await test.step('C-TC-013: sign off, and Continue becomes enabled', async () => {
+        // Tolerant of an ALREADY-SIGNED order, and that is not defensive
+        // padding - it is forced by the data. Charlotte 103/YESTERDAY appears
+        // to have exactly one Coffee stop with requested deliveries, and an
+        // earlier run of this very test signed it before failing further on.
+        // Re-signing it does NOT re-enable Sign off: the pad accepts a stroke
+        // (confirmed by screenshot) yet the button stays greyed through a 20s
+        // poll. That behaviour is close to C-TC-018 - "editing a signed
+        // delivery ... clears signature status" - which the sheet itself
+        // records as Fail, so it is very likely the same defect rather than a
+        // scripting problem.
+        //
+        // So: sign when the order is unsigned (the real C-TC-013 path), and
+        // when it is already signed, skip and say so. The remaining cases in
+        // this walk do not depend on who signed.
+        if (await coffee.isDeliveryContinueEnabled()) {
+          console.log('[DESTRUCTIVE] order already signed - skipping the signature (see C-TC-018)');
+          return;
+        }
+        await coffee.openSignOff();
+        expect(await coffee.isSignOffEnabled()).toBe(false);
+        await coffee.drawSignature();
+        await expect.poll(() => coffee.isSignOffEnabled(), { timeout: 20_000 }).toBe(true);
+        await coffee.submitSignOff();
+        await expect.poll(() => coffee.isDeliveryContinueEnabled(), { timeout: 20_000 }).toBe(true);
+      });
+
+      await test.step('C-TC-013/C-TC-032: Continue completes the order with no payment recorded', async () => {
+        await coffee.tapDeliveryContinue();
+        await driver.pause(2_500);
+        console.log(`[DESTRUCTIVE] after Continue: ${await coffee.getVisibleScreenText()}`);
+      });
+
+      await test.step('C-TC-013: the signed order is reflected on the Coffee menu', async () => {
+        // The tile turning green here means SIGNED. Completion proper is
+        // asserted further down via the station's own progress, which is the
+        // unambiguous signal - an earlier run passed this step while progress
+        // was still 0.
+        await expect.poll(() => coffee.isChecklistTileComplete('Delivery'), { timeout: 20_000 }).toBe(true);
+      });
+
+      await test.step('C-TC-041/C-TC-020: no photos and no equipment audit were required', async () => {
+        // Still not complete, yet the delivery went through - which is exactly
+        // what these two cases assert.
+        expect(await coffee.isChecklistTileComplete('Before Photos')).toBe(false);
+        expect(await coffee.isChecklistTileComplete('After Photos')).toBe(false);
+        expect(await coffee.isChecklistTileComplete('Equipment audit')).toBe(false);
+      });
+
+      await test.step('C-TC-013/C-TC-049: Complete Delivery finishes the service', async () => {
+        // Live-verified 2026-08-26 and MISSED by the first attempt: signing off
+        // and tapping Continue returns to the CHECKLIST, where a "Complete
+        // Delivery" button still waits. Until it is tapped the service is not
+        // finished and the station's progress stays at 0 - which is exactly how
+        // that first run failed, with a green-looking Delivery tile but 0%
+        // progress. The tile turning green after sign-off is real but means
+        // "signed", not "service complete".
+        expect(await coffee.isVisible('~Complete Delivery')).toBe(true);
+        await coffee.tap('~Complete Delivery');
+        await driver.pause(3_000);
+        console.log(`[DESTRUCTIVE] after Complete Delivery: ${await coffee.getVisibleScreenText()}`);
+      });
+
+      await test.step('C-TC-049: the service station shows a green tick and full progress', async () => {
+        await coffee.pressKeyCode(4);
+        await driver.pause(2_000);
+        console.log(`[DESTRUCTIVE] stop detail: ${await coffee.getVisibleScreenText()}`);
+        expect(await dashboard.getServiceStationProgress('coffee')).toBe(100);
+        expect(await dashboard.isNthServiceStationComplete('coffee', 'first')).toBe(true);
+      });
+
+      await test.step('C-TC-020: Complete Stop is available despite the skipped Equipment Audit', async () => {
+        expect(await dashboard.isCompleteStopVisible()).toBe(true);
+        expect(await dashboard.isCompleteStopEnabled()).toBe(true);
+      });
+
+      await test.step('C-TC-043: Complete Stop navigates to the Schedule screen', async () => {
+        await dashboard.tapCompleteStop();
+        await driver.pause(3_000);
+        console.log(`[DESTRUCTIVE] after Complete Stop: ${await coffee.getVisibleScreenText()}`);
+        // The Schedule screen is Home - identified by the same "Deliver..."
+        // title returnToHome() anchors on.
+        await expect
+          .poll(() => coffee.isVisible('//android.view.View[contains(@content-desc,"Deliver")]'), { timeout: 20_000 })
+          .toBe(true);
+      });
+    }
+  );
+
+  // ==== C-TC-050 (regression suite "Coffee") ====
+  //
+  // "Driver views stops and navigates to stop preview" - pending stops listed;
+  // tapping one shows the Stop Preview with Date, Location and Service Type.
+  //
+  // Read-only, and deliberately independent of the delivery flow, so it is
+  // unaffected by the stop this session's destructive batch damaged.
+  test(
+    'C-TC-050: pending stops are listed, and opening one shows its Stop Preview',
+    { tag: ['@Coffee-C-TC-050'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      let stopName = '';
+      await test.step('C-TC-050: a Coffee stop is listed and can be opened', async () => {
+        // Discovered, never named - the schedule is volatile (49 -> 157 stops
+        // in a day), so the assertion is that SOME Coffee stop is listed and
+        // reachable, which is what the case actually claims.
+        stopName = await reachCoffeeStop(driver, 'any-coffee', async () => true, []);
+        expect(stopName).not.toBe('');
+        console.log(`[C-TC-050] opened stop "${stopName}"`);
+      });
+
+      await test.step('C-TC-050: the Stop Preview shows Date, Location and Service Type', async () => {
+        await coffee.pressKeyCode(4);
+        await driver.pause(2_000);
+        const preview = await coffee.getVisibleScreenText();
+        console.log(`[C-TC-050] stop preview: ${preview}`);
+        expect(await dashboard.isStopOverviewVisible()).toBe(true);
+        // Location - read from the screen, NOT from getStopHeaderText(): that
+        // helper returns the position badge ("Stop 1 of 48"), not the location
+        // name, despite its name suggesting otherwise. dashboard.screen.ts
+        // already carries a correction noting the same mismatch went uncaught
+        // once because the old assertion only checked length > 0.
+        expect(preview).toContain(stopName);
+        // The address is part of "Location" too, and is what distinguishes a
+        // real preview from a bare title.
+        expect(preview).toMatch(/\d+\s+\w+/);
+        // Service Type - the LOB card. Coffee is the one we navigated in on.
+        expect(await dashboard.isLobCardVisible('coffee')).toBe(true);
+        // Date - matched on the Stop Preview's OWN rendering ("August 25,2026"),
+        // not via isDateRouteHeaderVisible(). That helper looks for the service
+        // screens' "25 Aug 2026 | Route 103" chip, which this screen does not
+        // have: it formats the date differently and carries no route chip at
+        // all. Asserting the shared chip here failed on a screen that plainly
+        // shows its date. The route is not part of what C-TC-050 asks for
+        // (Date, Location, Service Type), so it is not asserted.
+        expect(preview).toMatch(/[A-Z][a-z]+\s+\d{1,2},\s*\d{4}/);
+      });
+    }
+  );
+
+  // ==== C-TC-029 (regression suite "Coffee") ====
+  //
+  // "Scanning or re-adding an existing product increments quantity instead of
+  // duplicating" - quantity up by one, product moves to the top, no duplicate
+  // line.
+  //
+  // The scan half is not automatable (no scanner mechanism in this suite - the
+  // same blocker as C-TC-014's own note); re-adding by search is the path a
+  // scan result feeds into anyway.
+  //
+  // TWO products are added on purpose: "moves to the top" is unobservable with
+  // one row. Runs on the empty-Deliveries stop and deletes both afterwards, so
+  // it is self-cleaning and never touches the damaged stop.
+  test(
+    'C-TC-029: re-adding a product increments it and moves it to the top, without duplicating',
+    { tag: ['@Coffee-C-TC-029'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      let productA = '';
+      let rowA = '';
+      let qtyABefore = 0;
+      await test.step('Reach an empty Deliveries screen and add two different products', async () => {
+        await reachCoffeeStopWithEmptyDeliveries(driver);
+        expect(await coffee.getDeliveryProductRowCount()).toBe(0);
+        productA = await coffee.addDeliverySearchResultAt('sugar', 0);
+        await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+        await expect.poll(() => coffee.getDeliveryProductRowCount(), { timeout: 15_000 }).toBe(1);
+        // Captured while it is the ONLY row, which is the one moment its row
+        // label is unambiguous. Tracking the product by this label rather than
+        // by name is essential: the search result calls it "Canteen Granulated
+        // Sugar Canister" while the row calls it "CanteenSugrCanister20oz", so
+        // a name match fails on a correctly added product - the same trap
+        // documented on Pre-sales, which this test walked straight into first
+        // time round.
+        rowA = (await coffee.getDeliveryProductRowTexts())[0];
+        await coffee.addDeliverySearchResultAt('sugar', 1);
+        await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+        await expect.poll(() => coffee.getDeliveryProductRowCount(), { timeout: 15_000 }).toBe(2);
+        const rowsBefore = await coffee.getDeliveryProductRowTexts();
+        const qtysBefore = await coffee.getAllDeliveredQtyValues();
+        qtyABefore = Number(qtysBefore[rowsBefore.indexOf(rowA)] ?? '0');
+        console.log(`[C-TC-029] product A = "${productA}" -> row "${rowA}" qty ${qtyABefore}`);
+        console.log(`[C-TC-029] rows before re-add: ${JSON.stringify(rowsBefore)}`);
+        console.log(`[C-TC-029] qtys before re-add: ${JSON.stringify(qtysBefore)}`);
+      });
+
+      await test.step('C-TC-029: re-adding the first product does not create a duplicate row', async () => {
+        await coffee.addDeliverySearchResultAt('sugar', 0);
+        await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+        const rows = await coffee.getDeliveryProductRowTexts();
+        console.log(`[C-TC-029] rows after re-add: ${JSON.stringify(rows)}`);
+        console.log(`[C-TC-029] qtys after re-add: ${JSON.stringify(await coffee.getAllDeliveredQtyValues())}`);
+        // The headline clause: still two rows, not three.
+        expect(rows.length).toBe(2);
+      });
+
+      await test.step('C-TC-029: the re-added product moved to the top, with its quantity up by one', async () => {
+        const rows = await coffee.getDeliveryProductRowTexts();
+        const qtys = await coffee.getAllDeliveredQtyValues();
+        // Identity, not name - rowA was captured when it was the only row.
+        expect(rows[0]).toBe(rowA);
+        expect(Number(qtys[0])).toBe(qtyABefore + 1);
+      });
+
+      await test.step('Cleanup: remove both products, restoring the empty state', async () => {
+        for (let i = 0; i < 2; i++) {
+          await coffee.revealRowDeleteResilient('//android.view.View[contains(@content-desc,"Pkg:")]');
+          await coffee.tapRevealedDeliveryProductDelete();
+          await coffee.confirmDeleteProduct();
+          await coffee.waitForDeleteProductConfirmGone();
+        }
+        await expect.poll(() => coffee.getDeliveryProductRowCount(), { timeout: 15_000 }).toBe(0);
+      });
+    }
+  );
+
+  // ==== C-TC-047 (regression suite "Coffee") ====
+  //
+  // "Keypad arrows move only between editable product quantity fields" - focus
+  // should move to the next EDITABLE quantity field, and not to a read-only
+  // ordered quantity or an unrelated button.
+  //
+  // COFFEE'S KEYPAD HAS NO SUCH ARROWS. Live-verified 2026-08-26 by probing
+  // every control on the app's own Deliveries keypad, which is: digits 1-9 and
+  // 0, "-", "+", and four UNLABELLED buttons down the right-hand column at
+  // x=799. With two product rows on screen and focus on the first, each of the
+  // four was tapped in turn:
+  //     side control #0: focus 0 -> -1   (focus lost)
+  //     side control #1: focus 0 -> -1   (focus lost)
+  //     side control #2: focus 0 ->  0   (unchanged)
+  //     side control #3: focus 0 ->  0   (unchanged)
+  // Not one moves focus to the next field. (-1 means focus left the editable
+  // quantity fields entirely.)
+  //
+  // The sheet's sub-feature for this row is "Vending/Market/coffee", so the
+  // arrows may well exist on another LOB's keypad - this says nothing about
+  // Vending. On COFFEE the premise does not hold.
+  //
+  // Written as test.fail() asserting the INTENDED behaviour, not as a passing
+  // test asserting today's absence: the latter would go silently green forever
+  // and never tell us arrows had been added. Same convention as C-TC-005,
+  // C-TC-033 and C-TC-054.
+  //
+  // Distinguishing the focused field NEEDS getFocusedDeliveredQtyIndex(), not
+  // getFocusedFieldHint(): every quantity field shares the hint "Delivered",
+  // so the hint is identical for all of them and cannot answer this question.
+  test(
+    'C-TC-047 (gap): a keypad control moves focus to the next editable quantity field',
+    { tag: ['@Coffee-C-TC-047'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+      await prepTasks.openFromHamburgerMenu();
+      await prepTasks.ensureFullDayPrepComplete();
+      await home.returnToHome();
+
+      await reachCoffeeStopWithEmptyDeliveries(driver);
+      // Self-healing start. An earlier probe run navigated away mid-flow and
+      // left its two products stranded here, which would otherwise break both
+      // this test and C-TC-005/011/014's empty-Deliveries precondition.
+      if ((await coffee.getDeliveryProductRowCount()) > 0) {
+        await coffee.deleteAllDeliveryProducts();
+      }
+
+      await coffee.addDeliverySearchResultAt('sugar', 0);
+      await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+      await coffee.addDeliverySearchResultAt('sugar', 1);
+      await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+      await expect.poll(() => coffee.getDeliveryProductRowCount(), { timeout: 15_000 }).toBe(2);
+
+      await coffee.focusDeliveredQty(0);
+      await driver.pause(1_000);
+      expect(await coffee.getFocusedDeliveredQtyIndex()).toBe(0);
+
+      const controls = await coffee.getKeypadSideControls();
+      let movedToNext = false;
+      for (let i = 0; i < controls.length && !movedToNext; i++) {
+        await coffee.focusDeliveredQty(0);
+        await driver.pause(800);
+        await controls[i].click();
+        await driver.pause(1_000);
+        movedToNext = (await coffee.getFocusedDeliveredQtyIndex()) === 1;
+      }
+
+      // CLEAN UP BEFORE ASSERTING. This is a test.fail() case, so the assertion
+      // below ends the test - anything after it would never run, and the two
+      // products added here would be left stranded on the very stop whose
+      // EMPTY Deliveries state C-TC-005/011/014 depend on. (An earlier version
+      // did exactly that.) Tolerant, because the probe taps unlabelled controls
+      // and can navigate away.
+      await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+      await driver.pause(1_000);
+      await coffee.deleteAllDeliveryProducts().catch(() => undefined);
+      console.log(`[C-TC-047] rows left behind = ${await coffee.getDeliveryProductRowCount()}`);
+
+      expect(movedToNext).toBe(true);
+    }
+  );
+
   // ==== C-TC-012 (regression suite "Coffee", build 0.1.90) ====
   //
   // "Driver deletes a saved presale order with confirmation."

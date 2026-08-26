@@ -1241,6 +1241,83 @@ export class CoffeeServiceScreen extends BaseScreen {
     return name;
   }
 
+  /**
+   * C-TC-029 - adds the Nth product from the Deliveries search results,
+   * returning its name. The indexed sibling of addFirstDeliverySearchResult,
+   * needed by cases that require TWO distinct products (proving a re-added
+   * product moves to the TOP needs something for it to move above).
+   */
+  async addDeliverySearchResultAt(term: string, index: number): Promise<string> {
+    await this.openAddDeliveryProduct();
+    await this.searchDeliveryProductOption(term);
+    const resultRow = '//android.view.View[contains(@content-desc,"pkg:")]';
+    await this.driver.waitUntil(
+      async () => [...(await this.driver.$$(resultRow))].length > index,
+      { timeout: 15_000, timeoutMsg: `Fewer than ${index + 1} delivery products matched "${term}"` }
+    );
+    const rows = [...(await this.driver.$$(resultRow))];
+    const name = ((await rows[index].getAttribute('content-desc')) ?? '').split('\n')[0];
+    await rows[index].click();
+    return name;
+  }
+
+  /** C-TC-029 - every delivery product row's label, in display order, so a re-added product's move to the top is observable. */
+  async getDeliveryProductRowTexts(): Promise<string[]> {
+    const out: string[] = [];
+    for (const row of [...(await this.driver.$$(this.deliveryProductRowAny))]) {
+      out.push(((await row.getAttribute('content-desc')) ?? '').replace(/\n/g, ' '));
+    }
+    return out;
+  }
+
+  /**
+   * C-TC-047 - index of the Delivered quantity field that currently holds
+   * focus, or -1 if focus is not on one at all.
+   *
+   * Positional because EVERY such field shares the hint "Delivered" - live
+   * verified 2026-08-26 - so getFocusedFieldHint() reports the same string for
+   * all of them and cannot tell which row the arrows landed on, which is the
+   * entire question this case asks. -1 is the meaningful failure signal: it
+   * means focus left the editable quantity fields.
+   */
+  async getFocusedDeliveredQtyIndex(): Promise<number> {
+    const fields = [...(await this.driver.$$(this.deliveredQtyField))];
+    for (let i = 0; i < fields.length; i++) {
+      if ((await fields[i].getAttribute('focused').catch(() => 'false')) === 'true') {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  /** C-TC-047 - puts focus on the Nth Delivered quantity field without changing its value. */
+  async focusDeliveredQty(index: number): Promise<void> {
+    const fields = [...(await this.driver.$$(this.deliveredQtyField))];
+    await fields[index].click();
+  }
+
+  /** C-TC-047 - the app keypad's unlabelled right-column controls (arrows/backspace/done), top to bottom. */
+  async getKeypadSideControls(): Promise<any[]> {
+    const out: { el: any; y: number }[] = [];
+    for (const b of [...(await this.driver.$$('//android.widget.Button'))]) {
+      const desc = (await b.getAttribute('content-desc')) ?? '';
+      const loc = await b.getLocation();
+      if (desc === 'null' && loc.x > 700 && loc.y > 1500) {
+        out.push({ el: b, y: loc.y });
+      }
+    }
+    return out.sort((a, b) => a.y - b.y).map((o) => o.el);
+  }
+
+  /** C-TC-047 - every Delivered quantity field's current value, in row order. */
+  async getAllDeliveredQtyValues(): Promise<string[]> {
+    const out: string[] = [];
+    for (const f of [...(await this.driver.$$(this.deliveredQtyField))]) {
+      out.push((await f.getAttribute('text')) ?? '');
+    }
+    return out;
+  }
+
   /** C-TC-011 - swipes the first product row left, revealing its delete control. These rows register the FAST gesture, unlike the saved-presale row. */
   async revealDeliveryProductDelete(): Promise<void> {
     await this.revealRowDelete(this.deliveryProductRowAny);
@@ -1429,6 +1506,24 @@ export class CoffeeServiceScreen extends BaseScreen {
   async confirmSignatureDiscard(): Promise<void> {
     await this.tap(this.signatureDiscardConfirm);
     await this.waitFor(this.signingOrderTitle);
+  }
+
+  /**
+   * C-TC-013/C-TC-041/C-TC-049 - whether a named checklist tile shows its
+   * completion green.
+   *
+   * The tile-level generalisation of isPhotoTileComplete(). Like that one it
+   * must be used DIFFERENTIALLY (assert not-green before, green after): the
+   * tile carries no accessible completed state, so pixel sampling is the only
+   * signal, and an absolute check would pass on a tile an earlier run left
+   * complete. See BaseScreen.hasCompletionGreen.
+   */
+  async isChecklistTileComplete(label: string): Promise<boolean> {
+    const el = await this.driver.$(`//android.view.View[starts-with(@content-desc,"${label}")]`);
+    if (!(await el.isExisting())) {
+      return false;
+    }
+    return this.hasCompletionGreen(el);
   }
 
   /**
