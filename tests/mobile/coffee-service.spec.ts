@@ -1397,7 +1397,14 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
         await coffee.drawSignature();
         expect(await coffee.isSignOffEnabled()).toBe(true);
         await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
-        expect(await coffee.isSignatureDiscardPromptVisible()).toBe(true);
+        // Polled rather than read once - the prompt is a dialog window and
+        // arrives a beat after the BACK press. This assertion passed as an
+        // immediate read earlier in the day and then failed on a slower run,
+        // which is the same race seen on the delete dialog, sign-off
+        // enablement, and the post-relaunch tree.
+        await expect
+          .poll(() => coffee.isSignatureDiscardPromptVisible(), { timeout: 20_000 })
+          .toBe(true);
         expect(await coffee.getSignatureDiscardPromptText()).toContain('signature will be lost');
       });
 
@@ -3624,6 +3631,98 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
         // inside Google Maps.
         await coffee.returnToThisApp();
         await expect.poll(() => coffee.getForegroundPackage(), { timeout: 30_000 }).toBe(ownPackage);
+      });
+    }
+  );
+
+  // ==== C-TC-018 (regression suite "Coffee") ====
+  //
+  // "Editing a signed delivery requires confirmation and clears signature
+  // status" - the Sign for Order completed status should be cleared until a new
+  // signature is obtained. The sheet records this row as **Fail**.
+  //
+  // Needs a SIGNED delivery, not a completable stop - a distinction worth
+  // stating because this case was previously mis-triaged as blocked alongside
+  // the end-to-end ones. A signed-but-not-completed delivery is exactly what
+  // exists on this route, so the precondition is discoverable: find a stop
+  // whose Signing Order tile is already complete.
+  //
+  // MUTATES a signed order deliberately - that IS the case. Editing is the
+  // action under test, and there is no read-only way to observe what an edit
+  // does. The stop it lands on is the one already consumed by the parked
+  // destructive batch, so this adds no NEW data debt.
+  //
+  // Assertions are written to the INTENDED behaviour. If the sheet's Fail is
+  // right they will fail, and the case then converts to test.fail() with the
+  // logged evidence behind it - the same route C-TC-033/054/047 took.
+  test(
+    'C-TC-018: editing a signed delivery confirms, and clears the signed status',
+    { tag: ['@Coffee-C-TC-018'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach a Coffee stop whose delivery is already SIGNED', async () => {
+        await reachCoffeeStop(driver, 'coffee-signed-delivery', async (c) => {
+          // NO back press here. reachCoffeeStop's openFirstServiceStation()
+          // already leaves us ON the checklist; an earlier version pressed BACK
+          // first (copied from a qualifier that had opened Delivery), which
+          // navigated AWAY to the stop detail where the Signing Order tile does
+          // not exist - so every stop failed to qualify and the scan exhausted.
+          //
+          // The tiles render after the checklist's chrome, so wait for them
+          // rather than reading immediately.
+          await driver.pause(1_500);
+          for (let i = 0; i < 10; i++) {
+            if ((await c.getVisibleScreenText()).includes('Signing Order')) {
+              break;
+            }
+            await driver.pause(1_000);
+          }
+          return c.isChecklistTileComplete('Signing Order');
+        }, []);
+        await expect
+          .poll(() => coffee.getVisibleScreenText(), { timeout: 30_000 })
+          .toContain('Signing Order');
+        console.log(`[C-TC-018] checklist BEFORE edit: ${await coffee.getVisibleScreenText()}`);
+        expect(await coffee.isChecklistTileComplete('Signing Order')).toBe(true);
+      });
+
+      await test.step('C-TC-018: editing the delivery raises a confirmation', async () => {
+        await coffee.openDelivery();
+        await expect.poll(() => coffee.getDeliveryProductRowCount(), { timeout: 20_000 }).toBeGreaterThan(0);
+        const qtyBefore = await coffee.getDeliveredQty();
+        // Change the delivered quantity - the smallest real edit to a signed
+        // delivery, and one that does not add or remove anything.
+        await coffee.setDeliveredQuantity(String(Number(qtyBefore) + 1));
+        await driver.pause(2_000);
+        const afterEdit = await coffee.getVisibleScreenText();
+        console.log(`[C-TC-018] qty ${qtyBefore} -> ${await coffee.getDeliveredQty()}`);
+        console.log(`[C-TC-018] screen after edit: ${afterEdit}`);
+        // "requires confirmation" - some dialog should stand between the driver
+        // and an edit that invalidates a customer's signature.
+        expect(afterEdit.toLowerCase()).toMatch(/are you sure|confirm|sign/);
+      });
+
+      await test.step('C-TC-018: the Sign for Order completed status is cleared', async () => {
+        await coffee.pressKeyCode(4);
+        await expect
+          .poll(() => coffee.getVisibleScreenText(), { timeout: 30_000 })
+          .toContain('Signing Order');
+        const afterBack = await coffee.getVisibleScreenText();
+        console.log(`[C-TC-018] checklist AFTER edit: ${afterBack}`);
+        // The heart of the case: an edited delivery must no longer count as
+        // signed until a new signature is taken.
+        expect(await coffee.isChecklistTileComplete('Signing Order')).toBe(false);
       });
     }
   );
