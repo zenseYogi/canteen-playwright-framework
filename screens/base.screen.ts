@@ -655,10 +655,54 @@ export class BaseScreen {
         const x = Math.round(rect.x + dx);
         const y = Math.round(rect.y + dy);
         const idx = (png.width * y + x) << 2;
-        const r = png.data[idx];
-        const g = png.data[idx + 1];
-        const b = png.data[idx + 2];
-        if (g > r + 30 && g > b + 20) {
+        if (this.isCompletionGreen(png.data[idx], png.data[idx + 1], png.data[idx + 2])) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * The green this app paints a completed/checked state in, as distinct from
+   * the surrounding neutral UI.
+   *
+   * Extracted so every pixel-based completion check shares ONE definition and
+   * they cannot drift apart - the threshold was tuned live against the Prep
+   * Tasks checkboxes and is the only thing standing in for an accessibility
+   * signal that does not exist.
+   */
+  private isCompletionGreen(r: number, g: number, b: number): boolean {
+    return g > r + 30 && g > b + 20;
+  }
+
+  /**
+   * Whether a completion green is rendered anywhere inside an element's own
+   * bounds - the tile-level counterpart to isChecklistIconChecked().
+   *
+   * Scans the WHOLE element rather than a corner: isChecklistIconCheckedEl
+   * samples only the top-left 140x140, which is right for a checkbox but wrong
+   * for a checklist TILE, where the tick sits at the row's trailing edge and
+   * would be missed entirely.
+   *
+   * Use this DIFFERENTIALLY - assert no green before the action and green
+   * after. An absolute "is it green" check is not trustworthy on its own: any
+   * incidental green in the row would satisfy it, and a tile already completed
+   * by an earlier run would pass without the test having done anything. The
+   * before/after pair proves the transition, which is what the case is about.
+   */
+  async hasCompletionGreen(el: any): Promise<boolean> {
+    const [location, size] = await Promise.all([el.getLocation(), el.getSize()]);
+    const base64 = await this.driver.takeScreenshot();
+    const png = PNG.sync.read(Buffer.from(base64, 'base64'));
+    const startX = Math.round(location.x) + 4;
+    const endX = Math.min(png.width - 1, Math.round(location.x + size.width) - 4);
+    const startY = Math.round(location.y) + 4;
+    const endY = Math.min(png.height - 1, Math.round(location.y + size.height) - 4);
+    for (let y = startY; y < endY; y += 4) {
+      for (let x = startX; x < endX; x += 4) {
+        const idx = (png.width * y + x) << 2;
+        if (this.isCompletionGreen(png.data[idx], png.data[idx + 1], png.data[idx + 2])) {
           return true;
         }
       }
@@ -742,6 +786,87 @@ export class BaseScreen {
       }
     }
     return false;
+  }
+
+  // ==== Shared swipe-to-reveal-delete primitives ====
+  //
+  // swipeAndDelete() below does this whole flow in one call, which fits a
+  // CLEANUP step but not a TEST of the delete itself: a test needs to assert
+  // the icon appeared, assert the confirmation appeared, and exercise the
+  // decline path before confirming. These three primitives are that same
+  // mechanic decomposed so those assertions can sit between the steps.
+  //
+  // Used by Coffee's C-TC-011 (Deliveries product) and C-TC-012 (saved
+  // presale); TransfersScreen's swipeRouteCardToRevealDelete/isDeleteIconVisible/
+  // tapDeleteIcon are the same three steps written out longhand and can be
+  // collapsed onto these when that suite is next touched.
+  //
+  // The CONFIRMATION is deliberately NOT part of these - it is not consistent
+  // across screens. Deliveries' "Delete Product" dialog answers No/Yes, while
+  // the Pre-sales one answers Cancel/Delete (BaseScreen.deleteButton) despite
+  // carrying the same title. Callers tap their own.
+
+  /**
+   * Swipes a row left to reveal its unlabelled delete Button.
+   *
+   * `slow` is for rows the default 300ms gesture does not register on.
+   * Live-verified 2026-08-25 (build 0.1.90, Coffee Pre-sales): the fast swipe
+   * produced NO reveal on the saved-presale row - the tree came back
+   * byte-identical, which reads exactly like "this row has no delete
+   * affordance" and nearly got C-TC-012 written off as a missing feature. A
+   * 900ms move bracketed by press/release pauses reveals it reliably.
+   * Deliveries' rows tolerate the fast version, so this stays opt-in.
+   */
+  async revealRowDelete(rowSelector: string, opts: { slow?: boolean } = {}): Promise<void> {
+    const row = await this.driver.$(rowSelector);
+    await row.waitForDisplayed({ timeout: mobileConfig.timeouts.element });
+    const loc = await row.getLocation();
+    const size = await row.getSize();
+    if (!opts.slow) {
+      await this.swipe(loc.x + size.width - 10, loc.y + size.height / 2, loc.x + 10, loc.y + size.height / 2);
+      return;
+    }
+    await this.driver
+      .action('pointer', { parameters: { pointerType: 'touch' } })
+      .move({ x: loc.x + size.width - 15, y: loc.y + size.height / 2 })
+      .down()
+      .pause(300)
+      .move({ duration: 900, x: loc.x + 15, y: loc.y + size.height / 2 })
+      .pause(300)
+      .up()
+      .perform();
+  }
+
+  /** Whether the delete Button revealed by revealRowDelete() is showing. Unlabelled everywhere, so addressed as the row's own Button child. */
+  async isRowDeleteIconVisible(rowSelector: string): Promise<boolean> {
+    return this.isVisible(`${rowSelector}/android.widget.Button`);
+  }
+
+  /**
+   * Reveals a row's delete control, escalating from the fast gesture to the
+   * slow one if the fast one did not take. Returns whether anything was
+   * actually revealed.
+   *
+   * Which rows need which gesture is NOT predictable from the screen: Coffee's
+   * Deliveries rows respond to the fast swipe, the saved-presale row responds
+   * ONLY to the slow one, and the Equipment audit CARD - which the fast swipe
+   * used to clear successfully - was live-observed on 2026-08-26 failing it
+   * too, leaving the Button unrevealed and the tap timing out 15s later.
+   * Rather than keep rediscovering this per screen (it has now cost three
+   * separate investigations), try fast, verify, and fall back to slow.
+   */
+  async revealRowDeleteResilient(rowSelector: string): Promise<boolean> {
+    await this.revealRowDelete(rowSelector);
+    if (await this.isRowDeleteIconVisible(rowSelector)) {
+      return true;
+    }
+    await this.revealRowDelete(rowSelector, { slow: true });
+    return this.isRowDeleteIconVisible(rowSelector);
+  }
+
+  /** Taps the delete Button revealed by revealRowDelete(), opening that screen's own confirmation. */
+  async tapRowDeleteIcon(rowSelector: string): Promise<void> {
+    await this.tap(`${rowSelector}/android.widget.Button`);
   }
 
   /** Straight-line swipe via the W3C pointer Actions API (same primitive `tapAt` uses, extended with a move). */

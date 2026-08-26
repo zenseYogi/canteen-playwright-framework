@@ -299,6 +299,88 @@ export class CoffeeServiceScreen extends BaseScreen {
     return this.isEnabled(this.presalesContinueButton);
   }
 
+  // ==== C-TC-012: deleting a SAVED presale order ====
+  //
+  // This is the SAME swipe-to-reveal-an-unlabelled-trash-Button + confirm
+  // popup that TransfersScreen already models (swipeRouteCardToRevealDelete /
+  // tapDeleteIcon / cancelDeleteConfirmation / confirmDelete) and that
+  // BaseScreen.swipeAndDelete() encodes end to end. Deliberately built on the
+  // same two conventions rather than new ones:
+  //   - the revealed control is the row's own `/android.widget.Button` child
+  //     (structural, and far less brittle than locating it by pixel band)
+  //   - the confirmation's buttons are BaseScreen.deleteButton (`~Delete`) and
+  //     `~Cancel` - NOT the No/Yes pair the Deliveries "Delete Product" dialog
+  //     uses, so confirmDeleteProduct() must not be reused here
+  //
+  // swipeAndDelete() itself is still not directly callable, for one reason
+  // live-verified 2026-08-25 (build 0.1.90, Charlotte 103 / Amerock): it uses
+  // the fast swipe(), and on THIS row a 300ms swipe reveals nothing at all -
+  // the tree comes back byte-identical, which reads exactly like "this row has
+  // no delete affordance". Only the slower gesture reveals the Button. Hence
+  // slowSwipeLeftOn() plus the same structural child-Button tap.
+  //
+  // Also worth knowing: the Pre-sales summary exposes no delete control until
+  // that swipe - its whole tree is the order row, "Add Presale", Continue, a
+  // back arrow and a non-clickable chevron.
+  private readonly savedPresaleRow = '//android.view.View[starts-with(@content-desc,"Items")]';
+  // Deliberately anchored on "Delete" alone, not "Delete Product". The
+  // product-row dialog was the one live-verified; the ORDER-row dialog may
+  // well be titled differently ("Delete Order"/"Delete Presale"), and a
+  // too-specific locator would report "no confirmation appeared" - a false
+  // defect - rather than the retitled dialog it actually is. The assertions
+  // read the title back, so a rename shows up as readable text either way.
+  private readonly deletePresaleConfirm = '//*[starts-with(@content-desc,"Delete")]';
+
+  /** C-TC-012 - how many saved presale orders the Pre-sales summary lists. */
+  async getSavedPresaleCount(): Promise<number> {
+    return [...(await this.driver.$$(this.savedPresaleRow))].length;
+  }
+
+  /** C-TC-012 - swipes the first saved presale row left to reveal its delete control. Needs the SLOW gesture - see revealRowDelete. */
+  async revealSavedPresaleDelete(): Promise<void> {
+    await this.revealRowDelete(this.savedPresaleRow, { slow: true });
+  }
+
+  /** C-TC-012 - whether the delete control revealed by revealSavedPresaleDelete() is showing. */
+  async isSavedPresaleDeleteIconVisible(): Promise<boolean> {
+    return this.isRowDeleteIconVisible(this.savedPresaleRow);
+  }
+
+  /** C-TC-012 - taps the delete control revealed by revealSavedPresaleDelete(). */
+  async tapRevealedSavedPresaleDelete(): Promise<void> {
+    await this.tapRowDeleteIcon(this.savedPresaleRow);
+  }
+
+  /** C-TC-012 - whether the presale delete confirmation is showing. */
+  async isDeletePresaleConfirmVisible(): Promise<boolean> {
+    return this.isVisible(this.deletePresaleConfirm);
+  }
+
+  /** C-TC-012 - the presale delete confirmation's full message (title included, so a retitled dialog is readable). */
+  async getDeletePresaleConfirmText(): Promise<string> {
+    const el = await this.driver.$(this.deletePresaleConfirm);
+    await el.waitForDisplayed({ timeout: 15_000 });
+    return ((await el.getAttribute('content-desc')) ?? '').replace(/\n/g, ' ');
+  }
+
+  /** C-TC-012 - confirms the presale deletion. Note "Delete", not the "Yes" the Deliveries dialog uses. */
+  async confirmDeletePresale(): Promise<void> {
+    await this.tap('//android.widget.Button[@content-desc="Delete"]');
+  }
+
+  /** C-TC-012 - declines the presale deletion, leaving the order in place. */
+  async cancelDeletePresale(): Promise<void> {
+    await this.tap('//android.widget.Button[@content-desc="Cancel"]');
+  }
+
+  /** C-TC-012 - waits for the presale delete confirmation to leave the tree (same dialog-window race as the Deliveries one). */
+  async waitForDeletePresaleConfirmGone(timeout = 15_000): Promise<void> {
+    await this.driver.waitUntil(async () => !(await this.isDeletePresaleConfirmVisible()), {
+      timeout,
+      timeoutMsg: 'The presale delete confirmation never closed'
+    });
+  }
+
   /**
    * C-TC-007 - selects a Delivery Date on the Add Presale form.
    *
@@ -682,18 +764,17 @@ export class CoffeeServiceScreen extends BaseScreen {
    * empty list instead of tracking deltas against unbounded prior state.
    */
   async deleteAllDeliveryProducts(): Promise<void> {
-    const rowSelector = '//android.view.View[contains(@content-desc,"Pkg:")]';
     for (;;) {
-      const remaining = await this.driver.$$(rowSelector);
+      const remaining = await this.driver.$$(this.deliveryProductRowAny);
       const count = await remaining.length;
       if (count === 0) {
         break;
       }
-      const row = await this.driver.$(rowSelector);
-      const loc = await row.getLocation();
-      const size = await row.getSize();
-      await this.swipe(loc.x + size.width - 10, loc.y + size.height / 2, loc.x + 10, loc.y + size.height / 2);
-      await this.tap(`${rowSelector}/android.widget.Button`);
+      // Same reveal/tap primitives C-TC-011 tests, so the cleanup path and the
+      // tested path cannot drift apart. The confirm stays local: this dialog
+      // answers Yes, not the Cancel/Delete the Pre-sales one uses.
+      await this.revealRowDeleteResilient(this.deliveryProductRowAny);
+      await this.tapRowDeleteIcon(this.deliveryProductRowAny);
       await this.tap('~Yes');
       await this.driver.pause(600);
     }
@@ -907,6 +988,24 @@ export class CoffeeServiceScreen extends BaseScreen {
   private readonly afterPhotos = '//android.view.View[starts-with(@content-desc,"After Photos")]';
 
   /** Opens the After Photos step's "Add supporting photo" modal - see openBeforePhotos's own note on the shared skip-photo flow beyond this. */
+  /**
+   * C-TC-015/C-TC-016 - whether a photo checklist tile shows its completion
+   * green.
+   *
+   * The tile carries NO accessible completed/tick signal of its own (its
+   * content-desc is identical complete or not), which is why the older
+   * TC139-era tests documented the green tick instead of asserting it. Pixel
+   * sampling is the only route, reusing the very predicate the Prep Tasks
+   * checkboxes needed for the same reason - see BaseScreen.hasCompletionGreen,
+   * and note it must be used as a BEFORE/AFTER pair.
+   */
+  async isPhotoTileComplete(which: 'before' | 'after'): Promise<boolean> {
+    const selector = which === 'after' ? this.afterPhotos : this.beforePhotos;
+    const el = await this.driver.$(selector);
+    await el.waitForDisplayed({ timeout: 15_000 });
+    return this.hasCompletionGreen(el);
+  }
+
   async openAfterPhotos(): Promise<void> {
     await this.openPhotoTrigger(this.afterPhotos);
   }
@@ -1090,18 +1189,19 @@ export class CoffeeServiceScreen extends BaseScreen {
     return name;
   }
 
-  /** C-TC-011 - swipes the first product row left, revealing its delete control. */
+  /** C-TC-011 - swipes the first product row left, revealing its delete control. These rows register the FAST gesture, unlike the saved-presale row. */
   async revealDeliveryProductDelete(): Promise<void> {
-    const row = await this.driver.$(this.deliveryProductRowAny);
-    await row.waitForDisplayed({ timeout: 15_000 });
-    const loc = await row.getLocation();
-    const size = await row.getSize();
-    await this.swipe(loc.x + size.width - 10, loc.y + size.height / 2, loc.x + 10, loc.y + size.height / 2);
+    await this.revealRowDelete(this.deliveryProductRowAny);
   }
 
-  /** C-TC-011 - taps the delete control revealed by revealDeliveryProductDelete(). It carries no label, so it is located as the row's own Button child. */
+  /** C-TC-011 - whether the delete control revealed by revealDeliveryProductDelete() is showing. */
+  async isDeliveryProductDeleteIconVisible(): Promise<boolean> {
+    return this.isRowDeleteIconVisible(this.deliveryProductRowAny);
+  }
+
+  /** C-TC-011 - taps the delete control revealed by revealDeliveryProductDelete(). */
   async tapRevealedDeliveryProductDelete(): Promise<void> {
-    await this.tap(`${this.deliveryProductRowAny}/android.widget.Button`);
+    await this.tapRowDeleteIcon(this.deliveryProductRowAny);
   }
 
   /** C-TC-011 - whether the "Delete Product" confirmation is showing. */
@@ -1124,6 +1224,22 @@ export class CoffeeServiceScreen extends BaseScreen {
   /** C-TC-011 - declines the deletion, leaving the product in place. */
   async declineDeleteProduct(): Promise<void> {
     await this.tap('//android.widget.Button[@content-desc="No"]');
+  }
+
+  /**
+   * C-TC-011 - waits for the Delete Product confirmation to actually leave the
+   * tree after Yes/No.
+   *
+   * Needed because the dialog is a separate window: while it is up (and while
+   * it is dismissing), the Deliveries list behind it is not reliably in the
+   * accessibility tree, so an immediate getDeliveryProductRowCount() can read
+   * 0 for a row that is still there.
+   */
+  async waitForDeleteProductConfirmGone(timeout = 15_000): Promise<void> {
+    await this.driver.waitUntil(async () => !(await this.isDeleteProductConfirmVisible()), {
+      timeout,
+      timeoutMsg: 'The Delete Product confirmation never closed'
+    });
   }
 
   // ==== C-TC-005: the Deliveries screen's empty state ====
@@ -1183,6 +1299,57 @@ export class CoffeeServiceScreen extends BaseScreen {
   private readonly signatureDiscardCancel = '//android.widget.Button[@content-desc="Cancel"]';
   private readonly signatureDiscardConfirm = '//android.widget.Button[@content-desc="Go Back"]';
 
+  /**
+   * C-TC-033 - whether a named summary line (e.g. "Service Fee", "Tax") is
+   * rendered on the current screen.
+   *
+   * Matched on `contains`, not an exact label, because these lines pair the
+   * label and its price inside one content-desc.
+   */
+  async isSummaryLineVisible(label: string): Promise<boolean> {
+    // Matches content-desc OR hint. "Items Delivered" is an EditText that
+    // exposes its label ONLY as a hint (live-verified 2026-08-26: the screen's
+    // content-desc dump reads "... 16 | Ordered Items | Delivery summary ..."
+    // with no "Items Delivered" in it at all), the same hint-only pattern the
+    // Order payment screen's inputs use. A content-desc-only match reports
+    // this plainly-visible field as missing.
+    return this.isVisible(
+      `//*[contains(@content-desc,"${label}") or contains(@hint,"${label}")]`
+    );
+  }
+
+  /**
+   * C-TC-033 - whether a real "Tax" line exists in the Cost summary.
+   *
+   * Deliberately NOT a plain contains("Tax"): the Cost summary carries
+   * "Shipping & Handling (Taxable)" and "Delivery Charge (Nontaxable)", both
+   * of which contain the substring, so a naive match reports a Tax line that
+   * is not there - a false pass on exactly the clause under test.
+   */
+  async isTaxLineVisible(): Promise<boolean> {
+    return this.isVisible(
+      '//*[contains(@content-desc,"Tax") and not(contains(@content-desc,"Taxable"))]'
+    );
+  }
+
+  /**
+   * C-TC-033 - whether Signing Order's Sign Off row is present.
+   *
+   * Scrolls to find it for the same reason openSignOff() does: it is the LAST
+   * element on the page and drops below the fold once the Delivery summary
+   * grows, so a flat visibility check reports false for a row that is really
+   * there.
+   */
+  async isSignOffRowVisible(): Promise<boolean> {
+    for (let i = 0; i < 5; i++) {
+      if (await this.isVisible(this.signOffTrigger)) {
+        return true;
+      }
+      await this.scrollDown();
+    }
+    return false;
+  }
+
   /** C-TC-004 - whether we are back on the Signing Order summary screen. */
   async isSigningOrderTitleVisible(): Promise<boolean> {
     return this.isVisible(this.signingOrderTitle);
@@ -1210,6 +1377,11 @@ export class CoffeeServiceScreen extends BaseScreen {
   async confirmSignatureDiscard(): Promise<void> {
     await this.tap(this.signatureDiscardConfirm);
     await this.waitFor(this.signingOrderTitle);
+  }
+
+  /** C-TC-002/C-TC-022 - whether the Order payment screen itself is still displayed (its own title). */
+  async isOrderPaymentScreenVisible(): Promise<boolean> {
+    return this.isVisible(this.orderPaymentTitle);
   }
 
   /** C-TC-003 - types into an Order payment input, matched by hint. */
@@ -1367,14 +1539,22 @@ export class CoffeeServiceScreen extends BaseScreen {
    * being the sole enabled bottom action, not by its exact label.
    */
   async fillAndSubmitNewEquipment(values: {
-    account: string;
+    account?: string;
     manufacturer: string;
     model: string;
     barcode: string;
     serialNumber: string;
     assetNumber: string;
   }): Promise<void> {
-    await this.selectAddEquipmentDropdownOption('Account', values.account);
+    // Account is OPTIONAL here on purpose. The form arrives with the stop's
+    // own account already selected (live-verified 2026-08-26 on Charlotte 103:
+    // "Account | 24Hundred Marketplace"), and the account list is scoped to
+    // the route - passing a name from another route silently fails as
+    // "Covista still not displayed", which is exactly how this bit once. Omit
+    // it to keep the pre-filled value, which is what a real driver would do.
+    if (values.account) {
+      await this.selectAddEquipmentDropdownOption('Account', values.account);
+    }
     await this.selectAddEquipmentDropdownOption('Manufacturer', values.manufacturer);
     await this.selectAddEquipmentDropdownOption('Model', values.model);
     await this.typeAddEquipmentField('Barcode', values.barcode);
@@ -1418,11 +1598,14 @@ export class CoffeeServiceScreen extends BaseScreen {
       if (count === 0) {
         break;
       }
-      const card = await this.driver.$(cardSelector);
-      const loc = await card.getLocation();
-      const size = await card.getSize();
-      await this.swipe(loc.x + size.width - 10, loc.y + size.height / 2, loc.x + 10, loc.y + size.height / 2);
-      await this.tap(`${cardSelector}/android.widget.Button`);
+      // CORRECTED 2026-08-26: this used the fast swipe inline and was live-
+      // observed failing - the card was found but its delete Button never
+      // appeared, so the tap timed out 15s later and took the whole test with
+      // it. Escalates to the slow gesture now; see revealRowDeleteResilient.
+      if (!(await this.revealRowDeleteResilient(cardSelector))) {
+        throw new Error('An equipment card would not reveal its delete control under either swipe gesture');
+      }
+      await this.tapRowDeleteIcon(cardSelector);
       await this.driver.pause(600);
     }
   }
@@ -1443,6 +1626,89 @@ export class CoffeeServiceScreen extends BaseScreen {
       assetNumber: parts[6] ?? '',
       status: parts[7] ?? ''
     };
+  }
+
+  /**
+   * C-TC-021 - an equipment card's FULL label, newline-joined.
+   *
+   * getEquipmentCardSummary() reads fixed positions (parts[2]/[4]/[6]/[7]) and
+   * so has no slot for "Equipped Date & Time", which C-TC-021 requires. Read
+   * the whole thing instead of extending that positional parse: if the field
+   * is absent the raw text says so plainly, whereas another hardcoded index
+   * would just return '' and read as a failed assertion against a field that
+   * may not exist at all.
+   */
+  async getEquipmentCardRawText(name: string): Promise<string> {
+    const el = await this.driver.$(this.equipmentCard(name));
+    await el.waitForDisplayed({ timeout: 15_000 });
+    return ((await el.getAttribute('content-desc')) ?? '').replace(/\n/g, ' | ');
+  }
+
+  /**
+   * C-TC-021 - deletes ONE named equipment card, returning whether it was
+   * there to delete.
+   *
+   * Targeted on purpose. deleteAllEquipment() clears the list indiscriminately,
+   * and Charlotte 103's Coffee stops carry REAL seeded equipment (live-observed
+   * 2026-08-26: "Amana / RSC10 / ghh KJ / 589988") which is customer data, not
+   * fixture data - wiping it to get a clean slate would be a destructive act
+   * dressed up as test setup. A test that creates a card should remove exactly
+   * that card and nothing else.
+   *
+   * Live-observed the seeded card does NOT reveal a delete control under either
+   * swipe gesture, which is consistent with real records being undeletable from
+   * here - another reason not to point deleteAllEquipment() at this screen.
+   */
+  async deleteEquipmentByName(name: string): Promise<boolean> {
+    const sel = this.equipmentCard(name);
+    if (!(await this.isVisible(sel))) {
+      return false;
+    }
+    if (!(await this.revealRowDeleteResilient(sel))) {
+      return false;
+    }
+    await this.tapRowDeleteIcon(sel);
+    await this.driver.pause(600);
+    return true;
+  }
+
+  /**
+   * C-TC-021 - the name of the first equipment card on the audit list, or ''
+   * if there are none.
+   *
+   * Read at runtime, never hardcoded: the seeded equipment differs per stop
+   * (live-observed "Amana" on 24Hundred Marketplace) and is real customer
+   * data that can change, exactly like the stop names this suite already
+   * refuses to hardcode.
+   */
+  async getFirstEquipmentCardName(): Promise<string> {
+    const cards = [...(await this.driver.$$('//android.view.View[contains(@content-desc,"Model:")]'))];
+    if (!cards.length) {
+      return '';
+    }
+    return ((await cards[0].getAttribute('content-desc')) ?? '').split('\n')[0].trim();
+  }
+
+  /** C-TC-021 - every Button on screen with its label, enabled state and position - for evidencing whether an UNLABELLED control (a swipe-revealed trash icon) appeared at all. */
+  async describeButtons(): Promise<string> {
+    const parts: string[] = [];
+    for (const b of [...(await this.driver.$$('//android.widget.Button'))]) {
+      const loc = await b.getLocation();
+      const size = await b.getSize();
+      parts.push(
+        `desc="${await b.getAttribute('content-desc')}" enabled=${await b.getAttribute('enabled')} @${loc.x},${loc.y} ${size.width}x${size.height}`
+      );
+    }
+    return parts.join(' | ');
+  }
+
+  /** C-TC-021 - every content-desc currently on screen, joined - used to evidence whether a field (e.g. "Equipped Date & Time") exists at all rather than asserting blind against it. */
+  async getVisibleScreenText(): Promise<string> {
+    const parts: string[] = [];
+    for (const e of [...(await this.driver.$$('//*[@content-desc!=""]'))]) {
+      parts.push(((await e.getAttribute('content-desc')) ?? '').replace(/\n/g, ' | '));
+    }
+    return parts.join('  //  ');
   }
 
   /** Excel TC012-TC015 - reopens an existing card's "Equipment detail" screen. */

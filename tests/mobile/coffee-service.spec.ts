@@ -203,8 +203,16 @@ async function reachCoffeeStopWithEmptyDeliveries(driver: any): Promise<void> {
   const adhoc = new AdhocDeliveryScreen(driver);
   const BOOTSTRAP = 'Amerock';
 
+  // MUST scroll to the row. clickLocationByName() anchors on the "Pending
+  // action" tab header via following-sibling, and that header scrolls out of
+  // the tree - so it can only ever reach the first few of Charlotte 103's 150+
+  // stops, and Amerock is never among them. This is the third time this exact
+  // helper has bitten this suite (see the two cases in the file header), and
+  // it hid here because the batch never runs this branch: C-TC-005 caches the
+  // empty-deliveries stop first, so C-TC-011 reuses the cache and the
+  // bootstrap only executes when a test runs in ISOLATION.
   await home.returnToHome();
-  await dashboard.clickLocationByName(BOOTSTRAP);
+  await dashboard.scrollToAndClickLocationByName(BOOTSTRAP);
   const hasCoffee = await dashboard.isLobCardVisible('coffee').catch(() => false);
   await home.returnToHome();
   if (!hasCoffee) {
@@ -216,7 +224,7 @@ async function reachCoffeeStopWithEmptyDeliveries(driver: any): Promise<void> {
     await adhoc.submitAddDelivery();
     await home.returnToHome();
   }
-  await dashboard.clickLocationByName(BOOTSTRAP);
+  await dashboard.scrollToAndClickLocationByName(BOOTSTRAP);
   await dashboard.openFirstServiceStation('coffee');
   await coffee.openDelivery();
 }
@@ -1148,8 +1156,8 @@ test.describe('Coffee - Equipment audit (regression suite C-TC-xxx)', () => {
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1204,8 +1212,8 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1263,8 +1271,8 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
   // only Done tap here is the one that must FAIL validation, so the stop is
   // left exactly as found for other cases.
   test(
-    'C-TC-003: Check Number is mandatory and caps at 10 digits',
-    { tag: ['@Coffee-C-TC-003'] },
+    'C-TC-003/C-TC-022: Check Number is mandatory, caps at 10 digits, and blocks save when empty',
+    { tag: ['@Coffee-C-TC-003', '@Coffee-C-TC-022'] },
     async ({ driver }) => {
       test.setTimeout(420_000);
       const prepTasks = new PrepTasksScreen(driver);
@@ -1272,8 +1280,8 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1322,13 +1330,21 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
         expect(await coffee.getPaymentFieldValue('Check Number*')).toBe('1234');
       });
 
-      await test.step('C-TC-003: submitting with Check Number empty is rejected', async () => {
+      // C-TC-022 ("Mandatory validation blocks saving Check payment without
+      // Check Number") is this exact step, so it is tagged here rather than
+      // duplicated as its own test - the setup to reach this screen is the
+      // expensive part and it is already done. C-TC-022 adds one clause over
+      // C-TC-003's wording, "the driver should remain on the Payment screen",
+      // which is now asserted explicitly instead of being left implied by the
+      // validation message alone.
+      await test.step('C-TC-003/C-TC-022: submitting with Check Number empty is rejected and stays on Payment', async () => {
         await coffee.clearPaymentField('Check Number*');
         await coffee.typePaymentField('Amount*', '10');
         // Done is NOT gated - it stays enabled and validates on tap.
         expect(await coffee.isPaymentDoneEnabled()).toBe(true);
         await coffee.tapPaymentDone();
         expect(await coffee.isPaymentValidationErrorVisible()).toBe(true);
+        expect(await coffee.isOrderPaymentScreenVisible()).toBe(true);
       });
     }
   );
@@ -1351,8 +1367,8 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1417,8 +1433,8 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1473,7 +1489,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
       await prepTasks.openFromHamburgerMenu();
       await prepTasks.ensureFullDayPrepComplete();
       await home.returnToHome();
@@ -1508,8 +1524,8 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1576,8 +1592,8 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1629,6 +1645,606 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
     }
   );
 
+  // ==== C-TC-015 (regression suite "Coffee", build 0.1.90) ====
+  //
+  // "Driver skips After Photo by providing a reason -> After Photos should be
+  // marked complete with a tick mark."
+  //
+  // The skip-reason flow itself is already automated (see the "Coffee - After
+  // Photos / Skip photo" describe block, tagged TC274/TC277/TC278), but that
+  // test stops at "the reason sheet closed" and only DOCUMENTS the green tick,
+  // because the tile exposes no accessible completed state - its content-desc
+  // is byte-identical complete or not. This test closes that gap, which is the
+  // entire expected outcome of C-TC-015.
+  //
+  // It also runs on Charlotte 103 with runtime stop discovery, whereas the
+  // older test is pinned to Route 010 / FedEx - an account live-confirmed to
+  // have lost its Coffee service entirely.
+  //
+  // NOT self-cleaning, unlike C-TC-011/C-TC-014: skipping a photo completes
+  // that tile permanently, and nothing in the app un-completes it. That is why
+  // the precondition is "a stop whose After Photos is still PENDING" rather
+  // than a fixed stop - each run consumes one, and discovery moves to the next.
+  test(
+    'C-TC-015: skipping After Photos with a reason marks the tile complete',
+    { tag: ['@Coffee-C-TC-015'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach a Coffee stop whose After Photos tile is still pending', async () => {
+        // The precondition IS the "before" half of the assertion: a tile that
+        // is already green would let this test pass without having done
+        // anything. Qualifying on "not yet complete" makes that impossible.
+        await reachCoffeeStop(driver, 'coffee-after-photos-pending', async (c) => {
+          return !(await c.isPhotoTileComplete('after'));
+        }, ['Amerock', '24Hundred Marketplace']);
+      });
+
+      await test.step('C-TC-015 (baseline): the After Photos tile shows no completion green', async () => {
+        expect(await coffee.isPhotoTileComplete('after')).toBe(false);
+      });
+
+      await test.step('C-TC-015: skip the photo, giving a reason', async () => {
+        await coffee.openAfterPhotos();
+        const modal = await coffee.isPhotoModalVisible();
+        expect(modal.takePhoto).toBe(true);
+        expect(modal.skipPhoto).toBe(true);
+
+        await coffee.openSkipPhotoReasonSheet();
+        expect(await coffee.isSkipPhotoReasonSheetVisible()).toBe(true);
+        // Blank is rejected - the reason is what the case is about, so prove it
+        // is genuinely required rather than assuming.
+        expect(await coffee.isSkipPhotoSubmitEnabled()).toBe(false);
+
+        await coffee.enterSkipPhotoReason('Camera cannot focus and take clear picture');
+        await coffee.waitForSkipPhotoSubmitEnabled(true);
+        await coffee.confirmSkipPhoto();
+        expect(await coffee.isSkipPhotoReasonSheetVisible()).toBe(false);
+      });
+
+      await test.step('C-TC-015: the After Photos tile is now marked complete', async () => {
+        // Polled: the tile repaints asynchronously once the sheet closes, and a
+        // single immediate screenshot can catch it mid-transition - the same
+        // class of race that produced C-TC-011's batch flake.
+        await expect.poll(() => coffee.isPhotoTileComplete('after'), { timeout: 20_000 }).toBe(true);
+      });
+    }
+  );
+
+  // ==== C-TC-016 (regression suite "Coffee", build 0.1.90) ====
+  //
+  // "Driver skips Before Photo by providing a reason -> the reason should be
+  // saved; And Before Photos should be marked complete with a check mark."
+  //
+  // C-TC-015's twin on the Before Photos tile. Same shared Skip-photo
+  // component (BaseScreen.openPhotoTrigger/openSkipPhotoReasonSheet), same
+  // pixel-differential for the tick, same not-self-cleaning caveat - see
+  // C-TC-015's own note for the reasoning behind all three.
+  //
+  // The one extra clause this case carries over C-TC-015 is "the reason should
+  // be SAVED". There is no read-back of a saved skip reason anywhere in the
+  // UI, so what is actually asserted is that a reason was REQUIRED to proceed
+  // (blank leaves Skip disabled) and that submitting one completed the tile.
+  // Flagged rather than glossed: the persistence half of that clause is not
+  // verifiable through the app.
+  test(
+    'C-TC-016: skipping Before Photos with a reason marks the tile complete',
+    { tag: ['@Coffee-C-TC-016'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach a Coffee stop whose Before Photos tile is still pending', async () => {
+        await reachCoffeeStop(driver, 'coffee-before-photos-pending', async (c) => {
+          return !(await c.isPhotoTileComplete('before'));
+        }, ['Amerock', '24Hundred Marketplace']);
+      });
+
+      await test.step('C-TC-016 (baseline): the Before Photos tile shows no completion green', async () => {
+        expect(await coffee.isPhotoTileComplete('before')).toBe(false);
+      });
+
+      await test.step('C-TC-016: a blank reason is rejected; a real one is accepted', async () => {
+        await coffee.openBeforePhotos();
+        const modal = await coffee.isPhotoModalVisible();
+        expect(modal.takePhoto).toBe(true);
+        expect(modal.skipPhoto).toBe(true);
+
+        await coffee.openSkipPhotoReasonSheet();
+        expect(await coffee.isSkipPhotoReasonSheetVisible()).toBe(true);
+        expect(await coffee.isSkipPhotoSubmitEnabled()).toBe(false);
+
+        // Type then clear, so "blank is rejected" is proven as a real
+        // transition rather than just the field's untouched initial state.
+        await coffee.enterSkipPhotoReason('Camera cannot focus and take clear picture');
+        await coffee.waitForSkipPhotoSubmitEnabled(true);
+        await coffee.enterSkipPhotoReason('');
+        await coffee.waitForSkipPhotoSubmitEnabled(false);
+
+        await coffee.enterSkipPhotoReason('Camera cannot focus and take clear picture');
+        await coffee.waitForSkipPhotoSubmitEnabled(true);
+        await coffee.confirmSkipPhoto();
+        expect(await coffee.isSkipPhotoReasonSheetVisible()).toBe(false);
+      });
+
+      await test.step('C-TC-016: the Before Photos tile is now marked complete', async () => {
+        await expect.poll(() => coffee.isPhotoTileComplete('before'), { timeout: 20_000 }).toBe(true);
+      });
+    }
+  );
+
+  // ==== C-TC-021 / C-TC-030 / C-TC-034 / C-TC-036 / C-TC-042 ====
+  //
+  // Five sheet rows in one test:
+  //   C-TC-034  Add button enables only when mandatory fields are complete
+  //   C-TC-036  all add-equipment fields present; verify / mark missing
+  //   C-TC-021  card shows Name/Model/Serial/Asset (+ "Equipped Date & Time",
+  //             which this build does NOT render - see the separate
+  //             test.fail() case below), and status updates on Verified /
+  //             Does not exist
+  //   C-TC-030  search returns matching results (Completing an equipment audit)
+  //   C-TC-042  search returns matching results (Equipment Audit)
+  //
+  // CREATES NO EQUIPMENT - that is the design, not an accident.
+  //
+  // The first version built its own card and deleted it afterwards, copying
+  // the legacy build-0.1.76 test. Live-verified 2026-08-26 that equipment
+  // cards can NO LONGER be deleted on build 0.1.90: neither the stop's seeded
+  // card nor a freshly-created one reveals a delete control under the fast OR
+  // the slow swipe. So a create-then-delete test cannot clean up after itself,
+  // and each run permanently adds a card to a REAL customer stop. (It also
+  // means deleteAllEquipment() is broken, and with it the legacy Coffee
+  // equipment test's own idempotency guard - see that test at the top of this
+  // file.)
+  //
+  // ORDER MATTERS: everything that acts on existing equipment runs FIRST, and
+  // the Add Equipment form is exercised LAST, so the test simply ends on the
+  // abandoned form. An earlier ordering did the form first and then tried to
+  // navigate back to the card list, which failed for a subtle reason worth
+  // recording: BACK out of the form raises the "complete equipment audit?"
+  // confirmation, and answering Yes COMPLETES the audit and leaves the screen
+  // entirely - so the card list was gone and both the list and its checklist
+  // tile were unfindable afterwards.
+  test(
+    'C-TC-021/030/034/036/042: card details, verify/mark-missing, then Add Equipment gating and search',
+    {
+      tag: [
+        '@Coffee-C-TC-021',
+        '@Coffee-C-TC-030',
+        '@Coffee-C-TC-034',
+        '@Coffee-C-TC-036',
+        '@Coffee-C-TC-042'
+      ]
+    },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      let cardName = '';
+      await test.step('Reach a Coffee stop that already HAS equipment on file', async () => {
+        // Precondition, not a stop name: C-TC-021 is about what an EXISTING
+        // card displays, so the stop must already have one. With nothing
+        // creatable-and-removable on this build, discovery is the only honest
+        // way to satisfy that.
+        await reachCoffeeStop(driver, 'coffee-with-equipment', async (c) => {
+          await c.openEquipmentAudit();
+          return (await c.getEquipmentCardCount()) > 0;
+        }, ['24Hundred Marketplace', 'Amerock']);
+        cardName = await coffee.getFirstEquipmentCardName();
+        expect(cardName).not.toBe('');
+      });
+
+      await test.step('C-TC-021: the existing card shows Name, Model, Serial Number and Asset Number', async () => {
+        const raw = await coffee.getEquipmentCardRawText(cardName);
+        expect(raw).toContain('Model:');
+        expect(raw).toContain('Serial Number:');
+        expect(raw).toContain('Asset Number:');
+        const card = await coffee.getEquipmentCardSummary(cardName);
+        // Real seeded values, so assert they are POPULATED rather than
+        // matching fixtures this test did not create.
+        expect(card.model.length).toBeGreaterThan(0);
+        expect(card.serialNumber.length).toBeGreaterThan(0);
+        expect(card.assetNumber.length).toBeGreaterThan(0);
+      });
+
+      await test.step('C-TC-021/C-TC-036: marking the equipment Verified updates its status', async () => {
+        await coffee.openEquipmentCard(cardName);
+        await coffee.setEquipmentDoesNotExistCheckbox(false);
+        await coffee.submitAddOrVerifyEquipment();
+        await expect
+          .poll(async () => (await coffee.getEquipmentCardSummary(cardName)).status, { timeout: 15_000 })
+          .toBe('Verified');
+      });
+
+      await test.step('C-TC-021/C-TC-036: marking it "Equipment does not exist" updates its status', async () => {
+        await coffee.openEquipmentCard(cardName);
+        await coffee.setEquipmentDoesNotExistCheckbox(true);
+        expect(await coffee.isEquipmentDoesNotExistCheckboxChecked()).toBe(true);
+        await coffee.submitAddOrVerifyEquipment();
+        await expect
+          .poll(async () => (await coffee.getEquipmentCardSummary(cardName)).status, { timeout: 15_000 })
+          .toBe('Equipment does not exist');
+      });
+
+      await test.step("Restore: set the stop's own equipment back to Verified", async () => {
+        // The card belongs to the customer, not to this test. It cannot be
+        // returned to a never-audited state (nothing un-audits equipment), but
+        // leaving it flagged as missing would be worse than leaving it
+        // verified.
+        await coffee.openEquipmentCard(cardName);
+        await coffee.setEquipmentDoesNotExistCheckbox(false);
+        await coffee.submitAddOrVerifyEquipment();
+        await expect
+          .poll(async () => (await coffee.getEquipmentCardSummary(cardName)).status, { timeout: 15_000 })
+          .toBe('Verified');
+      });
+
+      await test.step('C-TC-036: every Add Equipment field is present on one form', async () => {
+        await coffee.openAddEquipmentFromEmptyState();
+        const fields = await coffee.isAddEquipmentFormVisible();
+        expect(fields.account).toBe(true);
+        expect(fields.manufacturer).toBe(true);
+        expect(fields.model).toBe(true);
+        expect(fields.barcode).toBe(true);
+        expect(fields.serialNumber).toBe(true);
+        expect(fields.assetNumber).toBe(true);
+        expect(fields.netTlmConnected).toBe(true);
+        expect(fields.plumbed).toBe(true);
+        // Photos sits BELOW THE FOLD on this build - live-verified 2026-08-26:
+        // false before a scroll, true after, the row reading "Photos | Record
+        // equipment condition.". Asserted after scrolling rather than reported
+        // as missing: every field C-TC-034 calls mandatory
+        // (Account/Manufacturer/Model) IS immediately visible, and "at once"
+        // distinguishes one form from a multi-step wizard, which this is.
+        await driver.executeScript('mobile: scrollGesture', [
+          { left: 100, top: 600, width: 800, height: 1200, direction: 'down', percent: 0.8 }
+        ]);
+        await driver.pause(1_000);
+        expect((await coffee.isAddEquipmentFormVisible()).photos).toBe(true);
+        // MUST scroll back - the Manufacturer dropdown the next step opens is
+        // above the fold, and leaving the form scrolled made an earlier run
+        // fail with a misleading "Manufacturer still not displayed".
+        for (let i = 0; i < 4; i++) {
+          await driver.executeScript('mobile: scrollGesture', [
+            { left: 100, top: 600, width: 800, height: 1200, direction: 'up', percent: 1.0 }
+          ]);
+        }
+        await driver.pause(800);
+      });
+
+      await test.step('C-TC-034: Add equipment stays disabled until the mandatory fields are complete', async () => {
+        expect(await coffee.isAddEquipmentSubmitEnabled()).toBe(false);
+      });
+
+      await test.step('C-TC-030/C-TC-042: searching a dropdown returns matching results', async () => {
+        // The Manufacturer sheet, not Account: Account's matching is
+        // live-verified NON-deterministic (typing "Cov" returns a different
+        // set each time, including unrelated accounts), so asserting its
+        // contents would be flaky by nature. Narrow, then restore via the
+        // clear icon - that transition is the stable signal.
+        await coffee.openAddEquipmentDropdownAndSearch('Manufacturer', 'Bun');
+        const filtered = await coffee.getAddEquipmentDropdownOptionCount();
+        expect(filtered).toBeGreaterThan(0);
+        await coffee.clearAddEquipmentDropdownSearch();
+        expect(await coffee.getAddEquipmentDropdownOptionCount()).toBeGreaterThan(filtered);
+        await (await driver.$('~Bunn')).click();
+      });
+
+      await test.step('C-TC-034: completing the mandatory fields enables Add equipment', async () => {
+        // Account is left as the form's own pre-filled value - the account
+        // list is scoped to the ROUTE, so naming the legacy Miami test's
+        // "Covista" here fails outright. Manufacturer is already set above.
+        //
+        // DELIBERATELY NEVER SUBMITTED: submitting would add a permanently
+        // undeletable card to a real customer stop. The enable transition is
+        // the whole of what C-TC-034 asks for, and the test ends here so
+        // nothing has to navigate off the abandoned form.
+        await coffee.selectAddEquipmentDropdownOption('Model', 'Axiom Single GPR');
+        await coffee.typeAddEquipmentField('Barcode', '629104873561');
+        await coffee.typeAddEquipmentField('Serial Number', '1111');
+        await coffee.typeAddEquipmentField('Asset Number', '124');
+        await coffee.pressKeyCode(4);
+        expect(await coffee.isAddEquipmentSubmitEnabled()).toBe(true);
+      });
+    }
+  );
+
+
+  // C-TC-021's remaining clause, split out for the same reason C-TC-005 is
+  // split: asserting it inside the test above under test.fail() would mask the
+  // four clauses that genuinely pass.
+  //
+  // Live-verified 2026-08-26 that build 0.1.90 renders NO "Equipped Date &
+  // Time" anywhere - not on the card
+  //   ("Cafection | Model: | Galleria | Serial Number: | 1111 |
+  //     Asset Number: | 124 | Recently added")
+  // nor on the Equipment detail screen
+  //   ("Account | ... | Manufacturer | ... | Model | ... |
+  //     Net/TLM Connected | No | Plumbed | No | Verify equipment").
+  // Both plausible locations were checked before concluding it is absent.
+  //
+  // The sheet records C-TC-021 as Pass, so this is a genuine discrepancy
+  // between the sheet and the build. Asserted as INTENDED behaviour under
+  // test.fail() so it flags the moment the field is added, instead of
+  // asserting the current absence and going silently green forever.
+  test(
+    'C-TC-021 (gap): the equipment card shows an Equipped Date & Time',
+    { tag: ['@Coffee-C-TC-021'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+      await prepTasks.openFromHamburgerMenu();
+      await prepTasks.ensureFullDayPrepComplete();
+      await home.returnToHome();
+
+      await reachCoffeeStop(driver, 'coffee-with-equipment', async (c) => {
+        await c.openEquipmentAudit();
+        return (await c.getEquipmentCardCount()) > 0;
+      }, ['24Hundred Marketplace', 'Amerock']);
+
+      const name = await coffee.getFirstEquipmentCardName();
+      const raw = await coffee.getEquipmentCardRawText(name);
+      expect(raw).toMatch(/Equipped|Date/i);
+    }
+  );
+
+
+  // ==== C-TC-033 (regression suite "Coffee", build 0.1.90) ====
+  //
+  // "Signing Order screen displays order, delivery, cost, and sign-off
+  // details."
+  //
+  // Live-verified 2026-08-26 (Charlotte 103 / 24Hundred Marketplace) that the
+  // screen matches the case only IN PART, so it is split like C-TC-005: this
+  // test asserts everything that genuinely renders, and the test.fail() case
+  // below carries the clauses that do not, asserting the INTENDED behaviour so
+  // they flag when fixed rather than going silently green.
+  //
+  // Actually rendered: "Ordered Items 16", "Items Delivered 16", a Delivery
+  // summary table with Ordered/Delivered columns, and a Cost summary of
+  // Delivery Charge (Nontaxable) $12.00, Shipping & Handling (Taxable) $1.06,
+  // Product Cost $1285.52 and Total Cost $1298.58, then the Sign Off row and a
+  // disabled Continue.
+  //
+  // Written fresh on Charlotte 103 rather than tagged onto the legacy Delivery
+  // test (@Coffee-TC206...), which reaches its stop via FedEx on Route 010 - a
+  // route Anthony confirmed has no Coffee service left.
+  //
+  // NON-DESTRUCTIVE: never signs or submits, so the order is left as found.
+  test(
+    'C-TC-033: Signing Order shows items, delivery and cost summaries, sign-off, and a gated Continue',
+    { tag: ['@Coffee-C-TC-033'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach Signing Order on a Coffee stop that has requested deliveries', async () => {
+        await reachCoffeeStop(driver, 'coffee-with-deliveries', async (c) => {
+          await c.openDelivery();
+          return c.isDeliveryContinueEnabled();
+        }, ['24Hundred Marketplace']);
+        await coffee.tapDeliveryContinue();
+        expect(await coffee.isSigningOrderTitleVisible()).toBe(true);
+        // Logged BEFORE any assertion so the record exists even when one
+        // fails - an earlier version put this after the first assertion and
+        // lost the evidence to that assertion's own failure.
+        console.log(`[C-TC-033] Signing Order text: ${await coffee.getVisibleScreenText()}`);
+      });
+
+      await test.step('C-TC-033: Ordered Items and Items Delivered are displayed', async () => {
+        expect(await coffee.isSummaryLineVisible('Ordered Items')).toBe(true);
+        expect(await coffee.isSummaryLineVisible('Items Delivered')).toBe(true);
+      });
+
+      await test.step('C-TC-033: Delivery summary and Cost summary tables are displayed', async () => {
+        expect(await coffee.isDeliverySummaryVisible()).toBe(true);
+        expect(await coffee.isCostSummaryVisible()).toBe(true);
+      });
+
+      await test.step('C-TC-033: the Cost summary shows Product Cost and a total with prices', async () => {
+        expect(await coffee.isSummaryLineVisible('Product Cost')).toBe(true);
+        expect(await coffee.isSummaryLineVisible('Total Cost')).toBe(true);
+        // Prices, not just labels - the case says these should SHOW APPLICABLE
+        // PRICES, which a label-only assertion would not prove.
+        expect(await coffee.isSummaryLineVisible('$')).toBe(true);
+      });
+
+      await test.step('C-TC-033: the Sign off row is displayed with its signature affordance', async () => {
+        expect(await coffee.isSignOffRowVisible()).toBe(true);
+      });
+
+      await test.step('C-TC-033: Continue is disabled while no customer signature exists', async () => {
+        // One-sided ON PURPOSE. Proving the other half - that Continue ENABLES
+        // once signed - means permanently saving a signature to a real order,
+        // which is the whole subject of C-TC-013. Asserting the gate here and
+        // leaving the transition to C-TC-013 keeps this case non-destructive
+        // rather than completing a customer's delivery as a side effect.
+        expect(await coffee.isDeliveryContinueEnabled()).toBe(false);
+      });
+    }
+  );
+
+  // FAILING HALF of C-TC-033 - the clauses build 0.1.90 does not satisfy.
+  //
+  // Live-verified 2026-08-26 on the Signing Order screen above:
+  //   - NO order number is rendered anywhere on the screen. (The legacy
+  //     build-0.1.76 test asserted an order-number chip here and passed, so
+  //     this is a change, not a mis-specified case. Note it is also distinct
+  //     from C-TC-054, which is about the DELIVERY page.)
+  //   - NO "Service Fee" line: the Cost summary lists Delivery Charge
+  //     (Nontaxable) and Shipping & Handling (Taxable) instead.
+  //   - NO "Tax" line at all (the only occurrences of the string are the
+  //     "(Taxable)"/"(Nontaxable)" qualifiers - see isTaxLineVisible).
+  //   - the total is labelled "Total Cost", NOT "Total Service Cost".
+  //
+  // Grouped in one test.fail() rather than four, matching C-TC-005's
+  // precedent; the trade-off is that a PARTIAL fix will not flag until all
+  // four land. Worth knowing when this eventually goes green.
+  //
+  // Related and already open with Anthony: delivery/fuel fee lines depend on
+  // service location and a fix was pending, and C-TC-005 already confirmed one
+  // real fee-line defect (BUG 918856) on the empty Deliveries screen.
+  test(
+    'C-TC-033 (gap): Signing Order shows an order number, Service Fee, Tax and Total Service Cost',
+    { tag: ['@Coffee-C-TC-033'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+      await prepTasks.openFromHamburgerMenu();
+      await prepTasks.ensureFullDayPrepComplete();
+      await home.returnToHome();
+
+      await reachCoffeeStop(driver, 'coffee-with-deliveries', async (c) => {
+        await c.openDelivery();
+        return c.isDeliveryContinueEnabled();
+      }, ['24Hundred Marketplace']);
+      await coffee.tapDeliveryContinue();
+
+      expect(await coffee.isOrderNumberChipVisible()).toBe(true);
+      expect(await coffee.isSummaryLineVisible('Service Fee')).toBe(true);
+      expect(await coffee.isTaxLineVisible()).toBe(true);
+      expect(await coffee.isSummaryLineVisible('Total Service Cost')).toBe(true);
+    }
+  );
+
+  // ==== C-TC-012 (regression suite "Coffee", build 0.1.90) ====
+  //
+  // "Driver deletes a saved presale order with confirmation."
+  //
+  // Creates the presale it deletes, rather than consuming one C-TC-010 left
+  // behind. Two reasons: the two tests stop depending on run order, and the
+  // case ends net-zero, so it cannot quietly eat the saved presale that
+  // C-TC-010's own assertions - or a later Continue-enabled check - rely on.
+  //
+  // Counted rather than asserted absolutely: earlier runs can leave presales
+  // on a stop, so baseline+1 then back to baseline is the real proof, the same
+  // reasoning C-TC-010 uses for its Items count.
+  //
+  // See CoffeeServiceScreen's own "C-TC-012" section for the four
+  // non-obvious mechanics behind the delete (no control on the summary, a
+  // reveal gesture the default swipe is too fast for, an unlabelled Button
+  // located by geometry, and Cancel/Delete rather than No/Yes).
+  test(
+    'C-TC-012: deleting a saved presale requires confirmation and removes it from Pre-sales',
+    { tag: ['@Coffee-C-TC-012'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach a Coffee stop and open Pre-sales', async () => {
+        // Prefer a stop OTHER than the one C-TC-007 settled on: this test
+        // transiently saves a presale, which would destroy the empty state
+        // C-TC-007 asserts if the two landed together. Same guard C-TC-010
+        // uses.
+        const usedByCancelTest = qualifyingStopCache.get('coffee-empty-presales');
+        await reachCoffeeStop(
+          driver,
+          'coffee-for-presale-delete',
+          async (c) => {
+            await c.tapAddPresaleTrigger();
+            return true;
+          },
+          ['Amerock', '24Hundred Marketplace'].filter((n) => n !== usedByCancelTest)
+        );
+      });
+
+      let baseline = 0;
+      await test.step('Create the presale this test will delete', async () => {
+        baseline = await coffee.getSavedPresaleCount();
+        await coffee.openAddPresalesOrder();
+        await coffee.typeAddPresalesProduct('sugar');
+        expect(await coffee.selectFirstPresaleSearchResult()).not.toBe('');
+        await coffee.dismissPresaleKeypadIfPresent();
+        await coffee.selectFirstAvailableDeliveryDate();
+        expect(await coffee.isAddPresalesSaveEnabled()).toBe(true);
+        await coffee.saveAddPresalesOrder();
+        await expect.poll(() => coffee.getSavedPresaleCount(), { timeout: 15_000 }).toBe(baseline + 1);
+      });
+
+      await test.step('C-TC-012: swiping the saved order and tapping delete raises a confirmation', async () => {
+        await coffee.revealSavedPresaleDelete();
+        await coffee.tapRevealedSavedPresaleDelete();
+        expect(await coffee.isDeletePresaleConfirmVisible()).toBe(true);
+        expect(await coffee.getDeletePresaleConfirmText()).toContain('Are you sure you want to delete');
+      });
+
+      // The confirmation must actually GATE the delete - without this,
+      // "deletes with confirmation" would pass even if the dialog were
+      // decorative and the order had already gone. Same gating check as
+      // C-TC-011, and polled for the same dialog-window reason.
+      await test.step('C-TC-012: cancelling the confirmation keeps the presale', async () => {
+        await coffee.cancelDeletePresale();
+        await coffee.waitForDeletePresaleConfirmGone();
+        await expect.poll(() => coffee.getSavedPresaleCount(), { timeout: 15_000 }).toBe(baseline + 1);
+      });
+
+      await test.step('C-TC-012: confirming removes the presale from the Pre-sales screen', async () => {
+        await coffee.revealSavedPresaleDelete();
+        await coffee.tapRevealedSavedPresaleDelete();
+        expect(await coffee.isDeletePresaleConfirmVisible()).toBe(true);
+        await coffee.confirmDeletePresale();
+        await coffee.waitForDeletePresaleConfirmGone();
+        await expect.poll(() => coffee.getSavedPresaleCount(), { timeout: 15_000 }).toBe(baseline);
+      });
+    }
+  );
+
   // ==== C-TC-011 (regression suite "Coffee", build 0.1.90) ====
   //
   // "Driver deletes a manually added product with confirmation."
@@ -1650,8 +2266,8 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1678,9 +2294,27 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       // The confirmation must actually GATE the delete - without this step,
       // "deletes with confirmation" would pass even if the dialog were purely
       // decorative and the row had already gone.
+      // Batch-only flake investigated 2026-08-25. This step intermittently read
+      // 0 rows here in a full run (never standalone), which left two candidate
+      // causes: a re-render race, or "No" deleting the row anyway.
+      //
+      // Instrumented and re-run in batch: the row count read 1 immediately
+      // after the tap and stayed 1 across a 20-second trace, with the empty
+      // state absent throughout. So No genuinely does NOT delete - a real
+      // delete-on-decline would be deterministic, not intermittent - and this
+      // is a timing artefact, not a product defect. The dialog is its own
+      // window, so while it is dismissing the list behind it is not reliably
+      // in the accessibility tree and a single immediate read can see nothing.
+      //
+      // The flake did not reproduce on the instrumented run, so this is
+      // hardening against the mechanism rather than a confirmed-cured fix:
+      // wait for the dialog to actually leave, then poll rather than trusting
+      // one snapshot. If it ever fails again it now fails on a 15s poll that
+      // never saw the row, which IS evidence of a real defect.
       await test.step('C-TC-011: declining the confirmation keeps the product', async () => {
         await coffee.declineDeleteProduct();
-        expect(await coffee.getDeliveryProductRowCount()).toBe(1);
+        await coffee.waitForDeleteProductConfirmGone();
+        await expect.poll(() => coffee.getDeliveryProductRowCount(), { timeout: 15_000 }).toBe(1);
       });
 
       await test.step('C-TC-011: confirming removes the product from the delivery list', async () => {
@@ -1688,7 +2322,12 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
         await coffee.tapRevealedDeliveryProductDelete();
         expect(await coffee.isDeleteProductConfirmVisible()).toBe(true);
         await coffee.confirmDeleteProduct();
-        expect(await coffee.getDeliveryProductRowCount()).toBe(0);
+        // Same dialog-window race as the decline step above - poll rather than
+        // read once. (This direction happens to be the forgiving one: a stale
+        // read here returns the 0 we want and passes for the wrong reason,
+        // which is exactly why it is worth pinning down too.)
+        await coffee.waitForDeleteProductConfirmGone();
+        await expect.poll(() => coffee.getDeliveryProductRowCount(), { timeout: 15_000 }).toBe(0);
         // Back to the empty state we started from, so the stop is left clean.
         expect(await coffee.isDeliveriesEmptyStateVisible()).toBe(true);
       });
@@ -1716,8 +2355,8 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await test.step('Log in, ensure Charlotte 103/TODAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'TODAY' });
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1764,7 +2403,12 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
         await coffee.revealDeliveryProductDelete();
         await coffee.tapRevealedDeliveryProductDelete();
         await coffee.confirmDeleteProduct();
-        expect(await coffee.getDeliveryProductRowCount()).toBe(0);
+        // Polled for the same dialog-window reason as C-TC-011's own delete
+        // steps - and it matters more here, because a stale 0 would report a
+        // successful cleanup that never happened, leaving the stop dirty for
+        // C-TC-005 and C-TC-011.
+        await coffee.waitForDeleteProductConfirmGone();
+        await expect.poll(() => coffee.getDeliveryProductRowCount(), { timeout: 15_000 }).toBe(0);
       });
     }
   );
