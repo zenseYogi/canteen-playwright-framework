@@ -814,6 +814,27 @@ export class BaseScreen {
     await this.driver.pause(4_000);
   }
 
+  /** C-TC-045 - the package currently in the foreground. Used to detect the app handing off to an EXTERNAL app. */
+  async getForegroundPackage(): Promise<string> {
+    return (await this.driver.getCurrentPackage()) ?? '';
+  }
+
+  /**
+   * C-TC-045 - brings THIS app back to the foreground after an external app
+   * has taken over.
+   *
+   * Needed because a test that leaves the app would otherwise strand every
+   * test after it on someone else's screen - the same class of breakage that
+   * the in-app camera and the Equipment audit BACK-loop caused earlier. Uses
+   * activateApp rather than BACK: the external app's back stack is not ours to
+   * reason about.
+   */
+  async returnToThisApp(): Promise<void> {
+    const appId = mobileConfig.capabilities['appium:appPackage'];
+    await this.driver.execute('mobile: activateApp', { appId });
+    await this.driver.pause(3_000);
+  }
+
   // ==== Shared swipe-to-reveal-delete primitives ====
   //
   // swipeAndDelete() below does this whole flow in one call, which fits a

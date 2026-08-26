@@ -3552,6 +3552,82 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
     }
   );
 
+  // ==== C-TC-045 (regression suite "Coffee") ====
+  //
+  // "Driver navigates to stop using default maps application" - the device's
+  // default navigation app should open with directions to the stop.
+  //
+  // This is the ONLY Coffee case that deliberately leaves the app, so two
+  // things are handled explicitly:
+  //
+  // 1. The assertion is on the FOREGROUND PACKAGE, not on anything drawn on
+  //    screen. Once Maps takes over, the accessibility tree belongs to another
+  //    app and this suite's locators mean nothing there - the only sound signal
+  //    is which package Android has in front.
+  // 2. It brings our app back afterwards via activateApp. A test that walked
+  //    off into another app would strand every test after it, which is exactly
+  //    how the in-app camera and the Equipment audit BACK-loop broke following
+  //    runs earlier in this suite's history.
+  //
+  // Pre-checked on this emulator: `cmd package resolve-activity` for
+  // "geo:0,0?q=..." resolves to com.google.android.apps.maps, so a default
+  // handler genuinely exists here. Without one the case would be untestable on
+  // this device rather than failing.
+  //
+  // Read-only with respect to route data - it completes nothing.
+  test(
+    'C-TC-045: Navigate hands off to the default maps application',
+    { tag: ['@Coffee-C-TC-045'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      let ownPackage = '';
+      await test.step('Open a Coffee stop and return to its Stop Preview', async () => {
+        await reachCoffeeStop(driver, 'any-coffee', async () => true, []);
+        await coffee.pressKeyCode(4);
+        await expect
+          .poll(() => coffee.getVisibleScreenText(), { timeout: 30_000 })
+          .toContain('Navigate');
+        ownPackage = await coffee.getForegroundPackage();
+        console.log(`[C-TC-045] own package = "${ownPackage}"`);
+        expect(ownPackage).not.toBe('');
+      });
+
+      await test.step('C-TC-045: tapping Navigate opens the default maps app', async () => {
+        await coffee.tap('~Navigate');
+        // Polled: the hand-off is an intent, so the foreground package changes
+        // asynchronously and a single read catches the old one.
+        await expect
+          .poll(() => coffee.getForegroundPackage(), { timeout: 30_000 })
+          .not.toBe(ownPackage);
+        const handler = await coffee.getForegroundPackage();
+        console.log(`[C-TC-045] foreground after Navigate = "${handler}"`);
+        // Asserted as "a maps handler", not the exact package: which app is
+        // default is a DEVICE setting, so pinning com.google.android.apps.maps
+        // would make this a check of the emulator's configuration rather than
+        // of the app's hand-off.
+        expect(handler.toLowerCase()).toContain('maps');
+      });
+
+      await test.step('Restore: bring the app back to the foreground', async () => {
+        // Not optional housekeeping - without it every following test starts
+        // inside Google Maps.
+        await coffee.returnToThisApp();
+        await expect.poll(() => coffee.getForegroundPackage(), { timeout: 30_000 }).toBe(ownPackage);
+      });
+    }
+  );
+
   // ==== C-TC-012 (regression suite "Coffee", build 0.1.90) ====
   //
   // "Driver deletes a saved presale order with confirmation."
