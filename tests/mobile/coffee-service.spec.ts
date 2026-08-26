@@ -3198,6 +3198,276 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
     }
   );
 
+  // ==== C-TC-037 (regression suite "Coffee") ====
+  //
+  // "Each delivery location displays its own address by service line" - the
+  // Coffee delivery location should show its own delivery address.
+  //
+  // Read-only. Asserted on the Stop Preview, where the address sits alongside
+  // the LOB card - live-observed as
+  //   "... | 24Hundred Marketplace | 2400 Yorkmont Rd Charlotte North Carolina
+  //    28217-4511 | About this location | ... | coffee | 1 Service stations"
+  //
+  // NOT asserted via dashboard.getStopHeaderText(): that returns the position
+  // badge ("Stop 1 of 48"), not the location or address - a mismatch
+  // dashboard.screen.ts already carries a correction about, and one C-TC-050
+  // tripped over.
+  test(
+    'C-TC-037: the Coffee delivery location shows its own address on the Stop Preview',
+    { tag: ['@Coffee-C-TC-037'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      let stopName = '';
+      await test.step('Open a Coffee stop and return to its Stop Preview', async () => {
+        stopName = await reachCoffeeStop(driver, 'any-coffee', async () => true, []);
+        await coffee.pressKeyCode(4);
+        await expect
+          .poll(() => coffee.getVisibleScreenText(), { timeout: 30_000 })
+          .toContain('About this location');
+      });
+
+      await test.step('C-TC-037: the stop shows its own address, against its Coffee service line', async () => {
+        const preview = await coffee.getVisibleScreenText();
+        console.log(`[C-TC-037] stop preview: ${preview}`);
+        // The location it belongs to.
+        expect(preview).toContain(stopName);
+        // A real street address - number followed by a street name, then a
+        // postal code. Matched by SHAPE, not by a literal: the address is real
+        // customer data and differs per stop, so hardcoding one would make this
+        // test a fixture check rather than a behaviour check.
+        expect(preview).toMatch(/\d+\s+[A-Za-z].*\d{5}/);
+        // "by service line" - the address is presented on the same preview as
+        // the Coffee LOB card, which is what ties address to service line.
+        expect(await dashboard.isLobCardVisible('coffee')).toBe(true);
+      });
+    }
+  );
+
+  // ==== C-TC-028 (regression suite "Coffee") ====
+  //
+  // "Product SKU is displayed beneath the product name."
+  //
+  // Read-only and self-cleaning: it opens the Add Product search, reads the
+  // result rows, and closes the sheet WITHOUT selecting anything, so no product
+  // is ever added.
+  //
+  // Where the SKU actually appears is evidence-led rather than assumed. It is
+  // known to be present on the Add PRESALE form's product row (live-captured:
+  // "A&WZeroSugarRtBeer 20oz | SKU : 6217 | pkg: 1 | Qty"), but the Deliveries
+  // SEARCH RESULT rows were only ever seen as "... (20oz) - pkg: 1", with no
+  // SKU in the captures taken so far. So this dumps the rows first and asserts
+  // on what is really there - the case says SKU shows beneath the NAME, which
+  // is a claim about the product LIST, not about a form field.
+  test(
+    "C-TC-028: a product's SKU is displayed with its name in the product list",
+    { tag: ['@Coffee-C-TC-028'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Open the Deliveries product search', async () => {
+        await reachCoffeeStopWithEmptyDeliveries(driver);
+        await coffee.openAddDeliveryProduct();
+        await coffee.searchDeliveryProductOption('sugar');
+        await expect.poll(() => coffee.getPresaleSearchResultCount(), { timeout: 15_000 }).toBeGreaterThan(0);
+      });
+
+      await test.step('C-TC-028: each result row carries the SKU alongside the product name', async () => {
+        const rows = await coffee.getDeliveryProductRowTexts();
+        const results = await coffee.getVisibleScreenText();
+        console.log(`[C-TC-028] search result rows: ${JSON.stringify(rows)}`);
+        console.log(`[C-TC-028] search sheet text: ${results}`);
+        expect(results).toContain('SKU');
+      });
+    }
+  );
+
+  // ==== C-TC-017 (regression suite "Coffee") ====
+  //
+  // "Driver skips or completes Pre-sales activity via Back arrow confirmation"
+  // - the sheet describes a Complete Pre-sale pop-up on Back, with "Skip
+  // pre-sale" and "Complete" branches.
+  //
+  // THAT POP-UP DOES NOT APPEAR IN BUILD 0.1.90. Live-verified 2026-08-26 on
+  // both paths: BACK on an EMPTY Pre-sales screen exits silently, and BACK with
+  // a SAVED ORDER lands straight on the checklist -
+  //   "25 Aug 2026 | Route 103 | 24Hundred Marketplace | Optional | Before
+  //    Photos ... | Add Presale ... | Signing Order ... | Complete Delivery"
+  // with no prompt in the tree at all. (home.screen.ts still carries a comment
+  // describing that pop-up, which returnToHome tolerates - evidently stale.
+  // Anthony confirmed the analogous Delivery -> Signing Order Yes/No confirm
+  // was REMOVED at customer request, so this looks like the same change.)
+  //
+  // The activity IS completable - just not that way. The Pre-sales screen's own
+  // Continue enables once an order exists (proven in C-TC-027), and that is the
+  // real path, asserted below. The missing pop-up is carried as its own
+  // test.fail() gap so it flags if reinstated.
+  //
+  // Self-cleaning: the presale created here is deleted at the end.
+  test(
+    'C-TC-017: a saved presale can be completed from the Pre-sales screen, marking the tile done',
+    { tag: ['@Coffee-C-TC-017'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach a Coffee stop whose Pre-sales is empty, and add an order', async () => {
+        await reachCoffeeStop(driver, 'coffee-empty-presales', async (c) => {
+          await c.tapAddPresaleTrigger();
+          return c.isPresalesEmptyStateVisible();
+        }, ['24Hundred Marketplace', 'Amerock']);
+        expect(await coffee.isPresalesContinueEnabled()).toBe(false);
+
+        await coffee.openAddPresalesOrder();
+        await coffee.typeAddPresalesProduct('sugar');
+        expect(await coffee.selectFirstPresaleSearchResult()).not.toBe('');
+        await coffee.dismissPresaleKeypadIfPresent();
+        await coffee.selectFirstAvailableDeliveryDate();
+        await coffee.saveAddPresalesOrder();
+        await expect.poll(() => coffee.getSavedPresaleCount(), { timeout: 15_000 }).toBe(1);
+      });
+
+      await test.step('C-TC-017: Continue completes the Pre-sales activity', async () => {
+        expect(await coffee.isPresalesContinueEnabled()).toBe(true);
+        await coffee.tap('~Continue');
+        await expect
+          .poll(() => coffee.getVisibleScreenText(), { timeout: 30_000 })
+          .toContain('Add Presale');
+      });
+
+      await test.step('C-TC-017: Add presale is marked complete on the checklist', async () => {
+        await expect.poll(() => coffee.isChecklistTileComplete('Add Presale'), { timeout: 20_000 }).toBe(true);
+      });
+
+      await test.step('Cleanup: delete the presale created here', async () => {
+        await coffee.tapAddPresaleTrigger();
+        await driver.pause(2_000);
+        if ((await coffee.getSavedPresaleCount()) > 0) {
+          await coffee.revealSavedPresaleDelete();
+          await coffee.tapRevealedSavedPresaleDelete();
+          await coffee.confirmDeletePresale();
+          await coffee.waitForDeletePresaleConfirmGone();
+        }
+        await expect.poll(() => coffee.getSavedPresaleCount(), { timeout: 15_000 }).toBe(0);
+      });
+    }
+  );
+
+  // FAILING HALF of C-TC-017 - the Back-arrow confirmation itself.
+  //
+  // Asserted as INTENDED behaviour so it flags if the pop-up returns, rather
+  // than asserting today's absence and going silently green. Kept separate from
+  // the passing half above for the same reason as C-TC-005/033/054.
+  //
+  // Note this may be a deliberate product change rather than a defect - the
+  // analogous Delivery confirm was removed at customer request - in which case
+  // the right outcome is to retire this sheet row, not to fix the app. Worth
+  // asking Anthony alongside the other Coffee findings.
+  test(
+    'C-TC-017 (gap): BACK on Pre-sales with a saved order raises a Complete Pre-sale confirmation',
+    { tag: ['@Coffee-C-TC-017'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+      await prepTasks.openFromHamburgerMenu();
+      await prepTasks.ensureFullDayPrepComplete();
+      await home.returnToHome();
+
+      await reachCoffeeStop(driver, 'any-coffee', async (c) => {
+        await c.tapAddPresaleTrigger();
+        return true;
+      }, ['24Hundred Marketplace', 'Amerock']);
+
+      await driver.pause(2_000);
+      await coffee.pressKeyCode(4);
+      await driver.pause(1_500);
+      expect(await coffee.isCompletePresalePromptVisible()).toBe(true);
+    }
+  );
+
+  // ==== C-TC-035 (regression suite "Coffee") ====
+  //
+  // "Ad-hoc after-photos are blocked until delivery is completed [Coffee]" -
+  // after-photos and signing-off should be disabled, matching the scheduled
+  // Coffee delivery flow. The sheet records this row as **Fail**.
+  //
+  // READ-ONLY: it inspects tile state on an ad-hoc stop whose delivery is NOT
+  // complete, and taps nothing. That is deliberate - the case is about what
+  // should be BLOCKED, so opening the tiles to find out would defeat it.
+  //
+  // Written as test.fail() asserting the INTENDED gating. If the tiles turn out
+  // to be genuinely disabled the test will flag as "expected to fail but
+  // passed", which is the signal to promote it to a normal passing test.
+  test(
+    'C-TC-035 (gap): on an ad-hoc stop, After Photos and Signing Order are gated until delivery completes',
+    { tag: ['@Coffee-C-TC-035'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+      await prepTasks.openFromHamburgerMenu();
+      await prepTasks.ensureFullDayPrepComplete();
+      await home.returnToHome();
+
+      // The ad-hoc stop is the one with an EMPTY Deliveries screen - ad-hoc
+      // orders arrive with no products by design (Anthony, 2026-08-25), so its
+      // delivery is by definition not complete, which is the precondition.
+      await reachCoffeeStopWithEmptyDeliveries(driver);
+      await coffee.pressKeyCode(4);
+      await expect
+        .poll(() => coffee.getVisibleScreenText(), { timeout: 30_000 })
+        .toContain('After Photos');
+
+      console.log(`[C-TC-035] checklist: ${await coffee.getVisibleScreenText()}`);
+      console.log(
+        `[C-TC-035] After Photos enabled=${await coffee.isChecklistTileEnabled('After Photos')} ` +
+          `Signing Order enabled=${await coffee.isChecklistTileEnabled('Signing Order')}`
+      );
+
+      expect(await coffee.isChecklistTileEnabled('After Photos')).toBe(false);
+      expect(await coffee.isChecklistTileEnabled('Signing Order')).toBe(false);
+    }
+  );
+
   // ==== C-TC-012 (regression suite "Coffee", build 0.1.90) ====
   //
   // "Driver deletes a saved presale order with confirmation."

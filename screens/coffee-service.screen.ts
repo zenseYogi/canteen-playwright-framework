@@ -364,6 +364,45 @@ export class CoffeeServiceScreen extends BaseScreen {
     return [...(await this.driver.$$(this.savedPresaleRow))].length;
   }
 
+  // ==== C-TC-017: the Back-arrow "Complete Pre-sale" confirmation ====
+  //
+  // Documented in home.screen.ts (returnToHome has to dismiss it): pressing
+  // BACK on the Pre-sales screen raises "Complete Pre-sale! Do you want to
+  // complete the pre-sale for this service?" with "Skip pre-sale" and
+  // "Complete". returnToHome() taps Skip; this case exercises BOTH paths.
+  private readonly completePresalePrompt = '//*[starts-with(@content-desc,"Complete Pre-sale")]';
+
+  /** C-TC-017 - whether the Back-arrow "Complete Pre-sale" confirmation is showing. */
+  async isCompletePresalePromptVisible(): Promise<boolean> {
+    return this.isVisible(this.completePresalePrompt);
+  }
+
+  /** C-TC-017 - the confirmation's full message. */
+  async getCompletePresalePromptText(): Promise<string> {
+    const el = await this.driver.$(this.completePresalePrompt);
+    await el.waitForDisplayed({ timeout: 15_000 });
+    return ((await el.getAttribute('content-desc')) ?? '').replace(/\n/g, ' ');
+  }
+
+  /** C-TC-017 - exits Pre-sales WITHOUT completing the activity. */
+  async skipPresale(): Promise<void> {
+    await this.tap('~Skip pre-sale');
+  }
+
+  /** C-TC-017 - completes the Pre-sales activity from the Back-arrow confirmation. */
+  async completePresale(): Promise<void> {
+    await this.tap('//android.widget.Button[@content-desc="Complete"]');
+  }
+
+  /** C-TC-035 - whether a checklist tile is enabled (actionable) rather than gated. */
+  async isChecklistTileEnabled(label: string): Promise<boolean> {
+    const el = await this.driver.$(`//android.view.View[starts-with(@content-desc,"${label}")]`);
+    if (!(await el.isExisting())) {
+      return false;
+    }
+    return ((await el.getAttribute('enabled').catch(() => 'false')) === 'true');
+  }
+
   /** C-TC-012 - swipes the first saved presale row left to reveal its delete control. Needs the SLOW gesture - see revealRowDelete. */
   async revealSavedPresaleDelete(): Promise<void> {
     await this.revealRowDelete(this.savedPresaleRow, { slow: true });
