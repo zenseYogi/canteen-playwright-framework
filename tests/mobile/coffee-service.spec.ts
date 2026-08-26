@@ -3468,6 +3468,90 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
     }
   );
 
+  // ==== C-TC-048 (regression suite "Coffee") ====
+  //
+  // "Continue remains disabled until mandatory tasks are complete" - Continue
+  // stays disabled; once the mandatory tasks are done, Continue becomes
+  // enabled.
+  //
+  // WHICH "Continue" this is, and why. The sheet's sub-feature is
+  // "Vending/Market/coffee" and it does not name a screen. On Coffee there are
+  // two candidate readings:
+  //   (a) the DELIVERIES screen's Continue, gated on the screen's own mandatory
+  //       task - a delivered quantity actually being entered; and
+  //   (b) the STOP-level action ("Complete Delivery"), gated on the whole
+  //       checklist.
+  // (b) is C-TC-020's subject and requires completing a stop, which is parked -
+  // so this asserts (a), and says so rather than quietly picking one. The
+  // wording fits (a) exactly: disabled -> mandatory task done -> enabled.
+  //
+  // Written as a ROUND TRIP - disabled, enabled, then disabled again once the
+  // product is removed. The return leg is what proves the gate TRACKS the
+  // mandatory task rather than happening to be in the right state when looked
+  // at, and it doubles as cleanup, restoring the empty-Deliveries precondition
+  // C-TC-005/011/014 depend on.
+  test(
+    'C-TC-048: Deliveries Continue stays disabled until a delivered quantity is entered',
+    { tag: ['@Coffee-C-TC-048'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('C-TC-048: with nothing to deliver, Continue is disabled', async () => {
+        await reachCoffeeStopWithEmptyDeliveries(driver);
+        expect(await coffee.getDeliveryProductRowCount()).toBe(0);
+        expect(await coffee.isDeliveriesContinueEnabled()).toBe(false);
+      });
+
+      await test.step('C-TC-048: adding a product arrives with quantity 1, which satisfies the gate', async () => {
+        // Live-verified 2026-08-26: a newly added product does NOT arrive
+        // empty - it lands with a delivered quantity of 1 already set, and
+        // Continue enables immediately on add ("qty after add = 1,
+        // Continue enabled=true").
+        //
+        // Worth stating plainly because the obvious expectation is the
+        // opposite. An earlier version of this step was titled "adding a
+        // product alone does not enable Continue", which the evidence
+        // contradicts; it only passed because the step logged rather than
+        // asserted. The gate is genuinely "is there a valid quantity", and the
+        // app pre-satisfies it on add.
+        expect(await coffee.addFirstDeliverySearchResult('sugar')).not.toBe('');
+        await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+        await expect.poll(() => coffee.getDeliveryProductRowCount(), { timeout: 15_000 }).toBe(1);
+        const qty = await coffee.getDeliveredQty();
+        console.log(`[C-TC-048] qty after add = "${qty}" Continue enabled=${await coffee.isDeliveriesContinueEnabled()}`);
+        expect(Number(qty)).toBeGreaterThan(0);
+        expect(await coffee.isDeliveriesContinueEnabled()).toBe(true);
+      });
+
+      await test.step('C-TC-048: editing the quantity keeps Continue enabled', async () => {
+        await coffee.setDeliveredQuantity('4');
+        // Compared numerically - this field clears to "0" rather than empty, so
+        // setting 4 lands as the text "04".
+        expect(Number(await coffee.getDeliveredQty())).toBe(4);
+        await expect.poll(() => coffee.isDeliveriesContinueEnabled(), { timeout: 15_000 }).toBe(true);
+      });
+
+      await test.step('C-TC-048: removing the product disables Continue again', async () => {
+        await coffee.revealRowDeleteResilient('//android.view.View[contains(@content-desc,"Pkg:")]');
+        await coffee.tapRevealedDeliveryProductDelete();
+        await coffee.confirmDeleteProduct();
+        await coffee.waitForDeleteProductConfirmGone();
+        await expect.poll(() => coffee.getDeliveryProductRowCount(), { timeout: 15_000 }).toBe(0);
+        expect(await coffee.isDeliveriesContinueEnabled()).toBe(false);
+      });
+    }
+  );
+
   // ==== C-TC-012 (regression suite "Coffee", build 0.1.90) ====
   //
   // "Driver deletes a saved presale order with confirmation."
