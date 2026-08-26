@@ -788,6 +788,32 @@ export class BaseScreen {
     return false;
   }
 
+  /**
+   * C-TC-019 - relaunches the app WITHOUT tearing down the Appium session or
+   * clearing app data.
+   *
+   * terminateApp + activateApp, not `adb shell am force-stop`: the adb route
+   * kills the process out from under the session, so the next command fails
+   * and the test has to rebuild everything. This pair is the supported
+   * in-session restart and leaves the driver usable.
+   *
+   * It also deliberately does NOT clear data (no `pm clear`) - that is the
+   * fixture's cold-start path and would wipe the login. "After app relaunch"
+   * means restarted, not reinstalled.
+   *
+   * Worth having beyond C-TC-019: a test that fails mid-flow has repeatedly
+   * left this app on a screen BACK cannot escape (the in-app camera, the
+   * Equipment audit's "complete audit?" loop), which then breaks the NEXT run
+   * before it starts.
+   */
+  async relaunchApp(): Promise<void> {
+    const appId = mobileConfig.capabilities['appium:appPackage'];
+    await this.driver.execute('mobile: terminateApp', { appId });
+    await this.driver.pause(1_500);
+    await this.driver.execute('mobile: activateApp', { appId });
+    await this.driver.pause(4_000);
+  }
+
   // ==== Shared swipe-to-reveal-delete primitives ====
   //
   // swipeAndDelete() below does this whole flow in one call, which fits a

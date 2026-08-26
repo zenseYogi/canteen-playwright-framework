@@ -3118,6 +3118,86 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
     }
   );
 
+  // ==== C-TC-019 (regression suite "Coffee") ====
+  //
+  // "Equipment Audit remains optional after app relaunch."
+  //
+  // The relaunch is the whole point, so it is a REAL restart:
+  // BaseScreen.relaunchApp() terminates and reactivates the app in-session.
+  // Deliberately NOT `pm clear` - that is the fixture's cold-start path and
+  // would wipe the login; "after relaunch" means restarted, not reinstalled.
+  //
+  // What "optional" is asserted by: the checklist groups Equipment audit under
+  // its own "Optional" heading (live-verified in the checklist dump:
+  // "... | Optional | Before Photos ... | Equipment audit | Audit machine(s) |
+  // ..."), and the tile is not complete. The stronger claim - that the stop can
+  // be COMPLETED with the audit skipped - is C-TC-020, which is parked because
+  // it needs a completable stop.
+  //
+  // Read-only: it opens no audit and completes nothing, so it is unaffected by
+  // the stop damaged earlier in this session.
+  test(
+    'C-TC-019: Equipment Audit is still optional after the app is relaunched',
+    { tag: ['@Coffee-C-TC-019'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      let stopName = '';
+      let before = '';
+      await test.step('C-TC-019 (before): Equipment audit is present and optional', async () => {
+        stopName = await reachCoffeeStop(driver, 'any-coffee', async () => true, []);
+        // Polled for the same reason as the post-relaunch read below: the
+        // checklist's TILES render after its title and Complete Delivery
+        // button, so an immediate read can return only
+        // "25 Aug 2026 | Route 103 | <stop> | Complete Delivery" - which looks
+        // like the tiles are missing rather than merely late.
+        await expect
+          .poll(() => coffee.getVisibleScreenText(), { timeout: 30_000 })
+          .toContain('Equipment audit');
+        before = await coffee.getVisibleScreenText();
+        console.log(`[C-TC-019] stop "${stopName}" checklist BEFORE relaunch: ${before}`);
+        expect(before).toContain('Optional');
+        expect(await coffee.isChecklistTileComplete('Equipment audit')).toBe(false);
+      });
+
+      await test.step('Relaunch the app', async () => {
+        await coffee.relaunchApp();
+      });
+
+      await test.step('C-TC-019 (after): the same stop still shows Equipment audit as optional', async () => {
+        // Re-navigate from scratch - a relaunch drops us wherever the app
+        // restores to, which is not guaranteed to be the checklist.
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await home.returnToHome();
+        expect(await dashboard.scrollToAndClickLocationByName(stopName)).toBe(true);
+        await dashboard.openFirstServiceStation('coffee');
+
+        // POLLED, not read once. A relaunch leaves the accessibility tree empty
+        // for a beat while the checklist renders - the first attempt read ""
+        // here and failed, while a screenshot taken moments later showed the
+        // screen fully drawn. Waiting for the tree to populate is the fix.
+        await expect
+          .poll(() => coffee.getVisibleScreenText(), { timeout: 30_000 })
+          .toContain('Equipment audit');
+        const after = await coffee.getVisibleScreenText();
+        console.log(`[C-TC-019] checklist AFTER relaunch: ${after}`);
+        expect(after).toContain('Optional');
+        expect(await coffee.isChecklistTileComplete('Equipment audit')).toBe(false);
+      });
+    }
+  );
+
   // ==== C-TC-012 (regression suite "Coffee", build 0.1.90) ====
   //
   // "Driver deletes a saved presale order with confirmation."
