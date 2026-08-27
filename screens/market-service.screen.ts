@@ -403,6 +403,22 @@ export class MarketServiceScreen extends BaseScreen {
   }
 
   /** Searches for a product on the Removals & Returns screen and selects the first matching result - same list-then-tap shape as AdhocDeliveryScreen's own searchCustomer/selectFirstSearchedCustomer. */
+  /**
+   * Searches Removals & Returns WITHOUT selecting anything - the
+   * search-and-select helper below always taps a row, which is useless for
+   * M-TC-033, whose whole point is that a no-match search must select nothing.
+   */
+  async searchRemovalsProduct(term: string): Promise<void> {
+    await this.tap(this.removalsSearchField);
+    const field = await this.driver.$(this.removalsSearchField);
+    await field.setValue(term);
+  }
+
+  /** Whether the Document product screen is open - i.e. whether a product actually got selected. */
+  async isDocumentProductVisible(): Promise<boolean> {
+    return this.isVisible(this.documentProductTitle);
+  }
+
   async searchAndSelectRemovalsProduct(term: string): Promise<void> {
     await this.tap(this.removalsSearchField);
     const field = await this.driver.$(this.removalsSearchField);

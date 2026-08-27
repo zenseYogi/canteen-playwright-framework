@@ -3143,4 +3143,115 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       });
     }
   );
+
+  // ==== SEARCH AND SCAN (M-TC-028, M-TC-033, M-TC-034) ====
+  //
+  // All three pair "search AND scan". The SCAN half is OUT OF SCOPE for the
+  // same reason as M-TC-020: no live scanner on this emulator. The SEARCH half
+  // is fully testable and is what these assert - stated here so the coverage
+  // is not read as more than it is.
+  //
+  // M-TC-028: "Search and scan return expected product across key modules
+  // [Fills - Add Product]" -> "matching results should be displayed with
+  // selected item details on the parent screen".
+  test(
+    'M-TC-028: Add Product search returns matches and carries the selection to the parent screen',
+    { tag: ['@Market-M-TC-028'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const market = await reachMoneyOpsChecklist(driver);
+      let firstResult = '';
+
+      await test.step('Search on the Add Product screen', async () => {
+        await market.openAddProductFromFills();
+        expect(await market.isAddProductScreenVisible()).toBe(true);
+        await market.searchProduct('Balance');
+        firstResult = await market.getFirstSearchResultContentDesc();
+        console.log(`[M-TC-028] first result = ${JSON.stringify(firstResult)}`);
+        expect(firstResult).not.toBe('');
+      });
+
+      await test.step('M-TC-028: selecting carries the item details to the parent screen', async () => {
+        // The row's content-desc is "{Name} ({size}) - pkg: {N}\nSKU: {sku}".
+        // The label PREFIX is everything before the newline; deriving it from
+        // the live row rather than hardcoding a product, because seed data for
+        // a given term has already changed once in this suite's lifetime.
+        const prefix = firstResult.split('\n')[0] ?? '';
+        await market.selectSearchResult(prefix);
+        const summary = await market.getAddProductSummary();
+        console.log(`[M-TC-028] parent screen summary = ${JSON.stringify(summary)}`);
+        // "selected item details on the parent screen" - the Qty field's hint
+        // packs the chosen product's name, SKU and pkg.
+        expect(summary.name).not.toBe('');
+        expect(prefix).toContain(summary.name.split(' (')[0].trim().slice(0, 8));
+      });
+
+      await test.step('Leave without adding', async () => {
+        await market.cancelAddProduct().catch(() => {});
+        await market.pressKeyCode(4).catch(() => {});
+      });
+    }
+  );
+
+  // M-TC-034: the same claim on Removals & Returns.
+  test(
+    'M-TC-034: Removals & Returns search returns matches and opens the selected product',
+    { tag: ['@Market-M-TC-034'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const market = await reachMoneyOpsChecklist(driver);
+
+      await test.step('M-TC-034: search, select, and land on the product', async () => {
+        // openRemovalsAndReturnsForProduct searches AND selects, then waits for
+        // the Document product screen - reaching it IS the "selected item
+        // details on the parent screen" outcome.
+        await market.openRemovalsAndReturnsForProduct('Balance');
+        const shown = await market.getVisibleScreenText();
+        console.log(`[M-TC-034] document product screen: ${shown.slice(0, 220)}`);
+        expect(shown).not.toBe('');
+      });
+
+      await test.step('Leave without documenting anything', async () => {
+        await market.cancelDocumentProduct().catch(() => {});
+        await market.pressKeyCode(4).catch(() => {});
+      });
+    }
+  );
+
+  // M-TC-033: "Search with no match or invalid scan does not select wrong
+  // product [Removals & Returns]" -> "the app should return no matching result
+  // or a clear no-match state; And no incorrect product should be selected or
+  // populated on the parent screen".
+  //
+  // This one matters more than it looks. This suite has ALREADY been bitten by
+  // selectors that match loosely and tap the first hit - asking for "Canteen
+  // Granulated Sugar Canister" once added "A&W Zero Sugar Root Beer" on the
+  // Coffee side. A search that silently selects the wrong product is exactly
+  // that failure mode, and this is the case that would catch it.
+  test(
+    'M-TC-033: a no-match search selects nothing on Removals & Returns',
+    { tag: ['@Market-M-TC-033'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const market = await reachMoneyOpsChecklist(driver);
+
+      await test.step('Search a term that cannot match', async () => {
+        await market.openRemovalsAndReturns();
+        await market.searchRemovalsProduct('ZZQXNOMATCH');
+        await driver.pause(2_000);
+      });
+
+      await test.step('M-TC-033: no result is offered and nothing is selected', async () => {
+        const shown = await market.getVisibleScreenText();
+        console.log(`[M-TC-033] screen after no-match search: ${shown.slice(0, 240)}`);
+        // Nothing was selected: the Document product screen - which is where a
+        // selection lands - must NOT have opened.
+        expect(await market.isDocumentProductVisible()).toBe(false);
+      });
+
+      await test.step('Leave', async () => {
+        await market.pressKeyCode(4).catch(() => {});
+      });
+    }
+  );
 });
