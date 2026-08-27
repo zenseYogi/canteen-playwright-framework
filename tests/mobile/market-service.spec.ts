@@ -2524,4 +2524,127 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       });
     }
   );
+
+  // ==== M-TC-036 (Complete Stop navigates to Schedule) ====
+  //
+  // "App navigates to Schedule after Complete Stop is selected" -> "the app
+  // should navigate to the Scheduled screen".
+  //
+  // RUNS ON UNITED COLLECTION BUREAU, the route's second REAL seeded stop -
+  // not on Teva (which the other Market tests lean on), and NOT on an ad-hoc
+  // stop.
+  //
+  // An ad-hoc stop was tried first and CANNOT work: one arrives with "No
+  // Orders" and no backend order, so although Product fills accepts a product
+  // and Continue submits, the Delivery tile never ticks - which leaves
+  // Complete Delivery disabled and Complete Stop absent. Same limitation that
+  // moved M-TC-005/008/013/014/015/016 off ad-hoc stops originally.
+  //
+  // Also note Complete Stop is NOT offered on a SKIPPED stop even at 100%
+  // progress, so skipping and completing are genuinely different states
+  // despite reading identically on the tile.
+  //
+  // DESTRUCTIVE BUT RECOVERABLE (Anthony, 2026-08-27): re-running Route Setup
+  // with the SAME operation and route clears the local DB and re-pulls the
+  // orders, undoing this completion. That is what makes completing a real stop
+  // acceptable here at all.
+  //
+  // RE-RUN LIMITATION, stated so nobody discovers it by watching this fail:
+  // the test LEAVES United completed, so a second run finds no Complete
+  // Delivery to tap. Reset first - hamburger -> Settings -> Route setup ->
+  // Change route -> same operation -> same route -> confirm -> Select Day ->
+  // Confirm (~2 min). Same shape of limitation as M-TC-032.
+  //
+  // THREE THINGS THIS COST FOUR ATTEMPTS TO LEARN, all encoded below:
+  //  1. FOUR tasks gate Complete Delivery (Before Photos, Delivery, Audit,
+  //     Money Operations) - not the two that ensureAuditPrerequisites does.
+  //  2. An AD-HOC stop can never be completed: it has "No Orders", and its
+  //     Delivery tile never ticks even after Fills is submitted.
+  //  3. A SINGLE-station stop has no separate "Complete Stop" button at all.
+  test(
+    'M-TC-036: completing a stop navigates back to the Schedule',
+    { tag: ['@Market-M-TC-036'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const home = new HomeScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const prepTasks = new PrepTasksScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in and complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, MONEY_OPS_ROUTE);
+        await home.returnToHome();
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach the second real Market stop', async () => {
+        await reachMarketAccount(driver, 'United Collection Bureau');
+        await dashboard.openFirstServiceStation('market');
+      });
+
+      // FOUR tasks gate Complete Delivery, not two: Before Photos, Delivery,
+      // Audit AND Money Operations. An earlier version of this test did only
+      // the first two (ensureAuditPrerequisites) and Complete Delivery never
+      // enabled. M-TC-008 already walks the full sequence - this mirrors it.
+      // Removals & Returns is genuinely NOT required (M-TC-014 proves that).
+      await test.step('Service it: Before Photos and Delivery', async () => {
+        await ensureAuditPrerequisites(market);
+      });
+
+      await test.step('Service it: Audit (count one product)', async () => {
+        const auditDone = await market.isChecklistIconChecked(
+          '//android.view.View[starts-with(@content-desc,"Market Physical") or starts-with(@content-desc,"Audit")]'
+        );
+        if (!auditDone) {
+          await market.tapAuditTile();
+          if (await market.isCountTypeModalVisible()) {
+            await market.selectCountType('cycle');
+          }
+          await market.searchAndSelectAuditProduct('Balance C', 'Balance CkieDough1.76oz - pkg: 1', 'Balance CkieDough1.76oz');
+          await market.tap('~Continue');
+        }
+      });
+
+      await test.step('Service it: Money Operations', async () => {
+        await market.skipMoneyOperations();
+      });
+
+      await test.step('Complete the delivery', async () => {
+        await expect
+          .poll(() => market.isCompleteDeliveryEnabled().catch(() => false), { timeout: 60_000 })
+          .toBe(true);
+        await market.tap('~Complete Delivery');
+      });
+
+      await test.step('M-TC-036: completing the stop returns to the Schedule', async () => {
+        // On a stop with ONE service station there is NO separate "Complete
+        // Stop" button - completing the last service completes the stop, and
+        // the app navigates straight to the Schedule. Live-verified
+        // 2026-08-27 on United Collection Bureau: tapping Complete Delivery
+        // landed directly on Home with the stop moved to Completed.
+        //
+        // A multi-station stop DOES surface Complete Stop at the stop level
+        // (Coffee's own suite taps it), so this handles both rather than
+        // assuming one shape: if the button is there, tap it; otherwise the
+        // completion above already was the stop completion.
+        if (await dashboard.isCompleteStopVisible().catch(() => false)) {
+          expect(await dashboard.isCompleteStopEnabled()).toBe(true);
+          await dashboard.tapCompleteStop();
+        }
+        // "the Scheduled screen" is Home - the schedule list with its date,
+        // route badge and delivery counters. isLoaded() is this suite's own
+        // "we are on Home" signal.
+        await expect.poll(() => home.isLoaded().catch(() => false), { timeout: 30_000 }).toBe(true);
+        // Settle on Home before reading any counter: the delivery count is
+        // SCROLLING content, not a fixed header, so arriving here mid-scroll
+        // makes getDeliveriesCount() throw "element wasn't found" rather than
+        // return a number. returnToHome() scrolls to top first.
+        await home.returnToHome();
+        console.log(`[M-TC-036] after completing the stop, deliveries = ${await home.getDeliveriesCount()}`);
+        expect(await home.isLoaded()).toBe(true);
+      });
+    }
+  );
 });
