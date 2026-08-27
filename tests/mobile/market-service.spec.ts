@@ -2254,4 +2254,114 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       }
     }
   );
+
+  // ==== AUDIT / MACHINE TYPE (M-TC-024, M-TC-025, M-TC-029) ====
+  //
+  // The Audit sub-feature has five rows; M-TC-015/016 are already automated,
+  // leaving these three.
+  //
+  // M-TC-024 and M-TC-029 are NEAR-DUPLICATES - both reduce to "Audit should
+  // be shown" for a Market machine type ("Machine type audit visibility edge
+  // cases [Market | Audit should be shown]" and "Machine type determines
+  // available task list and audit visibility [Market | Audit should be
+  // shown]"). One test carries both, tagged twice, rather than running the
+  // same navigation twice; M-TC-029's extra "available task list" clause is
+  // covered by asserting the whole task set, not just the Audit tile.
+  test(
+    'M-TC-024/M-TC-029: a Market machine type offers Audit in its task list',
+    { tag: ['@Market-M-TC-024', '@Market-M-TC-029'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const market = await reachMoneyOpsChecklist(driver);
+
+      await test.step('M-TC-024: Audit is shown for this Market station', async () => {
+        // Asked by capability, not by label: the tile reads "Market Physical"
+        // on some stops and "Audit" on others, and the locator matches either.
+        expect(await market.isAuditTileVisible()).toBe(true);
+      });
+
+      await test.step('M-TC-029: the machine type offers the full Market task list', async () => {
+        const tasks = await market.getMarketChecklistTasks();
+        console.log(`[M-TC-029] tasks = ${JSON.stringify(tasks)}`);
+        expect(tasks).toEqual({
+          beforePhotos: true,
+          moneyOperations: true,
+          removalsAndReturns: true,
+          delivery: true,
+          audit: true,
+          afterPhotos: true,
+          marketTransfers: true
+        });
+      });
+    }
+  );
+
+  // M-TC-025: "Market audit supports cycle and full count editing with
+  // persistence" -> "edited counts should persist after scrolling and
+  // re-entry; And Audit should complete with correct status on the workflow
+  // screen".
+  //
+  // The count-EDITING half is already proven by M-TC-015 (typed count survives
+  // the keypad closing, and survives switching Cycle <-> Full). What is new
+  // here, and what this asserts, is the other two clauses: persistence across
+  // LEAVING AND RE-ENTERING the Audit screen, and the checklist tile showing a
+  // completed status afterwards.
+  //
+  // NOTE this COMPLETES Teva's Audit, which is server-tracked and not
+  // reversible. That is consistent with what this suite already does to this
+  // stop - M-TC-008 completes the whole service station - and the test is
+  // written to tolerate an Audit an earlier run already completed.
+  test(
+    'M-TC-025: audit counts survive re-entry, and completing Audit updates the checklist status',
+    { tag: ['@Market-M-TC-025'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const market = await reachMoneyOpsChecklist(driver);
+      const product = 'Balance CkieDough1.76oz';
+      let counted = '';
+
+      await test.step("Ensure Before Photos and Delivery are done (Audit's prerequisites)", async () => {
+        await ensureAuditPrerequisites(market);
+      });
+
+      await test.step('Open Audit and record a count', async () => {
+        // tapAuditTile() tolerates the Count Type modal being absent - it only
+        // ever appears the first time an account's Audit is opened.
+        await market.tapAuditTile();
+        if (await market.isCountTypeModalVisible()) {
+          await market.selectCountType('cycle');
+        }
+        await market.searchAndSelectAuditProduct('Balance C', 'Balance CkieDough1.76oz - pkg: 1', product);
+        const before = await market.getAuditCount(product);
+        await market.focusAuditCount(product);
+        await market.tapKeypadDigit('4');
+        // The Audit pill APPENDS rather than replaces (unlike Product fills) -
+        // see M-TC-015's own note - so the expectation is derived from what
+        // the row already held rather than hardcoded.
+        counted = `${before}4`;
+        expect(await market.getAuditCount(product)).toBe(counted);
+        await market.pressKeyCode(4);
+      });
+
+      await test.step('M-TC-025: the count survives leaving and re-entering Audit', async () => {
+        await market.pressKeyCode(4);
+        expect(await market.isAuditTileVisible()).toBe(true);
+        await market.tapAuditTile();
+        if (await market.isCountTypeModalVisible()) {
+          await market.selectCountType('cycle');
+        }
+        expect(await market.getAuditProductRowCount(product)).toBe(1);
+        expect(await market.getAuditCount(product)).toBe(counted);
+        console.log(`[M-TC-025] count survived re-entry = "${counted}"`);
+      });
+
+      await test.step('M-TC-025: completing Audit marks it complete on the checklist', async () => {
+        expect(await market.isAuditContinueEnabled()).toBe(true);
+        await market.submitAudit();
+        await expect
+          .poll(() => market.isAuditTileComplete().catch(() => false), { timeout: 30_000 })
+          .toBe(true);
+      });
+    }
+  );
 });

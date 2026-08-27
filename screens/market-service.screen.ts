@@ -1217,6 +1217,50 @@ export class MarketServiceScreen extends BaseScreen {
     }
   }
 
+  /**
+   * M-TC-024 / M-TC-029 - whether the Audit task is offered at all on this
+   * machine type's checklist. Both cases reduce to "Audit should be shown"
+   * for a Market station. The tile is labelled "Market Physical" on some
+   * stops and "Audit" on others (see the `audit` locator), so this asks the
+   * question by capability rather than by label.
+   */
+  async isAuditTileVisible(): Promise<boolean> {
+    return this.isVisible(this.audit);
+  }
+
+  /** Whether the Audit tile carries a completion tick on the checklist - M-TC-025's "correct status on the workflow screen". */
+  async isAuditTileComplete(): Promise<boolean> {
+    return this.isChecklistIconChecked(this.audit);
+  }
+
+  /**
+   * Which of the Market checklist's tasks are present. M-TC-029 asserts that
+   * the machine type "determines the available task list", so the whole set is
+   * read rather than only the Audit tile.
+   *
+   * Note "Market Physical" and "After Photos" render DIFFERENTLY when
+   * disabled: an enabled tile is one clickable View packing title and
+   * description into a single newline-joined content-desc, while a disabled
+   * one splits into two plain Views. Every locator here matches on the title
+   * prefix only, so it holds in both states.
+   */
+  async getMarketChecklistTasks(): Promise<Record<string, boolean>> {
+    return {
+      beforePhotos: await this.isVisible(this.beforePhotos),
+      moneyOperations: await this.isVisible(this.moneyOperations),
+      removalsAndReturns: await this.isVisible(this.removalsAndReturns),
+      delivery: await this.isVisible(this.deliveryTrigger),
+      audit: await this.isVisible(this.audit),
+      afterPhotos: await this.isVisible(this.afterPhotos),
+      marketTransfers: await this.isVisible(this.marketTransfersTile)
+    };
+  }
+
+  /** Submits the Audit screen. performAudit() taps this same Continue; exposed separately so a test can drive the steps itself. */
+  async submitAudit(): Promise<void> {
+    await this.tap(this.continueButton);
+  }
+
   /** M-TC-015 - the Count Type modal raised by tapping the Audit tile, before the Audit screen itself exists. */
   async isCountTypeModalVisible(): Promise<boolean> {
     return this.isVisible(this.countTypeModalTitle);
