@@ -2647,4 +2647,132 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       });
     }
   );
+
+  // ==== M-TC-001 / M-TC-042 (stop list -> Stop Preview) ====
+  //
+  // These two rows are WORD-FOR-WORD IDENTICAL - "Driver views market stops
+  // and navigates to stop preview", same Expected text, differing only in Sub
+  // Feature ("Service" vs "Stop Overview"). One test carries both rather than
+  // running the same navigation twice.
+  //
+  // Note the sheet marks M-TC-001 "Automated" while M-TC-042 is blank, yet
+  // NEITHER had any code behind it - M-TC-001 is one of the rows whose
+  // "Automated" status could not be traced to a test. This closes both.
+  //
+  // Read-only: it opens a stop and asserts, completing nothing.
+  test(
+    'M-TC-001/M-TC-042: pending Market stops are listed and open a Stop Preview with date, location and service type',
+    { tag: ['@Market-M-TC-001', '@Market-M-TC-042'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const home = new HomeScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const prepTasks = new PrepTasksScreen(driver);
+
+      await test.step('Log in and complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, MONEY_OPS_ROUTE);
+        await home.returnToHome();
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('M-TC-001/042: pending Market stops are listed', async () => {
+        const count = await dashboard.getLocationCount();
+        console.log(`[M-TC-001/042] pending stops = ${count}`);
+        expect(count).toBeGreaterThan(0);
+      });
+
+      await test.step('M-TC-001/042: tapping a stop opens its Stop Preview', async () => {
+        await reachMarketAccount(driver, 'Teva Pharmaceutical');
+        expect(await dashboard.isStopOverviewVisible()).toBe(true);
+      });
+
+      await test.step('M-TC-001/042: the preview shows date, location and service type', async () => {
+        // The three clauses the case names, each read from its own element
+        // rather than from one blob of screen text - so a missing field fails
+        // on its own rather than hiding behind the others.
+        expect(await dashboard.isStopOverviewDateVisible()).toBe(true);
+
+        const name = await dashboard.getStopLocationName();
+        const address = await dashboard.getStopLocationAddress();
+        console.log(`[M-TC-001/042] location = "${name}" / "${address}"`);
+        expect(name).not.toBe('');
+        expect(address).not.toBe('');
+
+        // "Service Type" is the LOB card - it reads e.g. "market | 1 Service
+        // stations ", naming the service line served at this stop.
+        const lob = await dashboard.getLobCardText('market');
+        console.log(`[M-TC-001/042] service type = "${lob.replace(/\n/g, ' | ')}"`);
+        expect(lob.toLowerCase()).toContain('market');
+      });
+    }
+  );
+
+  // ==== M-TC-038 (Navigate hands off to the maps app) ====
+  //
+  // "Driver navigates to stop using default maps application" -> "the device's
+  // default navigation app should open with directions to the stop".
+  //
+  // The Market counterpart of Coffee's C-TC-045, and it follows that test's
+  // three hard-won rules exactly:
+  //  1. Assert on the FOREGROUND PACKAGE, never on drawn content - once maps
+  //     takes over, the accessibility tree belongs to another app and this
+  //     suite's locators mean nothing in it.
+  //  2. Assert "a maps handler", NOT the exact package - which app is default
+  //     is a DEVICE setting, so pinning it would test the emulator's config
+  //     rather than the app's hand-off.
+  //  3. ALWAYS restore with returnToThisApp() (activateApp, not BACK - the
+  //     foreign app's back stack is not ours) and ASSERT the return, or every
+  //     following test starts inside Maps.
+  //
+  // Pre-checked on this emulator: `cmd package resolve-activity` for
+  // "geo:0,0?q=..." resolves to com.google.android.apps.maps, so a default
+  // handler genuinely exists. Without one the verdict would be "untestable on
+  // this device", not a failure.
+  //
+  // Read-only: it completes nothing.
+  test(
+    'M-TC-038: Navigate hands off to the default maps application',
+    { tag: ['@Market-M-TC-038'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const home = new HomeScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const prepTasks = new PrepTasksScreen(driver);
+
+      let ownPackage = '';
+      await test.step('Reach a Market stop overview', async () => {
+        await loginAndEnsureRoute(driver, MONEY_OPS_ROUTE);
+        await home.returnToHome();
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+        await reachMarketAccount(driver, 'Teva Pharmaceutical');
+        expect(await dashboard.isStopOverviewVisible()).toBe(true);
+        ownPackage = await dashboard.getForegroundPackage();
+        console.log(`[M-TC-038] own package = "${ownPackage}"`);
+        expect(ownPackage).not.toBe('');
+      });
+
+      await test.step('M-TC-038: tapping Navigate opens the default maps app', async () => {
+        await dashboard.tap('~Navigate');
+        // Polled: the hand-off is an intent, so the foreground package changes
+        // asynchronously and a single read catches the old one.
+        await expect
+          .poll(() => dashboard.getForegroundPackage(), { timeout: 30_000 })
+          .not.toBe(ownPackage);
+        const handler = await dashboard.getForegroundPackage();
+        console.log(`[M-TC-038] foreground after Navigate = "${handler}"`);
+        expect(handler.toLowerCase()).toContain('maps');
+      });
+
+      await test.step('Restore: bring the app back to the foreground', async () => {
+        // Not optional housekeeping - without it every following test starts
+        // inside Google Maps.
+        await dashboard.returnToThisApp();
+        await expect.poll(() => dashboard.getForegroundPackage(), { timeout: 30_000 }).toBe(ownPackage);
+      });
+    }
+  );
 });
