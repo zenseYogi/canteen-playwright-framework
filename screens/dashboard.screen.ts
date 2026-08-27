@@ -447,6 +447,10 @@ export class DashboardScreen extends BaseScreen {
    * single fast swipe: this row needed the SLOW gesture when driven by hand,
    * and which rows need which is not predictable per screen (see that
    * helper's own note).
+   *
+   * PROVEN 2026-08-27 by SD-TC-024's cleanup step, which creates an ad-hoc
+   * delivery and then deletes it, asserting the route returns to 0
+   * deliveries. Works reliably in the SAME session that created the stop.
    */
   async deleteNthServiceStation(lob: Lob, position: Position): Promise<boolean> {
     await this.clickLob(lob);

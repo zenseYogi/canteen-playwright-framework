@@ -60,16 +60,30 @@ export const mobileConfig = {
   // a dedicated test route, not a real business route like the other two.
   // Day is passed per-call (not fixed here) since TC028 specifically needs to
   // exercise all three.
-  // CORRECTED 2026-08-24 (build 0.1.90): this route is no longer empty -
+  // CORRECTED 2026-08-24 (build 0.1.90): Miami/001 is no longer empty -
   // live-verified it now carries 2 real, seeded Market deliveries (Teva
   // Pharmaceutical Industries LTB / Order 13517384, and United Collection
-  // Bureau, Inc. / Order 13517385). Same physical route as miamiRoute001
-  // below - kept as its own named entry rather than merged, since
-  // adhoc-scheduling.spec.ts's TC025/TC028 still assume it's empty and
-  // that assumption now needs re-verifying, not silently overwritten here.
+  // Bureau, Inc. / Order 13517385). It survives under its own name as
+  // miamiRoute001 below, which uses it deliberately FOR that data.
+  //
+  // MOVED 2026-08-27 to CHARLOTTE, NC / Route 001 (user-specified). This
+  // entry means "the route guaranteed to have zero deliveries", so leaving
+  // it pointed at a route carrying two of them made the name lie, and every
+  // consumer inherited that - SD-TC-024 could not run at all. Repointed
+  // rather than adding a second empty-route entry, so there is exactly one
+  // answer to "which route is the empty one".
+  //
+  // NOTE this is shared: SD-TC-024 plus TC025/TC028 all read it. That is
+  // intended - all three want the same thing - but it does mean TC025/TC028
+  // now exercise Charlotte 001 rather than Miami 001.
+  //
+  // Also note isOnRoute() in login-flow.ts keys its "trust a 0-delivery
+  // count as route confirmation" special case on THIS entry's route NUMBER
+  // ("001"). That still resolves correctly, and is now unambiguous again:
+  // previously two different 001s were in play.
   emptyRoute: {
-    operationSearch: process.env.EMPTY_ROUTE_OPERATION_SEARCH || 'Miami',
-    operationLabel: process.env.EMPTY_ROUTE_OPERATION_LABEL || 'Miami, FL',
+    operationSearch: process.env.EMPTY_ROUTE_OPERATION_SEARCH || 'Charlotte',
+    operationLabel: process.env.EMPTY_ROUTE_OPERATION_LABEL || 'Charlotte, NC',
     routeSearch: process.env.EMPTY_ROUTE_SEARCH || 'Route 001',
     routeLabel: process.env.EMPTY_ROUTE_LABEL || 'Route 001'
   },

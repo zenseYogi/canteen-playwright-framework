@@ -5,6 +5,7 @@ import { AdhocDeliveryScreen } from '../../screens/adhoc-delivery.screen';
 import { DashboardScreen } from '../../screens/dashboard.screen';
 import { PrepTasksScreen } from '../../screens/prep-tasks.screen';
 import { CoffeeServiceScreen } from '../../screens/coffee-service.screen';
+import type { Lob } from '../../utils/lob';
 import { mobileConfig } from '../../config/mobile.config';
 
 // PBI 850155 "Ad-hoc Scheduling" (Start of The Day area). Four TCs:
@@ -120,11 +121,26 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
   // schedule stop would not be - the schedule is volatile (see
   // coffee-service.spec.ts's runtime stop discovery), the customer catalogue is
   // not.
-  // The catalogue account this case books against - see the block comment
-  // above for why it must be a NAMED customer rather than an arbitrary search
-  // result. Shared by the cleanup precondition and the selection step so the
-  // two can never drift apart.
-  const SD_TC_017_CUSTOMER = 'American Airlines';
+  // The catalogue account SD-TC-017 and SD-TC-024 both book against, and the
+  // index of the right one within a search for "American".
+  //
+  // A NAMED customer is required, not an arbitrary search result: most
+  // accounts offer no service station at all, and the ad-hoc form cannot be
+  // completed without one. Live-verified 2026-08-27 on Charlotte 001 that the
+  // first hit for "a" is "1225 SOUTH CHURCH APARTMENTS", whose Location /
+  // Machine / POS picker opens on "No items available" - that is what blocked
+  // SD-TC-024, NOT the route change.
+  //
+  // The catalogue lists TWO "American Airlines"; only the 4800 Hangar one
+  // (index 1) offers services - five OCS/Pantry stations plus a Market
+  // section. Confirmed present with the SAME ordering on BOTH Charlotte 103
+  // and Charlotte 001, so one fixture serves both tests.
+  //
+  // Naming a CATALOGUE account does not conflict with this suite's rule
+  // against hardcoding stops: the schedule is volatile, the account
+  // catalogue is not.
+  const KNOWN_SERVICEABLE_CUSTOMER = 'American Airlines';
+  const KNOWN_SERVICEABLE_CUSTOMER_INDEX = 1;
 
   test(
     'SD-TC-017: creating an ad-hoc Coffee delivery lands on the Coffee service screen',
@@ -165,8 +181,11 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
       // login the list is already populated. The getLocationCount() poll
       // below is the explicit "the list has actually rendered" gate, so this
       // can never silently no-op on an unrendered list again.
-      // !! UNPROVEN AS OF 2026-08-27 - this step has NEVER been observed
-      // actually deleting anything, and must not be assumed to work.
+      // !! THIS STEP IS UNPROVEN - though the mechanism underneath it is not.
+      // dashboard.deleteNthServiceStation() is PROVEN (SD-TC-024's cleanup
+      // exercises it and asserts the route returns to 0 deliveries). What has
+      // never been observed working is THIS step specifically, because it
+      // cannot find a row to delete in the first place.
       // A real app bug prevents it being exercised: after a session reload an
       // ad-hoc delivery goes COUNTED BUT UNLISTED. Home's header still reads
       // "2 Deliveries / Remaining of 2", while the tab reads "Pending action
@@ -190,13 +209,13 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
           .poll(() => dashboard.getLocationCount().catch(() => 0), { timeout: 60_000 })
           .toBeGreaterThan(0);
 
-        const found = await dashboard.scrollToAndClickLocationByName(SD_TC_017_CUSTOMER);
+        const found = await dashboard.scrollToAndClickLocationByName(KNOWN_SERVICEABLE_CUSTOMER);
         if (found) {
           const deleted = await dashboard.deleteNthServiceStation('coffee', 'first');
-          console.log(`[SD-TC-017] pre-existing "${SD_TC_017_CUSTOMER}" stop found; coffee station deleted = ${deleted}`);
+          console.log(`[SD-TC-017] pre-existing "${KNOWN_SERVICEABLE_CUSTOMER}" stop found; coffee station deleted = ${deleted}`);
           await home.returnToHome();
         } else {
-          console.log(`[SD-TC-017] no pre-existing "${SD_TC_017_CUSTOMER}" stop to clean up`);
+          console.log(`[SD-TC-017] no pre-existing "${KNOWN_SERVICEABLE_CUSTOMER}" stop to clean up`);
         }
 
         // scrollToAndClickLocationByName() leaves the list on the COMPLETED
@@ -245,7 +264,7 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
         // instruction. The catalogue lists two under that name and only this
         // one offers OCS/Pantry services, so it has to be taken by position -
         // selectCustomer() would tap the Parkway Plaza Blvd one.
-        customer = await adhoc.selectSearchedCustomerByIndex(SD_TC_017_CUSTOMER, 1);
+        customer = await adhoc.selectSearchedCustomerByIndex(KNOWN_SERVICEABLE_CUSTOMER, KNOWN_SERVICEABLE_CUSTOMER_INDEX);
         console.log(`[SD-TC-017] selected customer "${customer}"`);
       });
 
@@ -299,8 +318,12 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
   // Day should complete successfully; and the driver should still be able to
   // add ad-hoc deliveries from the schedule.
   //
-  // REUSES TC025's route and setup exactly - mobileConfig.emptyRoute (Miami /
-  // Route 001), the dedicated zero-delivery test route.
+  // REUSES TC025's route and setup exactly - mobileConfig.emptyRoute, the
+  // dedicated zero-delivery test route, which is CHARLOTTE, NC / Route 001 as
+  // of 2026-08-27 (user-specified). It previously pointed at Miami / Route
+  // 001, which acquired 2 seeded Market deliveries in build 0.1.90 and so
+  // could no longer satisfy this case's "no scheduled deliveries" premise -
+  // that is why this test was blocked rather than failing on its own logic.
   //
   // Note TC025 already asserts that with zero deliveries Start Day is DISABLED,
   // which reads as a contradiction of this case. The reconciliation is in
@@ -315,6 +338,8 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
       test.setTimeout(900_000);
       const home = new HomeScreen(driver);
       const adhoc = new AdhocDeliveryScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      let lob: Lob = 'coffee';
 
       await test.step('Log in to the dedicated zero-delivery route', async () => {
         await loginAndEnsureRoute(driver, { ...mobileConfig.emptyRoute, day: 'TODAY' });
@@ -334,12 +359,33 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
         // The case's second clause, and the mechanism behind the first.
         await home.openAdhocDeliveryCreation();
         expect(await adhoc.isTitleVisible()).toBe(true);
-        await adhoc.searchCustomer('a');
+        // A NAMED account, not the first hit for a generic term - see
+        // KNOWN_SERVICEABLE_CUSTOMER above. This case does not care WHICH LOB
+        // the delivery is for, only that one can be added, so any serviceable
+        // account will do; it just cannot be one with no services.
+        await adhoc.searchCustomer('American');
         expect(await adhoc.getResultRowCount()).toBeGreaterThan(0);
-        expect(await adhoc.selectFirstSearchedCustomer()).not.toBe('');
-        await adhoc.selectFirstServiceAnyLob();
+        const picked = await adhoc.selectSearchedCustomerByIndex(
+          KNOWN_SERVICEABLE_CUSTOMER,
+          KNOWN_SERVICEABLE_CUSTOMER_INDEX
+        );
+        console.log(`[SD-TC-024] selected customer "${picked}"`);
+        // The label carries the LOB tag ("- OCS/Pantry" / "- Market" /
+        // "- Vending"), which the cleanup step below needs to find the row
+        // again. Derived rather than assumed: this account offers both Coffee
+        // and Market sections, and which one sorts first is route data.
+        const service = await adhoc.selectFirstServiceAnyLob();
+        lob = service.includes('OCS/Pantry') ? 'coffee' : service.includes('- Vending') ? 'vending' : 'market';
+        console.log(`[SD-TC-024] selected service "${service}" -> lob=${lob}`);
+        // No-ops when this account's form has no Service Type field.
         await adhoc.selectServiceType('FULL');
-        expect(await adhoc.isAddDeliveryButtonEnabled()).toBe(true);
+
+        // NOT asserting isAddDeliveryButtonEnabled() here. That button only
+        // exists on the multi-service variant of this form; a single-service
+        // account submits via "Continue" instead, so the check fails by
+        // ABSENCE on a form that is perfectly valid (the same trap SD-TC-017
+        // hit). submitAddDelivery() already resolves both, and the real proof
+        // that submission worked is the Start Day assertion below.
         await adhoc.submitAddDelivery();
       });
 
@@ -348,6 +394,247 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
         console.log(`[SD-TC-024] deliveries after ad-hoc = ${await home.getDeliveriesCount()}`);
         await expect.poll(() => home.isStartDayDisabled(), { timeout: 30_000 }).toBe(false);
       });
+
+      // MUST self-clean. This is the only test on the shared empty route that
+      // ADDS to it, and its siblings depend on that route being empty:
+      // TC025 asserts zero deliveries on TODAY - the very day this uses - and
+      // TC028 asserts zero on ALL THREE days, so there is no day this could
+      // move to instead. Without this step, running SD-TC-024 first breaks
+      // both of them, and the breakage looks like a TC025/TC028 defect rather
+      // than SD-TC-024's leftovers.
+      //
+      // Deleting here also works around the counted-but-unlisted bug noted on
+      // SD-TC-017: the stop is still listed in the SAME session that created
+      // it, and only vanishes from the list after a reload - so cleaning up
+      // immediately is the one moment this is reliably possible.
+      await test.step('Cleanup: delete the ad-hoc delivery so the route is empty again', async () => {
+        expect(await dashboard.scrollToAndClickLocationByName(KNOWN_SERVICEABLE_CUSTOMER)).toBe(true);
+        expect(await dashboard.deleteNthServiceStation(lob, 'first')).toBe(true);
+        await home.returnToHome();
+        await expect.poll(() => home.getDeliveriesCount().catch(() => -1), { timeout: 30_000 }).toBe(0);
+        console.log('[SD-TC-024] cleanup done - route is empty again');
+      });
+    }
+  );
+
+  // ==== SD-TC-022 (regression sheet, "Start of the day") ====
+  //
+  // "User is navigated to Prep Tasks after adding unscheduled delivery when no
+  // route setup has been performed" -> "the app should navigate to Prep Tasks".
+  // The sheet marks it Pass with no test data named.
+  //
+  // This behaviour was found INCIDENTALLY while automating SD-TC-017 on
+  // 2026-08-27, before this case was written. SD-TC-017's first three runs
+  // created their ad-hoc delivery correctly but then landed on "Start day,
+  // Route 103" with all four prep tiles, instead of the Coffee service screen
+  // it expected - because Start Day had not been performed on that route/day.
+  // That was SD-TC-022 passing in front of us. It is asserted here directly
+  // rather than left as an anecdote.
+  //
+  // ROUTE/DAY: mobileConfig.emptyRoute (Charlotte 001) on TOMORROW, chosen for
+  // two reasons. It has had no route setup performed, which is the whole
+  // precondition. And it is a DIFFERENT day from SD-TC-024, which uses the
+  // same route and the same customer/service fixture on TODAY - putting both
+  // on one day would risk them colliding on the app's silent-duplicate
+  // refusal if either ever failed to clean up after itself.
+  //
+  // Landing on Prep Tasks is NOT the same as completing Start Day, so this
+  // costs nothing irreversible: SD-TC-017 landed here repeatedly on 26 Aug
+  // while that day remained un-started.
+  test(
+    'SD-TC-022: adding an unscheduled delivery with no route setup done navigates to Prep Tasks',
+    { tag: ['@StartOfDay-SD-TC-022'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const home = new HomeScreen(driver);
+      const adhoc = new AdhocDeliveryScreen(driver);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      let lob: Lob = 'coffee';
+
+      await test.step('Log in to a route/day with no route setup performed', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.emptyRoute, day: 'TOMORROW' });
+        await home.returnToHome();
+      });
+
+      await test.step('SD-TC-022 (precondition): no route setup has been performed', async () => {
+        // Home still offering its OWN "Start day" CTA is the signal that this
+        // route/day has not been set up yet - it vanishes from Home once Start
+        // Day completes (live-verified 2026-08-27 on Charlotte 103 / 26 Aug,
+        // before and after completing it).
+        expect(await home.isStartDayVisible()).toBe(true);
+      });
+
+      await test.step('SD-TC-022: add an unscheduled (ad-hoc) delivery', async () => {
+        await home.openAdhocDeliveryCreation();
+        expect(await adhoc.isTitleVisible()).toBe(true);
+        await adhoc.searchCustomer('American');
+        const picked = await adhoc.selectSearchedCustomerByIndex(
+          KNOWN_SERVICEABLE_CUSTOMER,
+          KNOWN_SERVICEABLE_CUSTOMER_INDEX
+        );
+        console.log(`[SD-TC-022] selected customer "${picked}"`);
+        const service = await adhoc.selectFirstServiceAnyLob();
+        lob = service.includes('OCS/Pantry') ? 'coffee' : service.includes('- Vending') ? 'vending' : 'market';
+        console.log(`[SD-TC-022] selected service "${service}" -> lob=${lob}`);
+        await adhoc.selectServiceType('FULL');
+        await adhoc.submitAddDelivery();
+      });
+
+      await test.step('SD-TC-022: the app navigates to Prep Tasks', async () => {
+        // Asserted on the four CATEGORY TILES, not on the "Start day" heading.
+        // That heading is a View whose content-desc starts with "Start day",
+        // and Home carries a Button with almost the same label - the tiles
+        // exist only on Prep Tasks, so they cannot be satisfied by any other
+        // screen.
+        await expect
+          .poll(
+            () =>
+              prepTasks
+                .arePrepCategoriesVisible()
+                .then((c) => c.productCollection && c.moneyOperations && c.additionalPrep && c.checks)
+                .catch(() => false),
+            { timeout: 30_000 }
+          )
+          .toBe(true);
+        console.log('[SD-TC-022] landed on Prep Tasks with all four category tiles');
+      });
+
+      // Same reasoning as SD-TC-024's cleanup - this route is shared with
+      // TC025/TC028, which assert it is empty (TC028 on all three days,
+      // TOMORROW included), so the delivery added above must not survive.
+      await test.step('Cleanup: delete the ad-hoc delivery so the route is empty again', async () => {
+        await home.returnToHome();
+        expect(await dashboard.scrollToAndClickLocationByName(KNOWN_SERVICEABLE_CUSTOMER)).toBe(true);
+        expect(await dashboard.deleteNthServiceStation(lob, 'first')).toBe(true);
+        await home.returnToHome();
+        await expect.poll(() => home.getDeliveriesCount().catch(() => -1), { timeout: 30_000 }).toBe(0);
+        console.log('[SD-TC-022] cleanup done - route is empty again');
+      });
+    }
+  );
+
+  // ==== SD-TC-018 (regression sheet, "Start of the day") ====
+  //
+  // "Ad-hoc Coffee delivery shows delivery and fuel adjustment charges" ->
+  // "Then Delivery Fees and Fuel Adjustment charges should be displayed; And
+  // values should match OneCup or show zero when not applicable."
+  // The sheet marks it Result = Fail, Remarks "Bug to be raised".
+  //
+  // SPLIT INTO TWO TESTS, exactly as C-TC-005 is, and for the same reason:
+  // test.fail() marks a WHOLE test as expected-to-fail, so a broken setup
+  // would report as "failed as expected" and hide itself forever. The first
+  // test below carries the setup and every clause the build satisfies, so it
+  // fails LOUDLY if the flow breaks. The second carries only the fee
+  // assertions under test.fail().
+  //
+  // STATION: deliberately NOT the first OCS/Pantry row. SD-TC-017 books
+  // "Josh Birmingham Pkwy" on this same account, and the app SILENTLY REFUSES
+  // a duplicate customer+station (Continue goes inert with no error at all),
+  // so sharing a station would make whichever test ran second fail for a
+  // reason having nothing to do with its own subject.
+  //
+  // Runs on Charlotte 103 / YESTERDAY because a Coffee service screen cannot
+  // be opened until Start Day is done, and that route/day already has it.
+  const SD_TC_018_STATION = 'Sim Room';
+
+  /** Creates an ad-hoc Coffee delivery on Charlotte 103 and opens its Deliveries screen. */
+  const reachAdhocCoffeeDeliveries = async (driver: any): Promise<void> => {
+    const home = new HomeScreen(driver);
+    const adhoc = new AdhocDeliveryScreen(driver);
+    const prepTasks = new PrepTasksScreen(driver);
+    const coffee = new CoffeeServiceScreen(driver);
+
+    await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+    await home.returnToHome();
+    await prepTasks.openFromHamburgerMenu();
+    await prepTasks.ensureFullDayPrepComplete();
+    await home.returnToHome();
+
+    await home.openAdhocDeliveryCreation();
+    expect(await adhoc.isTitleVisible()).toBe(true);
+    await adhoc.searchCustomer('American');
+    await adhoc.selectSearchedCustomerByIndex(KNOWN_SERVICEABLE_CUSTOMER, KNOWN_SERVICEABLE_CUSTOMER_INDEX);
+    await adhoc.selectCoffeeServiceFor(SD_TC_018_STATION);
+    await adhoc.selectServiceType('FULL');
+    await adhoc.submitAddDelivery();
+
+    await expect
+      .poll(() => coffee.isServiceStopLocationHeaderVisible().catch(() => false), { timeout: 30_000 })
+      .toBe(true);
+    await coffee.openDelivery();
+  };
+
+  /** Removes the ad-hoc delivery created by reachAdhocCoffeeDeliveries. */
+  const cleanUpAdhocCoffeeDelivery = async (driver: any): Promise<void> => {
+    const home = new HomeScreen(driver);
+    const dashboard = new DashboardScreen(driver);
+    await home.returnToHome();
+    if (await dashboard.scrollToAndClickLocationByName(KNOWN_SERVICEABLE_CUSTOMER)) {
+      const deleted = await dashboard.deleteNthServiceStation('coffee', 'first');
+      console.log(`[SD-TC-018] cleanup - coffee station deleted = ${deleted}`);
+      await home.returnToHome();
+    }
+  };
+
+  test(
+    'SD-TC-018: an ad-hoc Coffee delivery opens its Deliveries screen',
+    { tag: ['@StartOfDay-SD-TC-018'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const coffee = new CoffeeServiceScreen(driver);
+
+      await test.step('Create an ad-hoc Coffee delivery and open Deliveries', async () => {
+        await reachAdhocCoffeeDeliveries(driver);
+        expect(await coffee.isDeliveriesHeadingVisible()).toBe(true);
+        console.log('[SD-TC-018] reached the Deliveries screen of a fresh ad-hoc Coffee delivery');
+      });
+
+      // What the fee lines ACTUALLY are on this build, recorded so the gap
+      // below is read as evidence rather than as an untested claim. Logged,
+      // not asserted - the assertions live in the test.fail() below.
+      await test.step('Record which fee lines this build renders', async () => {
+        for (const label of ['Delivery Charge', 'Shipping & Handling', 'Fuel', 'Delivery Fee']) {
+          console.log(`[SD-TC-018] fee line "${label}" visible = ${await coffee.isDeliveryFeeLineVisible(label)}`);
+        }
+      });
+
+      await test.step('Cleanup', async () => {
+        await cleanUpAdhocCoffeeDelivery(driver);
+      });
+    }
+  );
+
+  // The FAILING half. Asserts the INTENDED behaviour so it stays green against
+  // the current build and flags loudly ("expected to fail but passed") the
+  // moment the fix lands - rather than asserting the buggy behaviour as if it
+  // were correct, which would go silently green forever.
+  //
+  // The expectation is legitimate rather than a mis-specified case: a POPULATED
+  // Deliveries screen on this same route DOES render fee lines ("Shipping &
+  // Handling (Taxable) $1.06", "Delivery Charge (Nontaxable) $12.00" on
+  // 24Hundred Marketplace, live-verified 2026-08-25 for C-TC-005). A fresh
+  // ad-hoc delivery starts EMPTY, and the empty state omits them - the same
+  // BUG 918856 family. "Fuel Adjustment" is a separate question: no such line
+  // has been seen anywhere in this build, on Deliveries or Signing Order.
+  test(
+    'SD-TC-018 (BUG 918856 family): ad-hoc Coffee delivery omits Delivery Fees and Fuel Adjustment',
+    { tag: ['@StartOfDay-SD-TC-018', '@bug-918856'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const coffee = new CoffeeServiceScreen(driver);
+
+      await reachAdhocCoffeeDeliveries(driver);
+      try {
+        expect(await coffee.isDeliveryFeeLineVisible('Delivery Charge')).toBe(true);
+        expect(await coffee.isDeliveryFeeLineVisible('Fuel')).toBe(true);
+      } finally {
+        // In a finally so the stop is removed even though this test is
+        // EXPECTED to throw above - without it every run would leave a stop
+        // behind and the next would hit the silent-duplicate refusal.
+        await cleanUpAdhocCoffeeDelivery(driver);
+      }
     }
   );
 
@@ -416,12 +703,17 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
     async ({ driver }) => {
       const home = new HomeScreen(driver);
 
-      await test.step('Log in, ensure the dedicated empty test route (Miami / Route 001) on the first day', async () => {
+      await test.step('Log in, ensure the dedicated empty test route (Charlotte / Route 001) on the first day', async () => {
         await loginAndEnsureRoute(driver, { ...mobileConfig.emptyRoute, day: 'YESTERDAY' });
       });
 
-      // Live-verified: Miami / Route 001 is empty on all three days the
-      // in-app day picker offers (past/current/future relative to today).
+      // Live-verified: the dedicated empty route is empty on all three days
+      // the in-app day picker offers (past/current/future relative to today).
+      // That route is CHARLOTTE / Route 001 as of 2026-08-27 - Miami / 001
+      // acquired 2 seeded Market deliveries in build 0.1.90. Note SD-TC-024
+      // shares this route and ADDS a delivery to TODAY; it deletes it again
+      // in its own cleanup step, which is what keeps this assertion valid
+      // regardless of test order.
       // CORRECTED (live-verified 2026-08-08): there is no lightweight,
       // route-untouched day picker reachable from Home at all - the Home
       // date badge is not even clickable (confirmed via page-source dump
@@ -437,6 +729,14 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
       for (const day of ['YESTERDAY', 'TODAY', 'TOMORROW'] as const) {
         await test.step(`TC028: switch to ${day} and verify the empty state + Ad-hoc option`, async () => {
           await ensureOnRoute(driver, { ...mobileConfig.emptyRoute, day });
+          // Settle on Home before reading any badge. A route/day switch does
+          // NOT reliably leave the app on the schedule screen - live-verified
+          // 2026-08-27 that Charlotte 001 / YESTERDAY lands on the Prep Tasks
+          // "Start day, Route 1" screen instead, where getDeliveriesCount()
+          // finds no "Deliver" node at all and throws "element wasn't found"
+          // rather than reporting a count. SD-TC-024's own baseline step
+          // documents the same hazard. Miami / 001 simply never exposed it.
+          await home.returnToHome();
           expect(await home.getDeliveriesCount()).toBe(0);
           expect(await home.isDeliveriesEmptyStateVisible()).toBe(true);
           expect(await home.isStartDayDisabled()).toBe(true);

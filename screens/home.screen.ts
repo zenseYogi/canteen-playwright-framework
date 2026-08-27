@@ -248,6 +248,21 @@ export class HomeScreen extends BaseScreen {
   }
 
   /** TC025 "Start day button should be display as inactive" when there are no deliveries. */
+  /**
+   * Whether Home is still offering its own "Start day" CTA at all - the
+   * signal that this route/day has NOT had Start Day performed yet. Live-
+   * verified 2026-08-27 on Charlotte 103 / 26 Aug: the button is present
+   * (enabled or not) beforehand and disappears from Home entirely once Start
+   * Day completes.
+   *
+   * Distinct from isStartDayDisabled(), which cannot be used as a presence
+   * check - isEnabled() swallows a missing element into `false`, so a
+   * DISAPPEARED button and a DISABLED one both report "disabled".
+   */
+  async isStartDayVisible(): Promise<boolean> {
+    return this.isVisible(this.startDayButton);
+  }
+
   async isStartDayDisabled(): Promise<boolean> {
     return !(await this.isEnabled(this.startDayButton));
   }
