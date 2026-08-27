@@ -397,6 +397,12 @@ export class MarketServiceScreen extends BaseScreen {
    * the full internal element timeout instead of failing fast. A single
    * tap plus one generous wait is the correct fix.
    */
+  /** The Removals & Returns checklist tile's full label - M-TC-006 asks whether it reports a COUNT once items are entered. */
+  async getRemovalsTileText(): Promise<string> {
+    const el = await this.driver.$(this.removalsAndReturns);
+    return ((await el.getAttribute('content-desc')) ?? '').replace(/\n/g, ' | ');
+  }
+
   async openRemovalsAndReturns(): Promise<void> {
     await this.tap(this.removalsAndReturns);
     await this.waitFor(this.removalsSearchField, 30_000);

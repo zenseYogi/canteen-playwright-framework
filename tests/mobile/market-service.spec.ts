@@ -2566,7 +2566,13 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
     // Before Photos, Delivery, Audit, Money Operations, then completion - so
     // it is tagged rather than duplicated as a second expensive run. The
     // Home-status clause is asserted in its own step at the end.
-    { tag: ['@Market-M-TC-036', '@Market-M-TC-027'] },
+    // Also carries M-TC-007 ("Complete Delivery remains disabled until
+    // mandatory tasks are complete ... then Continue should become enabled").
+    // This journey asserts BOTH halves of that transition - disabled before
+    // servicing, enabled after - which is the whole of that case. Its sheet
+    // status is "Blocked", but that predates the four-task gate being
+    // established here; it is reachable.
+    { tag: ['@Market-M-TC-036', '@Market-M-TC-027', '@Market-M-TC-007'] },
     async ({ driver }) => {
       test.setTimeout(900_000);
       const home = new HomeScreen(driver);
@@ -2592,6 +2598,16 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       // the first two (ensureAuditPrerequisites) and Complete Delivery never
       // enabled. M-TC-008 already walks the full sequence - this mirrors it.
       // Removals & Returns is genuinely NOT required (M-TC-014 proves that).
+      await test.step('M-TC-007: Complete Delivery is disabled before the mandatory tasks are done', async () => {
+        // The first half of M-TC-007's transition. Asserted BEFORE any
+        // servicing, so the enable below is demonstrably caused by completing
+        // the tasks rather than having been true all along - the exact trap
+        // M-TC-011 fell into on the Fills Continue button.
+        const before = await market.isCompleteDeliveryEnabled();
+        console.log(`[M-TC-007] Complete Delivery enabled before servicing = ${before}`);
+        expect(before).toBe(false);
+      });
+
       await test.step('Service it: Before Photos and Delivery', async () => {
         await ensureAuditPrerequisites(market);
       });
@@ -3399,6 +3415,91 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
         await market.dismissNumericKeypadIfPresent().catch(() => {});
         await market.pressKeyCode(4).catch(() => {});
       }
+    }
+  );
+
+  // ==== M-TC-006 (task categories with running item counts) ====
+  //
+  // "Market service stop shows task categories with running item counts" ->
+  // "Before Photos, Removals & Returns, Delivery, Audit, and After Photos
+  // should be available; When the driver enters items into a task category and
+  // returns to the service stop screen; Then the category should display the
+  // count of items entered next to the task title".
+  //
+  // Sheet status "Blocked" was stale - it predates today's work and the case
+  // is perfectly reachable.
+  //
+  // Split as C-TC-005 is. The first test proves the categories exist AND that
+  // an entered item genuinely persists; the second carries the count clause,
+  // which does not hold.
+  //
+  // Verifying persistence in the FIRST test is deliberate. An earlier version
+  // of M-TC-021 asserted a missing count from a state that had never been
+  // populated and wrongly reported a defect. Here the quantity is read back
+  // BEFORE any claim about the tile, so the gap below rests on evidence that
+  // the data is actually there.
+  test(
+    'M-TC-006: the task categories are listed and an entered item persists',
+    { tag: ['@Market-M-TC-006'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const market = await reachMoneyOpsChecklist(driver);
+
+      await test.step('M-TC-006: the named task categories are all available', async () => {
+        const tasks = await market.getMarketChecklistTasks();
+        console.log(`[M-TC-006] tasks = ${JSON.stringify(tasks)}`);
+        expect(tasks.beforePhotos).toBe(true);
+        expect(tasks.removalsAndReturns).toBe(true);
+        expect(tasks.delivery).toBe(true);
+        expect(tasks.audit).toBe(true);
+        expect(tasks.afterPhotos).toBe(true);
+      });
+
+      await test.step('Entering an item into a category persists it', async () => {
+        await market.performRemovalsAndReturns('Balance', { spoiled: '2' });
+        await market.openRemovalsAndReturns();
+        const qty = await market.getRemovalsProductQty();
+        console.log(`[M-TC-006] persisted quantity = "${qty}"`);
+        expect(qty).toBe('2');
+        await market.pressKeyCode(4);
+      });
+    }
+  );
+
+  // The FAILING clause: the category should display the count next to its
+  // title, and it does not.
+  //
+  // Evidenced, not assumed. With a spoiled quantity of 2 genuinely saved and
+  // readable on the Removals & Returns screen, the checklist tile still reads
+  // "Removals & Returns | Remove and document product returns" - the same
+  // static description it carries with nothing entered at all.
+  //
+  // The expectation is legitimate rather than mis-specified: the tile two rows
+  // below reads "Market Transfers | 0 Transfers", so this checklist plainly
+  // CAN render a count next to a task title. Money Operations does it too,
+  // flipping to "POS 58 [77]" once a bag exists (M-TC-021).
+  test(
+    'M-TC-006 (gap): the task tile shows no item count after items are entered',
+    { tag: ['@Market-M-TC-006'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const market = await reachMoneyOpsChecklist(driver);
+
+      // Precondition: an item is already entered (the test above does this, and
+      // it persists across runs until the route is reset).
+      const qty = await market
+        .openRemovalsAndReturns()
+        .then(() => market.getRemovalsProductQty())
+        .catch(() => '');
+      await market.pressKeyCode(4).catch(() => {});
+      if (qty !== '2') {
+        await market.performRemovalsAndReturns('Balance', { spoiled: '2' });
+      }
+
+      const tile = await market.getRemovalsTileText();
+      console.log(`[M-TC-006] tile with items entered = "${tile}"`);
+      expect(tile).toMatch(/\d/);
     }
   );
 });
