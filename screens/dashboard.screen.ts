@@ -427,6 +427,40 @@ export class DashboardScreen extends BaseScreen {
     await this.tap(`${row}/android.widget.Button`);
   }
 
+  /**
+   * Removes the Nth service station - and with it its delivery - from the
+   * currently-open stop overview. Returns false when there is no such row, so
+   * callers can use it as a "clean up if a previous run left this behind"
+   * precondition rather than having to probe first.
+   *
+   * SAME swipe-reveals-an-unlabelled-Button mechanic as
+   * swipeAndSkipServiceStation() above, but NOT the same outcome, and the two
+   * must not be merged on that resemblance. Live-verified 2026-08-27 against
+   * an ad-hoc Coffee delivery (American Airlines / Josh Birmingham Pkwy on
+   * Charlotte 103): tapping this Button DELETES immediately - no "Skip stop"
+   * bottom sheet, no confirmation dialog of any kind - Home's delivery count
+   * drops by one, and the emptied stop itself disappears on a later refresh.
+   * Whether a row's Button skips or deletes is therefore contextual, so assert
+   * the outcome you expect instead of trusting the gesture.
+   *
+   * Uses revealRowDeleteResilient() rather than swipeAndSkipServiceStation's
+   * single fast swipe: this row needed the SLOW gesture when driven by hand,
+   * and which rows need which is not predictable per screen (see that
+   * helper's own note).
+   */
+  async deleteNthServiceStation(lob: Lob, position: Position): Promise<boolean> {
+    await this.clickLob(lob);
+    const row = this.nthServiceStationUnder(lob, position);
+    if (!(await this.isVisible(row))) {
+      return false;
+    }
+    if (!(await this.revealRowDeleteResilient(row))) {
+      return false;
+    }
+    await this.tapRowDeleteIcon(row);
+    return true;
+  }
+
   /** Whether "Complete Stop" is available on the current location-detail screen (present once every checklist tile - including any just-skipped station - is done). */
   async isCompleteStopVisible(): Promise<boolean> {
     return this.isVisible(this.completeStopButton);

@@ -83,6 +83,49 @@ export class AdhocDeliveryScreen extends BaseScreen {
     await this.tap(this.accountRow(name));
   }
 
+  private accountRowStartingWith(name: string): string {
+    return `//android.view.View[starts-with(@content-desc,"${name}")]`;
+  }
+
+  /**
+   * Selects the Nth already-searched (see searchCustomer) account row whose
+   * name starts with `name` - selectCustomer(name) taps the FIRST match, which
+   * is wrong when the catalogue carries one trading name at several addresses.
+   * Charlotte 103 lists two "American Airlines" (Parkway Plaza Blvd and 4800
+   * Hangar) and only the second offers any OCS/Pantry service, so SD-TC-017
+   * has to disambiguate by position. starts-with, not contains, so a row that
+   * merely mentions the name mid-string cannot shift the indexing.
+   *
+   * Returns the chosen row's full label (name + address, newlines flattened)
+   * so the run records WHICH of the duplicates it actually took.
+   */
+  async selectSearchedCustomerByIndex(name: string, index: number): Promise<string> {
+    const rows = [...(await this.driver.$$(this.accountRowStartingWith(name)))];
+    if (rows.length <= index) {
+      throw new Error(
+        `Expected at least ${index + 1} account row(s) starting with "${name}", found ${rows.length}`
+      );
+    }
+    const desc = ((await rows[index].getAttribute('content-desc')) ?? '').replace(/\n/g, ' | ');
+    await rows[index].click();
+    return desc;
+  }
+
+  /**
+   * Labels of every real row in the open account or service sheet, newlines
+   * flattened to " | ". For logging what the catalogue actually offered, so a
+   * data change shows up in the run output as a changed list rather than as a
+   * bare "0 results" that reads like a broken locator.
+   */
+  async getResultRowLabels(): Promise<string[]> {
+    const rows = [...(await this.driver.$$(this.firstMultilineRow))];
+    const labels: string[] = [];
+    for (const row of rows) {
+      labels.push(((await row.getAttribute('content-desc')) ?? '').replace(/\n/g, ' | '));
+    }
+    return labels;
+  }
+
   /** TC057 "clear selected account" - clears the already-open search field (see searchCustomer), restoring the full unfiltered account list. */
   async clearAccountSearch(): Promise<void> {
     const search = await this.driver.$(this.accountSearchField);

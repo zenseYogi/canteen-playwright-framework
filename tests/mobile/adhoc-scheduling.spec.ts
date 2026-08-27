@@ -3,6 +3,8 @@ import { loginAndEnsureRoute, ensureOnRoute } from '../../utils/login-flow';
 import { HomeScreen } from '../../screens/home.screen';
 import { AdhocDeliveryScreen } from '../../screens/adhoc-delivery.screen';
 import { DashboardScreen } from '../../screens/dashboard.screen';
+import { PrepTasksScreen } from '../../screens/prep-tasks.screen';
+import { CoffeeServiceScreen } from '../../screens/coffee-service.screen';
 import { mobileConfig } from '../../config/mobile.config';
 
 // PBI 850155 "Ad-hoc Scheduling" (Start of The Day area). Four TCs:
@@ -87,14 +89,43 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
   // user is taken to the Coffee Service screen.
   //
   // REUSES the existing Ad-hoc machinery rather than restating it: the customer
-  // search/select and the Service/Service-Type pickers are the same
-  // AdhocDeliveryScreen methods TC053-TC068 already exercises field by field,
-  // and the same sequence coffee-service.spec.ts's own bootstrap uses. What is
-  // NOT covered anywhere yet, and is the whole point of this case, is the
-  // OUTCOME: that submitting lands the driver on the Coffee service screen.
+  // search/select and the Service picker are the same AdhocDeliveryScreen
+  // methods TC053-TC068 already exercises field by field, and the same sequence
+  // coffee-service.spec.ts's own bootstrap uses. What is NOT covered anywhere
+  // yet, and is the whole point of this case, is the OUTCOME: that submitting
+  // lands the driver on the Coffee service screen.
+  //
+  // THE FORM VARIES BY ACCOUNT, not by route (live-verified 2026-08-27, and a
+  // correction to an earlier note here that blamed the route). The submit
+  // control is "Add Delivery" for a multi-service account and "Continue" for a
+  // single-service one, and the Service Type field is present only for the
+  // former - which is why this uses submitAddDelivery() and selectServiceType()
+  // rather than either literal control: both already resolve that difference
+  // themselves (see their own doc comments). Hand-rolling "~Continue" here
+  // would re-implement submitAddDelivery()'s existing fallback.
+  //
+  // PRECONDITION - Start Day. Confirmed 2026-08-27 as INTENDED behaviour, not
+  // a defect: a service screen cannot be opened until Start Day is done. With
+  // the day unstarted, tapping Continue creates the delivery correctly but
+  // lands on the Start day checklist instead of the Coffee Service screen -
+  // live-reproduced twice, once on a schedule cleaned of the previous run's
+  // stop, so it is neither intermittent nor an artefact of leftover state.
+  // The case's expected result is therefore only reachable on a started day.
   //
   // Uses selectFirstCoffeeService() rather than naming a service - the picker's
-  // contents are route data and change.
+  // contents are route data and change. The CUSTOMER, by contrast, is named on
+  // instruction: an arbitrary first search result does not work, because the
+  // case needs an account that actually offers an OCS/Pantry (Coffee) service
+  // and most do not. A catalogue account is a legitimate fixture where a
+  // schedule stop would not be - the schedule is volatile (see
+  // coffee-service.spec.ts's runtime stop discovery), the customer catalogue is
+  // not.
+  // The catalogue account this case books against - see the block comment
+  // above for why it must be a NAMED customer rather than an arbitrary search
+  // result. Shared by the cleanup precondition and the selection step so the
+  // two can never drift apart.
+  const SD_TC_017_CUSTOMER = 'American Airlines';
+
   test(
     'SD-TC-017: creating an ad-hoc Coffee delivery lands on the Coffee service screen',
     { tag: ['@StartOfDay-SD-TC-017'] },
@@ -102,43 +133,165 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
       test.setTimeout(900_000);
       const home = new HomeScreen(driver);
       const adhoc = new AdhocDeliveryScreen(driver);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
       const dashboard = new DashboardScreen(driver);
 
-      await test.step('Log in and open Ad-hoc delivery creation', async () => {
+      await test.step('Log in to Charlotte 103', async () => {
         await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
         await home.returnToHome();
+      });
+
+      // CLEAN FIRST, then create - rather than skipping creation when the stop
+      // is already there. The app SILENTLY REFUSES a duplicate ad-hoc
+      // delivery: re-adding a customer+station that is already pending leaves
+      // Continue completely inert - no navigation, no toast, no inline error,
+      // no disabled state (live-verified 2026-08-27, full tree of 19 nodes
+      // with zero error text). So a run that left its stop behind breaks the
+      // NEXT run.
+      //
+      // Cleaning at the START rather than at the end is deliberate: an
+      // end-of-test cleanup never executes when a run crashes or is
+      // interrupted, whereas this self-heals on the following run. And unlike
+      // a create-only-if-absent guard, creation is still exercised EVERY run,
+      // so the case keeps testing what its title claims.
+      //
+      // Runs BEFORE Start Day, not after. Placed after it, this failed to
+      // find a stop that was demonstrably on the schedule: live-traced
+      // 2026-08-27, the row lookup returned "no such element" 1.2s after the
+      // tab tap and stayed empty through all 25 scroll attempts, because
+      // returning from the Prep Tasks flow leaves Home's tab bar rendered
+      // while the schedule list itself is still empty. Immediately after
+      // login the list is already populated. The getLocationCount() poll
+      // below is the explicit "the list has actually rendered" gate, so this
+      // can never silently no-op on an unrendered list again.
+      // !! UNPROVEN AS OF 2026-08-27 - this step has NEVER been observed
+      // actually deleting anything, and must not be assumed to work.
+      // A real app bug prevents it being exercised: after a session reload an
+      // ad-hoc delivery goes COUNTED BUT UNLISTED. Home's header still reads
+      // "2 Deliveries / Remaining of 2", while the tab reads "Pending action
+      // (1)" and the row is absent from the accessibility tree entirely -
+      // confirmed via adb uiautomator dump AND Appium's own getPageSource,
+      // with //*[contains(@content-desc,"American")] returning ZERO hits.
+      // Pull-to-refresh does not restore it. So the stop is unreachable and
+      // undeletable through the UI while STILL blocking re-creation via the
+      // silent-duplicate refusal described below.
+      //
+      // The row IS deletable while it remains visible (same app session as
+      // its creation) - that path was driven by hand twice and works. Only
+      // the post-reload state is broken. Report alongside the silent-
+      // duplicate finding; the two compound each other.
+      //
+      // Do NOT "fix" this by rewriting scrollToAndClickLocationByName() - its
+      // XPath was verified correct against the live tree (exactly one match
+      // when the row is present). Two runs were spent on that false trail.
+      await test.step('Precondition: delete this stop if an earlier run left it behind', async () => {
+        await expect
+          .poll(() => dashboard.getLocationCount().catch(() => 0), { timeout: 60_000 })
+          .toBeGreaterThan(0);
+
+        const found = await dashboard.scrollToAndClickLocationByName(SD_TC_017_CUSTOMER);
+        if (found) {
+          const deleted = await dashboard.deleteNthServiceStation('coffee', 'first');
+          console.log(`[SD-TC-017] pre-existing "${SD_TC_017_CUSTOMER}" stop found; coffee station deleted = ${deleted}`);
+          await home.returnToHome();
+        } else {
+          console.log(`[SD-TC-017] no pre-existing "${SD_TC_017_CUSTOMER}" stop to clean up`);
+        }
+
+        // scrollToAndClickLocationByName() leaves the list on the COMPLETED
+        // tab when it finds nothing - it checks that tab second and does not
+        // switch back. Everything downstream reads the Pending list, so
+        // restore it rather than leaving the next step on the wrong tab.
+        await dashboard.ensurePendingActionTabSelected();
+      });
+
+      // The same two calls the whole Coffee suite uses for this gate (see
+      // coffee-service.spec.ts:263) rather than a new mechanism.
+      // ensureFullDayPrepComplete() completes the four prep tiles on a fresh
+      // day and tolerates one an earlier run already finished, since
+      // completion is server-tracked per route/day and cannot be undone.
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Open Ad-hoc delivery creation', async () => {
         await home.openAdhocDeliveryCreation();
         expect(await adhoc.isTitleVisible()).toBe(true);
       });
 
       let customer = '';
-      await test.step('SD-TC-017: select a customer, then a Coffee service and service type', async () => {
-        // The list only populates after a search - selectFirstSearchedCustomer
-        // picks the first ROW, it does not perform the search itself. TC055
-        // above uses the same 'a' term for the same reason.
-        await adhoc.searchCustomer('a');
+      await test.step('SD-TC-017: select a customer that offers a Coffee service', async () => {
+        // The list only populates after a search - the select methods pick a
+        // ROW, they do not perform the search themselves. Searched on the
+        // "American" token rather than a full account name: this picker is
+        // already documented in this suite as not being a plain substring
+        // filter, so the shorter, distinctive token is the reliable way in.
+        //
+        // "American Express" is NOT in Charlotte 103's catalogue - searching
+        // "American" returns exactly & Efird, Airlines (x2), Business Journal,
+        // Dornier, Freight 147 and Hardware & Lumber. Recorded so it is not
+        // retried and written up as a broken search; the search is fine, the
+        // account is simply absent here.
+        await adhoc.searchCustomer('American');
+        console.log(
+          `[SD-TC-017] customer results for "American": ${JSON.stringify(await adhoc.getResultRowLabels())}`
+        );
         expect(await adhoc.getResultRowCount()).toBeGreaterThan(0);
-        customer = await adhoc.selectFirstSearchedCustomer();
-        expect(customer).not.toBe('');
-        // Add Delivery is gated until the service selection is made - already
-        // proven by TC060; re-checked here only as the starting state.
-        expect(await adhoc.isAddDeliveryButtonEnabled()).toBe(false);
+
+        // The SECOND "American Airlines" (4800 Hangar, Charlotte 28208), on
+        // instruction. The catalogue lists two under that name and only this
+        // one offers OCS/Pantry services, so it has to be taken by position -
+        // selectCustomer() would tap the Parkway Plaza Blvd one.
+        customer = await adhoc.selectSearchedCustomerByIndex(SD_TC_017_CUSTOMER, 1);
+        console.log(`[SD-TC-017] selected customer "${customer}"`);
+      });
+
+      await test.step('SD-TC-017: select a Coffee (OCS/Pantry) service station', async () => {
+        // This account pre-populates the "Location, Machine or POS" picker -
+        // it opens straight onto "Select Service" with five OCS/Pantry entries
+        // and a Market section, no search needed. Other accounts (American &
+        // Efird) open with only a search box, so pre-population is an ACCOUNT
+        // property, not a route one. selectFirstCoffeeService() covers both:
+        // it taps the field and takes the first OCS/Pantry row.
+        expect(await adhoc.isServiceFieldVisible()).toBe(true);
         await adhoc.selectFirstCoffeeService();
+
+        // No-ops when the account's form has no Service Type field - see the
+        // block comment above.
         await adhoc.selectServiceType('FULL');
-        expect(await adhoc.isAddDeliveryButtonEnabled()).toBe(true);
       });
 
       await test.step('SD-TC-017: submitting takes the driver to the Coffee service screen', async () => {
         await adhoc.submitAddDelivery();
-        // The outcome clause. Landing on a Coffee service station is what
-        // distinguishes this from TC053-TC068, which stop at the form.
+
+        // The outcome clause, and the whole point of the case - landing on a
+        // Coffee service screen is what distinguishes this from TC053-TC068,
+        // which stop at the form.
+        //
+        // Asserted via the CHECKLIST header, not DashboardScreen's
+        // isLobCardVisible('coffee'). Continue does not land on the Stop
+        // Overview, where that LOB tile lives - it goes one level deeper,
+        // straight onto the service checklist (Before Photos / Delivery /
+        // Equipment Audit / Add Presale / After Photos / Signing Order /
+        // Complete Delivery), which carries no "coffee" ImageView at all.
+        // The LOB-tile check therefore fails on a screen that is in fact the
+        // correct destination - live-confirmed 2026-08-27.
+        // isServiceStopLocationHeaderVisible() anchors on the Before Photos
+        // tile, so it is specific to this checklist rather than to any screen
+        // that merely mentions coffee.
         await expect
-          .poll(() => dashboard.isLobCardVisible('coffee').catch(() => false), { timeout: 30_000 })
+          .poll(() => coffee.isServiceStopLocationHeaderVisible().catch(() => false), { timeout: 30_000 })
           .toBe(true);
-        console.log(`[SD-TC-017] ad-hoc Coffee delivery created for "${customer}"`);
+        console.log(
+          `[SD-TC-017] ad-hoc Coffee delivery created for "${customer}"; landed on service stop "${await coffee.getServiceStopLocationHeaderText()}"`
+        );
       });
     }
   );
+
 
   // ==== SD-TC-024 (regression sheet, "Start of the day") ====
   //
