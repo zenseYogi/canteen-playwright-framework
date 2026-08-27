@@ -833,140 +833,117 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
     }
   );
 
-  // M-TC-009/M-TC-010/M-TC-011 "Numeric entry validation on Delivery
-  // product quantities" - all three live on the same Product fills
-  // Delivery field (CureLeaf/Baby Ruth 2.1oz, reached via the checklist's
-  // own Delivery tile, still reachable even though Home's own tile shows
-  // this stop as "Completed" - the checklist itself remains fully open for
-  // re-entry, Complete Delivery just starts disabled). Using
-  // enterFillQuantities' own paste-style value injection (see its own
-  // corrected note) rather than real keypad taps, since the real on-screen
-  // keypad has no letter or minus-sign keys at all - malformed text and
-  // negative numbers can never reach this field through genuine keypad
-  // interaction in the first place (same rationale already established for
-  // TC168/TC169's Add Product Qty checks). This probes the app's own
-  // server/business-logic validation against input a real user couldn't
-  // produce via the UI, not a UI-level typing gap.
+  // ==== M-TC-009 / M-TC-010 / M-TC-011 (Delivery numeric validation) ====
   //
-  // Live-verified 2026-08-22, all three FAIL: malformed text ("abc") and a
-  // negative number ("-5") are both accepted LITERALLY into the field (no
-  // stripping, no rejection), and Continue stays enabled throughout -
-  // before any entry, after malformed entry, after negative entry, and
-  // after a valid entry alike. This is a real gap, not just "the UI has no
-  // way to reach it" - Add Product's own Qty field (TC169) DOES reject
-  // pasted invalid input (disables Add), so Product fills' Delivery field
-  // is inconsistent with that sibling field's own validation.
+  // REWRITTEN 2026-08-27, for two reasons.
+  //
+  // 1. IT COULD NOT RUN. The previous version hardcoded "CureLeaf", a Miami
+  //    010 stop, and Miami 010 needs BA data prep - on the working route the
+  //    row simply is not there, so it failed at navigation before reaching a
+  //    single assertion. Now runs on the live route like the rest of this
+  //    file, which also retires this file's last dependency on Miami 010.
+  //
+  // 2. IT WAS WIRED BACKWARDS. It ASSERTED THE DEFECT as if it were correct -
+  //    expect(field).toBe('abc'), expect(Continue).toBe(true) - with only the
+  //    step TITLES saying "(FAIL)". Two consequences, both bad: while the bug
+  //    is unfixed it goes silently green and reports nothing, and the day dev
+  //    FIXES it the test starts failing and reads as a regression rather than
+  //    a fix. Now the intended behaviour is asserted under test.fail(), so it
+  //    flags loudly ("expected to fail but passed") the moment it is fixed.
+  //
+  // All three rows are marked Fail in the sheet, and the defects are real:
+  // the Delivery quantity field accepts malformed text and negative values
+  // verbatim, and Continue never reflects validity - it is enabled before any
+  // entry is made at all.
   test(
-    'M-TC-009/M-TC-010/M-TC-011/M-TC-026: Delivery field accepts malformed/negative input unchanged; Continue never reflects validity',
-    // !! CURRENTLY FAILS ON THE WORKING ROUTE - pre-existing, not a
-    // regression. It hardcodes "CureLeaf", a Miami 010 stop, and Miami 010
-    // needs BA data prep (documented elsewhere in this file). On Miami 001 the
-    // row is simply not there: "Can't call click ... content-desc='CureLeaf'".
-    // Fixing it means reworking it onto a live stop the way the M-TC-0xx tests
-    // here already are; until then it should not be counted as passing
-    // coverage for the rows it names.
-    //
-    // M-TC-026 makes the same claim on the same field and is deliberately NOT
-    // tagged here - claiming it from a test that cannot run would overstate
-    // coverage. It has its own test below instead.
-    //
-    // The @Market-M-TC-* tags ARE added alongside the old-scheme ones: those
-    // rows previously had no tag traceability at all, only a test title.
-    { tag: [
-      '@Market-TC009', '@Market-TC010', '@Market-TC011',
-      '@Market-M-TC-009', '@Market-M-TC-010', '@Market-M-TC-011'
-    ] },
+    'M-TC-011: the Delivery quantity field accepts a valid positive number',
+    { tag: ['@Market-TC011', '@Market-M-TC-011'] },
     async ({ driver }) => {
-      const dashboard = new DashboardScreen(driver);
-      const home = new HomeScreen(driver);
-      const market = new MarketServiceScreen(driver);
+      test.setTimeout(900_000);
+      const market = await reachMoneyOpsChecklist(driver);
 
-      await test.step('Ensure a stable Home screen', async () => {
-        await home.returnToHome();
-      });
-
-      await test.step('Reach CureLeaf\'s Product fills, expand the first product row', async () => {
-        const completedTab = await driver.$('//android.view.View[contains(@content-desc,"Completed")]');
-        await completedTab.click();
-        const row = await driver.$(
-          '//android.view.View[contains(@content-desc,"Completed")]/following-sibling::android.view.View//*[@clickable="true" and @content-desc="CureLeaf"]'
-        );
-        await row.click();
-        await dashboard.openFirstServiceStation('market');
+      await test.step('A valid quantity is accepted', async () => {
         await market.openFills();
         await market.expandProductFill('first');
-      });
-
-      await test.step('Baseline: Continue is already enabled before any entry', async () => {
-        expect(await market.isFillsContinueEnabled()).toBe(true);
-      });
-
-      await test.step('M-TC-009 (FAIL): malformed text "abc" is accepted literally, not rejected', async () => {
-        await market.enterFillQuantities('first', { delivered: 'abc' });
-        expect(await market.getFillFieldValue('first', 'Delivery')).toBe('abc');
-        expect(await market.isFillsContinueEnabled()).toBe(true);
-      });
-
-      await test.step('M-TC-010 (FAIL): negative "-5" is accepted literally, not rejected', async () => {
-        await market.enterFillQuantities('first', { delivered: '-5' });
-        expect(await market.getFillFieldValue('first', 'Delivery')).toBe('-5');
-        expect(await market.isFillsContinueEnabled()).toBe(true);
-      });
-
-      await test.step('M-TC-011 (partial): a valid positive number is accepted, but Continue was already enabled beforehand too', async () => {
         await market.enterFillQuantities('first', { delivered: '7' });
-        expect(await market.getFillFieldValue('first', 'Delivery')).toBe('7');
-        expect(await market.isFillsContinueEnabled()).toBe(true);
+        const read = await market.getFillFieldValue('first', 'Delivery');
+        console.log(`[M-TC-011] wrote "7" -> "${read}"`);
+        expect(read).toBe('7');
+      });
+
+      await test.step('Leave without saving', async () => {
+        await market.dismissNumericKeypadIfPresent();
+        await market.pressKeyCode(4);
       });
     }
   );
 
-  // M-TC-012 "Scanning a product during Add Product dismisses search
-  // results and shows keypad" - BLOCKED, not automated: requires actually
-  // triggering a barcode scan (real scanner hardware, or an adb-broadcast
-  // intent the app's scan receiver listens for). No such mechanism exists
-  // anywhere in this suite yet (confirmed via search) - every existing
-  // scanner-related check only verifies the scanner ICON is present
-  // (isAddProductScannerIconVisible/isSearchScannerIconVisible), never a
-  // real scan result. Building one would need investigating the app's own
-  // scan-intent contract first, same class of investment already flagged
-  // as out of scope without real device access (see the permissions-
-  // capability precedent) - not attempted this session.
+  // M-TC-009's intended behaviour: malformed text REJECTED.
+  test(
+    'M-TC-009 (gap): the Delivery quantity field accepts malformed text',
+    { tag: ['@Market-TC009', '@Market-M-TC-009'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const market = await reachMoneyOpsChecklist(driver);
+      try {
+        await market.openFills();
+        await market.expandProductFill('first');
+        await market.enterFillQuantities('first', { delivered: 'abc' });
+        const read = await market.getFillFieldValue('first', 'Delivery');
+        console.log(`[M-TC-009] wrote "abc" -> "${read}"`);
+        expect(read).not.toBe('abc');
+      } finally {
+        await market.dismissNumericKeypadIfPresent().catch(() => {});
+        await market.pressKeyCode(4).catch(() => {});
+      }
+    }
+  );
 
-  // M-TC-013 "Driver records removals with reason and quantity" - MANUALLY
-  // live-verified (real screenshots, not just this automated test): search
-  // surfaces a selectable "Baby Ruth 1.9oz" result, entering Qty=2 saves it
-  // with no separate Save/Done step (the checklist's own "Removals &
-  // Returns" tile gets a green checkmark immediately), and reopening the
-  // tile afterward shows the same product+Qty persisted. The "reason" half
-  // of Excel's claim (Damaged/Spoiled/Theft/Truck Return) doesn't exist in
-  // this build's UI at all (see MarketServiceScreen's own note on the real
-  // current structure) - only a single aggregate Qty per product.
-  //
-  // FLAKY 2026-08-22: this automated version of that same manual check
-  // fails consistently and reproducibly on its own FIRST
-  // openRemovalsAndReturns() call (search field never appears, even with a
-  // 30s wait) - yet the exact same steps (same locators, same tap, same
-  // wait) succeed reliably within ~3s when driven from a standalone
-  // throwaway script outside this file. Root cause not found despite
-  // extensive isolation attempts (checked: navigation reaches the right
-  // screen beforehand: confirmed; tap-retry assumption was wrong and
-  // fixed: didn't help; single generous wait: didn't help either). Given
-  // the underlying claim is already solidly confirmed manually, not
-  // sinking further time into this specific test-authoring mystery right
-  // now - revisit if it recurs.
-  // REWRITTEN 2026-08-24 (build 0.1.90) to be independent - uses Teva
-  // Pharmaceutical (Stop 1), the same account M-TC-005/008/015/016 use.
-  // Also fixed a real screen-structure change discovered live: selecting
-  // a product NOT yet added raises a "Document product" modal (4 plain
-  // EditText fields, Spoiled/Damaged/Theft/TruckReturns, then Save) -
-  // matching BaseScreen.performRemovalsAndReturns()'s own shape, not the
-  // single-inline-Qty flow searchAndSelectRemovalsProduct()/setRemovalsQty()
-  // assumed. The SAVED row afterward does display as a single aggregate
-  // Qty (confirmed via screenshot), so market-service.screen.ts's own
-  // getRemovalsProductQty() locator was fixed to find it (see that
-  // method's own note - no "Qty" content-desc label exists at all, only
-  // the numeric value itself is a real accessible node).
+  // M-TC-010's intended behaviour: a negative value REJECTED.
+  test(
+    'M-TC-010 (gap): the Delivery quantity field accepts a negative value',
+    { tag: ['@Market-TC010', '@Market-M-TC-010'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const market = await reachMoneyOpsChecklist(driver);
+      try {
+        await market.openFills();
+        await market.expandProductFill('first');
+        await market.enterFillQuantities('first', { delivered: '-5' });
+        const read = await market.getFillFieldValue('first', 'Delivery');
+        console.log(`[M-TC-010] wrote "-5" -> "${read}"`);
+        expect(read).not.toContain('-');
+      } finally {
+        await market.dismissNumericKeypadIfPresent().catch(() => {});
+        await market.pressKeyCode(4).catch(() => {});
+      }
+    }
+  );
+
+  // M-TC-011's second clause, and the one with the widest blast radius:
+  // Continue should reflect validity. It does not - it is enabled BEFORE any
+  // entry is made, so there is no validation-driven enable transition to
+  // observe at all. Same shape as M-TC-015's own finding on Audit.
+  test(
+    'M-TC-011 (gap): Continue is enabled before any quantity is entered',
+    { tag: ['@Market-M-TC-011'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const market = await reachMoneyOpsChecklist(driver);
+      try {
+        await market.openFills();
+        const enabled = await market.isFillsContinueEnabled();
+        console.log(`[M-TC-011] Continue enabled before any entry = ${enabled}`);
+        expect(enabled).toBe(false);
+      } finally {
+        await market.pressKeyCode(4).catch(() => {});
+      }
+    }
+  );
+
   test(
     'M-TC-013: Removals & Returns saves a product quantity and displays it on reopen',
     { tag: ['@Market-TC013'] },
