@@ -534,6 +534,11 @@ export class DashboardScreen extends BaseScreen {
     );
   }
 
+  /** Commits the skip. Separate from openSkipStopSheet() so a test can assert the sheet's gating without ever taking a stop out of service. */
+  async tapSkipStop(): Promise<void> {
+    await this.tap(this.skipStopButton);
+  }
+
   /** Backs out of the skip sheet without skipping. */
   async dismissSkipStopSheet(): Promise<void> {
     await this.pressKeyCode(4);
