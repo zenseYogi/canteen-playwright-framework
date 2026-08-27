@@ -2779,6 +2779,34 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
     }
   );
 
+  // ==== M-TC-039 - OUT OF SCOPE (camera controls carry no labels) ====
+  //
+  // "Flash and camera flip are available on all in-app photo capture screens"
+  // -> "Flash and Camera Flip options should be available; And existing
+  // capture behavior should otherwise be unaffected".
+  //
+  // NOT AUTOMATED, deliberately (user decision 2026-08-27).
+  //
+  // The controls DO exist. Live-mapped on Market's camera: three clickable
+  // controls along the bottom - a Button on the left, a larger View in the
+  // centre (the shutter, which M-TC-037/041 both use successfully), and an
+  // ImageView on the right. That is the classic flash / shutter / flip
+  // layout.
+  //
+  // But the camera screen carries **zero** content-descs - 12 nodes, none
+  // labelled. So their PRESENCE can be asserted positionally while WHICH one
+  // is Flash and WHICH is Camera Flip cannot be determined at all. A test
+  // claiming "Flash and Camera Flip are available" would be a positional guess
+  // presented as a fact, and it would keep passing even if the two were
+  // swapped, removed and replaced, or repurposed entirely.
+  //
+  // The second clause - "existing capture behavior should otherwise be
+  // unaffected" - IS covered: M-TC-037 and M-TC-041 both capture through this
+  // same camera and assert the results.
+  //
+  // Revisit if the controls ever gain content-descs, or on a device where the
+  // flash/flip state is observable some other way.
+
   // ==== M-TC-037 (retake, delete, or skip optional photos) ====
   //
   // "Driver can retake, delete, or skip optional photos" -> "the new capture
