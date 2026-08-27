@@ -1909,15 +1909,6 @@ export class CoffeeServiceScreen extends BaseScreen {
     return parts.join(' | ');
   }
 
-  /** C-TC-021 - every content-desc currently on screen, joined - used to evidence whether a field (e.g. "Equipped Date & Time") exists at all rather than asserting blind against it. */
-  async getVisibleScreenText(): Promise<string> {
-    const parts: string[] = [];
-    for (const e of [...(await this.driver.$$('//*[@content-desc!=""]'))]) {
-      parts.push(((await e.getAttribute('content-desc')) ?? '').replace(/\n/g, ' | '));
-    }
-    return parts.join('  //  ');
-  }
-
   /** Excel TC012-TC015 - reopens an existing card's "Equipment detail" screen. */
   async openEquipmentCard(name: string): Promise<void> {
     await this.tap(this.equipmentCard(name));

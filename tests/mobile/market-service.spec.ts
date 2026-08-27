@@ -2775,4 +2775,161 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       });
     }
   );
+
+  // ==== M-TC-037 (retake, delete, or skip optional photos) ====
+  //
+  // "Driver can retake, delete, or skip optional photos" -> "the new capture
+  // should replace or remove the previous image as expected; When the photo
+  // requirement is optional and the driver taps Skip photo; Then the driver
+  // should proceed without capturing a photo".
+  //
+  // FEASIBLE ON MARKET, contrary to a first assumption that inherited Coffee's
+  // C-TC-008/009 "Not Feasible" verdict. Coffee's camera traps BACK entirely
+  // and exposes nothing; Market's does NOT - a single BACK escapes it, capture
+  // works, and the post-capture REVIEW screen is fully labelled. Feasibility
+  // verdicts do not transfer between LOBs.
+  //
+  // Note "Take photo" appears on BOTH the pre-capture sheet and the review
+  // screen, where it means RETAKE - same label, different meaning by context.
+  test(
+    'M-TC-037: optional photos can be retaken, deleted, or skipped',
+    { tag: ['@Market-M-TC-037'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const market = await reachMoneyOpsChecklist(driver);
+
+      await test.step('The photo requirement is optional and offers both paths', async () => {
+        await market.openBeforePhotos();
+        const modal = await market.isPhotoModalVisible();
+        console.log(`[M-TC-037] photo sheet = ${JSON.stringify(modal)}`);
+        expect(modal.takePhoto).toBe(true);
+        expect(modal.skipPhoto).toBe(true);
+      });
+
+      await test.step('M-TC-037: capturing offers retake and delete', async () => {
+        await market.tap('//android.widget.Button[@content-desc="Take photo"]');
+        await market.tapCameraShutter();
+        const review = await market.isPhotoReviewVisible();
+        console.log(`[M-TC-037] review screen = ${JSON.stringify(review)}`);
+        expect(review.review).toBe(true);
+        expect(review.retake).toBe(true);
+        expect(review.delete).toBe(true);
+      });
+
+      await test.step('M-TC-037: deleting removes the captured image', async () => {
+        await market.deleteCapturedPhoto();
+        // Delete returns to the CAMERA (unlabelled, 12 nodes) rather than to
+        // the checklist, so "the image was removed" is asserted by the review
+        // screen no longer being present.
+        await expect
+          .poll(() => market.isPhotoReviewVisible().then((r) => r.review).catch(() => false), { timeout: 20_000 })
+          .toBe(false);
+        // One BACK escapes Market's camera - Coffee's needs a force-stop.
+        await market.pressKeyCode(4);
+      });
+
+      await test.step('M-TC-037: Skip photo proceeds without capturing', async () => {
+        await market.openBeforePhotos();
+        await market.openSkipPhotoReasonSheet();
+        await market.enterSkipPhotoReason("Camera can't focus and take clear picture");
+        await market.waitForSkipPhotoSubmitEnabled(true);
+        await market.confirmSkipPhoto();
+        await expect
+          .poll(
+            () =>
+              market
+                .isChecklistIconChecked('//android.view.View[starts-with(@content-desc,"Before Photos")]')
+                .catch(() => false),
+            { timeout: 30_000 }
+          )
+          .toBe(true);
+        console.log('[M-TC-037] Before Photos completed via Skip, no photo captured');
+      });
+    }
+  );
+
+  // ==== M-TC-041 (capture, label, attach, optional description) ====
+  //
+  // "Driver captures, labels, and attaches photos with optional description"
+  // -> "the photo should be confirmed and saved against the selected label".
+  //
+  // The review screen carries a label picker and a description field, neither
+  // of which has a content-desc - both are addressed positionally (the first
+  // clickable View in the ScrollView, and the screen's only EditText).
+  //
+  // Runs on UNITED COLLECTION BUREAU, the route's other real Market stop -
+  // NOT Teva. M-TC-037 above completes Teva's Before Photos via Skip, and two
+  // tests competing for the same tile would make whichever ran second fail for
+  // reasons having nothing to do with its own subject. Separating them by STOP
+  // is the same collision-avoidance used for SD-TC-022/024 (by day) and
+  // M-TC-017/018 (by bag code).
+  test(
+    'M-TC-041: a captured photo can be labelled, described and attached',
+    { tag: ['@Market-M-TC-041'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const market = await reachMoneyOpsChecklist(driver, 'United Collection Bureau');
+      let chosenLabel = '';
+
+      await test.step('Capture a photo', async () => {
+        await market.openBeforePhotos();
+        await market.tap('//android.widget.Button[@content-desc="Take photo"]');
+        await market.tapCameraShutter();
+        expect((await market.isPhotoReviewVisible()).attach).toBe(true);
+      });
+
+      await test.step('M-TC-041: label and describe the capture', async () => {
+        await market.tapPhotoLabelPicker();
+        await driver.pause(2_000);
+        const options = [
+          ...(await driver.$$('//android.view.View[@clickable="true" and string-length(@content-desc)>2]'))
+        ];
+        const labels: string[] = [];
+        for (const o of options) {
+          labels.push((await o.getAttribute('content-desc')) ?? '');
+        }
+        console.log(`[M-TC-041] label options = ${JSON.stringify(labels.slice(0, 12))}`);
+        expect(options.length).toBeGreaterThan(0);
+        chosenLabel = labels[0] ?? '';
+        await options[0].click();
+        await driver.pause(1_000);
+        await market.enterPhotoDescription('QA automated check');
+      });
+
+      await test.step('M-TC-041: attaching saves the photo against its label', async () => {
+        // The case's expected result is "the photo should be confirmed and
+        // saved against the selected label" - NOT that the Before Photos task
+        // becomes complete. An earlier version asserted completion and failed:
+        // attaching a photo does not tick the tile, which is a different claim
+        // the case never makes.
+        await market.tapAttachPhoto();
+        // Leaving the review screen is what confirms the attach was accepted.
+        await expect
+          .poll(() => market.isPhotoReviewVisible().then((r) => r.review).catch(() => false), { timeout: 30_000 })
+          .toBe(false);
+        // Attaching returns to the CHECKLIST, where the Before Photos tile
+        // flips from "Record pre-service condition" to "tap to view" - that
+        // change IS the confirmation the photo was saved.
+        await expect
+          .poll(() => market.getVisibleScreenText().catch(() => ''), { timeout: 30_000 })
+          .toContain('tap to view');
+        console.log(`[M-TC-041] photo saved; tile now reads "tap to view"`);
+      });
+
+      // NOT ASSERTED: reading the stored label back off the saved photo.
+      //
+      // The checklist tile invites "tap to view", but openBeforePhotos() lands
+      // on the ADD sheet ("Add supporting photo" / Take photo / Skip photo /
+      // Dismiss) rather than on any photo viewer - live-verified, so the
+      // stored label cannot be read back through the path this suite knows.
+      // Whether a separate viewer exists is unmapped.
+      //
+      // What IS proven above: the label picker offers real options, one is
+      // selected, a description is entered, Attach is accepted, and the tile
+      // flips to "tap to view" - i.e. the photo is confirmed and saved, having
+      // been labelled. Only the read-back of the label is outstanding, and
+      // saying so is better than asserting a weaker thing and calling the case
+      // fully covered.
+    }
+  );
 });

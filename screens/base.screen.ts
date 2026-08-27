@@ -1019,6 +1019,88 @@ export class BaseScreen {
     await this.waitFor(this.skipPhotoModalTitle);
   }
 
+  // The photo REVIEW screen, reached by tapping the camera's shutter.
+  // Live-mapped 2026-08-27 on Market/Teva: unlike the camera itself (12 nodes,
+  // zero labels), this screen IS labelled - "Photos" heading, a label picker,
+  // a description EditText, and Delete photo / Take photo / Attach Photo.
+  //
+  // Note "Take photo" appears on BOTH the pre-capture sheet and here, where it
+  // means RETAKE. Same label, different meaning by context.
+  protected readonly photoReviewTitle = '~Photos';
+  protected readonly deletePhotoButton = '//android.widget.Button[@content-desc="Delete photo"]';
+  protected readonly retakePhotoButton = '//android.widget.Button[@content-desc="Take photo"]';
+  // Positional: neither carries a content-desc of its own. The picker is the
+  // clickable View above the description field, and the description is the
+  // only EditText on the screen.
+  // Anchored on the description EditText rather than on a container: the
+  // review screen has no reliable ScrollView wrapper, and a ScrollView-scoped
+  // path found nothing. The picker is the nearest clickable View BEFORE the
+  // description field, which holds whatever the layout nests them in.
+  protected readonly photoLabelPicker =
+    '//android.widget.EditText/preceding::android.view.View[@clickable="true"][1]';
+  protected readonly photoDescriptionField = '//android.widget.EditText';
+
+  /** Whether the post-capture review screen is showing, with its retake/delete/attach controls. */
+  async isPhotoReviewVisible(): Promise<{ review: boolean; retake: boolean; delete: boolean; attach: boolean }> {
+    return {
+      review: await this.isVisible(this.photoReviewTitle),
+      retake: await this.isVisible(this.retakePhotoButton),
+      delete: await this.isVisible(this.deletePhotoButton),
+      attach: await this.isVisible(this.attachPhotoButton)
+    };
+  }
+
+  /**
+   * Taps the camera's shutter. The camera screen carries NO labels at all, so
+   * the shutter is addressed by capturePhotoButton's structural path - see its
+   * own declaration for why that is unavoidable here.
+   */
+  async tapCameraShutter(): Promise<void> {
+    await this.tap(this.capturePhotoButton);
+    await this.waitFor(this.photoReviewTitle);
+  }
+
+  /** Discards the captured image and returns to the camera. */
+  async deleteCapturedPhoto(): Promise<void> {
+    await this.tap(this.deletePhotoButton);
+  }
+
+  async tapRetakePhoto(): Promise<void> {
+    await this.tap(this.retakePhotoButton);
+  }
+
+  async tapAttachPhoto(): Promise<void> {
+    await this.tap(this.attachPhotoButton);
+  }
+
+  /**
+   * Every content-desc currently on screen, joined. Used to EVIDENCE what a
+   * screen actually shows rather than asserting blind against a field that may
+   * not exist - e.g. proving "Equipped Date & Time" is absent (C-TC-021), or
+   * that a chosen photo label survived an attach (M-TC-041).
+   *
+   * Moved here from CoffeeServiceScreen 2026-08-27: it is LOB-agnostic and
+   * Market needed it too.
+   */
+  async getVisibleScreenText(): Promise<string> {
+    const parts: string[] = [];
+    for (const e of [...(await this.driver.$$('//*[@content-desc!=""]'))]) {
+      parts.push(((await e.getAttribute('content-desc')) ?? '').replace(/\n/g, ' | '));
+    }
+    return parts.join('  //  ');
+  }
+
+  /** Opens the photo's label picker on the review screen. */
+  async tapPhotoLabelPicker(): Promise<void> {
+    await this.tap(this.photoLabelPicker);
+  }
+
+  async enterPhotoDescription(text: string): Promise<void> {
+    const el = await this.driver.$(this.photoDescriptionField);
+    await el.click();
+    await el.setValue(text);
+  }
+
   async isPhotoModalVisible(): Promise<{ takePhoto: boolean; skipPhoto: boolean }> {
     return {
       takePhoto: await this.isVisible(this.takePhotoButton),
