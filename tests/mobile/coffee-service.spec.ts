@@ -3993,4 +3993,318 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
     }
   );
 
+
+  // ==== C-TC-055 - OUT OF SCOPE (no scanner, and the case is only about scanning) ====
+  //
+  // "Scanning a product during Add Product dismisses search results and shows
+  // keypad" -> "Then the search results should be dismissed; And the quantity
+  // keypad should be fully visible".
+  //
+  // NOT AUTOMATED. Every assertion this case makes is downstream of a real
+  // barcode scan, and there is no scanner and no scan-intent mechanism here -
+  // the same blocker already recorded for C-TC-014's scan half, Market
+  // M-TC-012/M-TC-016 and Vending V-TC-001/004.
+  //
+  // What WAS live-verified 2026-08-27 on Charlotte 103, so the entry point is
+  // not left unexamined: Deliveries -> add (+) opens "Search product", which
+  // carries a scanner icon to the right of its field, and tapping that icon
+  // does open a real scanner - a viewfinder with its own torch control and a
+  // Continue button. It is reachable and it works; it simply cannot be FED.
+  // Pointing the emulator's virtual camera at a barcode would additionally
+  // require a barcode encoding a SKU that exists in this route's catalog,
+  // which the app does not expose anywhere.
+  //
+  // The half that is not scanner-specific - that choosing a product dismisses
+  // the results list and leaves an editable quantity - is covered by C-TC-014,
+  // which walks the same path a scan result feeds into.
+  //
+  // Revisit if a scan-intent broadcast or a seeded test barcode ever becomes
+  // available.
+
+  // ==== C-TC-046 (regression suite "Coffee", build 0.1.90) ====
+  //
+  // "Flash and camera flip are available on all in-app photo capture screens"
+  // -> "Then Flash and Camera Flip options should be available; And existing
+  // capture behavior should otherwise be unaffected".
+  //
+  // The camera screen carries ZERO content-descs - 12 nodes, none labelled -
+  // so neither control can be addressed or named by any accessibility signal.
+  // Its identical twin M-TC-039 was ruled Out of Scope on exactly that basis:
+  // that a test naming the left control "Flash" from position alone would be a
+  // guess presented as a fact, and would keep passing if the two were swapped.
+  //
+  // That reasoning holds, but the conclusion drawn from it was too pessimistic.
+  // The controls do not have to be named by POSITION - they can be named by
+  // what tapping them demonstrably DOES, which is observable and is what this
+  // test asserts. Live-measured on Charlotte 103 (2026-08-27):
+  //
+  //   * the left control repaints ~3% of its OWN bounds on a tap, and a second
+  //     tap restores them to a PIXEL-EXACT match of the original. A live
+  //     camera feed can never round-trip to a zero diff, so this is a
+  //     two-state icon toggle - i.e. Flash, and it is still on the screen in
+  //     both of its states.
+  //
+  //   * the right control changes ~98% of the preview, against ~14% idle feed
+  //     jitter, and swaps back on a second tap. Nothing but a camera switch
+  //     replaces the whole scene and then restores it - i.e. Camera Flip.
+  //
+  // Both claims are measured against the jitter floor read at run time rather
+  // than against the numbers above, so a slower or noisier device shifts the
+  // baseline without weakening the assertion.
+  //
+  // M-TC-039 should be revisited on the strength of this - it is the same
+  // shared camera component, mapped node-for-node identical on both LOBs.
+  test(
+    'C-TC-046: the camera exposes a working Flash toggle and Camera Flip alongside capture',
+    { tag: ['@Coffee-C-TC-046'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach the in-app camera from a Coffee stop', async () => {
+        // ANY Coffee stop will do - deliberately not one whose Before Photos
+        // tile is still pending. See C-TC-056's own note: a completed tile
+        // reopens the same "Add supporting photo" sheet, and requiring a
+        // pending one makes these tests consume a stop per run, which
+        // Charlotte 103 cannot afford (it carried ONE stop on 2026-08-27).
+        await reachCoffeeStop(driver, 'any-coffee', async () => true, ['24Hundred Marketplace', 'Amerock']);
+        await coffee.openBeforePhotos();
+        // reachCamera() rather than a bare "Take photo" tap - see its own note
+        // on why a tile that already holds a photo opens that photo's review
+        // screen instead of the camera.
+        await coffee.reachCamera();
+      });
+
+      let flash: any;
+      let shutter: any;
+      let flip: any;
+
+      await test.step('C-TC-046: the capture screen offers two controls either side of the shutter', async () => {
+        // Guarded first, so a screen that is not the camera fails HERE with a
+        // clear message rather than as a puzzling length mismatch.
+        expect(await coffee.isCameraScreen()).toBe(true);
+        const controls = await coffee.getCameraControls();
+        console.log(
+          `[C-TC-046] camera controls = ${JSON.stringify(
+            controls.map((c) => ({ cls: c.className, x: c.x, w: c.width }))
+          )}`
+        );
+        // Exactly three, and the shutter is the widest - asserted so the two
+        // auxiliary controls are identified as "the ones flanking capture",
+        // not merely as "the first and last clickable things on screen".
+        expect(controls).toHaveLength(3);
+        [flash, shutter, flip] = controls;
+        expect(shutter.width).toBeGreaterThan(flash.width);
+        expect(shutter.width).toBeGreaterThan(flip.width);
+        expect(flash.x).toBeLessThan(shutter.x);
+        expect(flip.x).toBeGreaterThan(shutter.x);
+      });
+
+      // The floor every "the feed changed" claim below is judged against. Read
+      // live rather than hardcoded: the preview is never pixel-identical frame
+      // to frame, and how much it drifts is a property of the device.
+      let jitter = 0;
+      await test.step('Measure the idle preview jitter', async () => {
+        jitter = await coffee.measureCameraPreviewJitter();
+        console.log(`[C-TC-046] idle preview jitter = ${jitter}%`);
+        expect(jitter).toBeLessThan(60);
+      });
+
+      await test.step('C-TC-046: the left control is a Flash toggle - it switches state and back', async () => {
+        const on = await coffee.tapCameraControlAndMeasure(flash);
+        console.log(`[C-TC-046] flash tap 1: own=${on.own}% preview=${on.preview}%`);
+        // Its own icon repainted...
+        expect(on.own).toBeGreaterThan(0.5);
+        // ...and it did NOT swap the camera - a flash toggle leaves the scene
+        // alone, which is what separates it from the control on the right.
+        expect(on.preview).toBeLessThan(jitter + 25);
+
+        // Tapping again must return the icon to EXACTLY its first state. This
+        // is the assertion that makes it a toggle rather than a coincidence:
+        // measured against the pre-first-tap screenshot, a live region could
+        // not come back pixel-identical.
+        const off = await coffee.tapCameraControlAndMeasure(flash, on.before);
+        console.log(`[C-TC-046] flash tap 2 (vs original): own=${off.own}% preview=${off.preview}%`);
+        expect(off.own).toBeLessThan(0.5);
+      });
+
+      await test.step('C-TC-046: the right control is Camera Flip - it swaps the feed and back', async () => {
+        const flipped = await coffee.tapCameraControlAndMeasure(flip);
+        console.log(`[C-TC-046] flip tap 1: own=${flipped.own}% preview=${flipped.preview}%`);
+        // The whole scene was replaced, well clear of the idle jitter floor.
+        expect(flipped.preview).toBeGreaterThan(jitter + 30);
+
+        const back = await coffee.tapCameraControlAndMeasure(flip, flipped.before);
+        console.log(`[C-TC-046] flip tap 2 (vs original): preview=${back.preview}%`);
+        // ...and flipping back returns to the original camera, i.e. within
+        // jitter of where it started rather than to a third state.
+        expect(back.preview).toBeLessThan(jitter + 25);
+      });
+
+      await test.step('C-TC-046: existing capture behaviour is unaffected', async () => {
+        // The case's second clause. Capture must still work after both
+        // controls have been exercised - and it is asserted here rather than
+        // assumed from the shutter merely being present.
+        await coffee.tapCameraShutter();
+        const review = await coffee.isPhotoReviewVisible();
+        console.log(`[C-TC-046] post-capture review = ${JSON.stringify(review)}`);
+        expect(review.review).toBe(true);
+        expect(review.attach).toBe(true);
+      });
+
+      await test.step('Cleanup: discard the capture and leave the checklist', async () => {
+        // Deleted rather than attached: this case is about the camera's
+        // controls, not about adding a photo to the stop, so it leaves no
+        // trace on the checklist it borrowed.
+        await coffee.deleteCapturedPhoto();
+        await expect
+          .poll(() => coffee.isPhotoReviewVisible().then((r) => r.review).catch(() => false), { timeout: 20_000 })
+          .toBe(false);
+        // One BACK escapes this camera. Live-verified 2026-08-27 on build
+        // 0.1.90 - the older note in this suite that Coffee's camera traps
+        // BACK entirely no longer holds.
+        await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+        await expect
+          .poll(() => coffee.isChecklistTileComplete('Delivery').then(() => true).catch(() => false), {
+            timeout: 20_000
+          })
+          .toBe(true);
+      });
+    }
+  );
+
+  // ==== C-TC-056 (regression suite "Coffee", build 0.1.90) ====
+  //
+  // "Driver captures, labels, and attaches photos with optional description"
+  // -> "Then the photo should be confirmed and saved against the selected
+  // label".
+  //
+  // The Coffee twin of Market's M-TC-041, and the same shared review screen -
+  // "Photos" heading, a label picker, a description field, and Delete photo /
+  // Take photo / Attach Photo. Two differences from Market worth knowing:
+  //
+  //  * the picker's chosen label comes back as the node's `text`, not its
+  //    content-desc, so getVisibleScreenText() (which reads content-descs) does
+  //    NOT see it. getSelectedPhotoLabel() reads both attributes for that
+  //    reason.
+  //  * Coffee's label list is Coffee-specific equipment - "Coffee Machine 1",
+  //    "Cupboard 1 - Before", "Kegurator", "Refrigerator 2 - After" and so on.
+  //    Nothing is hardcoded to those; whatever the sheet offers first is used.
+  //
+  // Scope note, the same one M-TC-041 settled on: the case's expected result is
+  // that the photo is confirmed and saved AGAINST THE SELECTED LABEL - not that
+  // the Before Photos task becomes complete. Re-opening Before Photos reopens
+  // the ADD sheet rather than a gallery, so there is no read-back surface for
+  // an attached photo; what is asserted is that the label survives being
+  // chosen and described, and that Attach is accepted.
+  test(
+    'C-TC-056: a captured photo can be labelled, described and attached',
+    { tag: ['@Coffee-C-TC-056'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach a Coffee stop', async () => {
+        // Deliberately NOT "a stop whose Before Photos tile is still pending".
+        // That precondition looks right and is actively wrong here: attaching
+        // completes the tile permanently, so a test requiring a pending one
+        // consumes a stop on every run and fails the moment the route runs
+        // out - which took exactly two runs, because Charlotte 103 carried a
+        // single Coffee stop on 2026-08-27, not the 49 this file's older
+        // comments describe.
+        //
+        // It buys nothing either: live-verified the same day that tapping an
+        // ALREADY-COMPLETED Before Photos tile reopens the very same "Add
+        // supporting photo" sheet, so the capture path under test is reachable
+        // regardless of the tile's state.
+        await reachCoffeeStop(driver, 'any-coffee', async () => true, ['24Hundred Marketplace', 'Amerock']);
+      });
+
+      await test.step('C-TC-056: capture a photo', async () => {
+        await coffee.openBeforePhotos();
+        expect((await coffee.isPhotoModalVisible()).takePhoto).toBe(true);
+        // Normalises onto the camera whether or not this stop already carries
+        // a photo from an earlier run - see BaseScreen.reachCamera.
+        await coffee.reachCamera();
+        await coffee.tapCameraShutter();
+        const review = await coffee.isPhotoReviewVisible();
+        console.log(`[C-TC-056] review screen = ${JSON.stringify(review)}`);
+        expect(review.review).toBe(true);
+        expect(review.attach).toBe(true);
+      });
+
+      let chosen = '';
+      await test.step('C-TC-056: label the capture from the Select Label sheet', async () => {
+        // Nothing is labelled before a choice is made - established first, so
+        // the label read back later is a real selection and not a default that
+        // was already sitting there.
+        expect(await coffee.getSelectedPhotoLabel()).toBe('');
+
+        await coffee.tapPhotoLabelPicker();
+        await driver.pause(2_000);
+        expect(await coffee.isSelectLabelSheetVisible()).toBe(true);
+
+        const options = await coffee.getPhotoLabelOptions();
+        console.log(`[C-TC-056] label options = ${JSON.stringify(options.map((o) => o.label).slice(0, 12))}`);
+        expect(options.length).toBeGreaterThan(0);
+        chosen = options[0].label;
+        await options[0].el.click();
+        await driver.pause(1_500);
+      });
+
+      await test.step('C-TC-056: the chosen label is shown against the photo', async () => {
+        await expect.poll(() => coffee.getSelectedPhotoLabel(), { timeout: 20_000 }).toBe(chosen);
+      });
+
+      await test.step('C-TC-056: the description is optional and accepts text', async () => {
+        await coffee.enterPhotoDescription('QA automated check');
+        // The label must survive the description being typed - the two share
+        // the review screen, and a re-render that dropped the selection would
+        // otherwise go unnoticed right before the attach.
+        expect(await coffee.getSelectedPhotoLabel()).toBe(chosen);
+      });
+
+      await test.step('C-TC-056: attaching confirms the photo against that label', async () => {
+        await coffee.tapAttachPhoto();
+        // Accepted = the review screen is dismissed. Polled rather than read
+        // once, since the attach and the screen teardown are not simultaneous.
+        await expect
+          .poll(() => coffee.isPhotoReviewVisible().then((r) => r.review).catch(() => false), { timeout: 30_000 })
+          .toBe(false);
+        console.log(`[C-TC-056] attached against label "${chosen}"`);
+        // Evidence for the record, not an assertion. Attaching DOES mark the
+        // Before Photos tile complete here - observed true on every run - and
+        // that is a real Coffee/Market difference worth writing down, since
+        // asserting exactly this is what made the Market twin M-TC-041 fail
+        // three times. It stays unasserted all the same: the case claims the
+        // photo is saved against its label, not that the task completes, and
+        // a stop that wanted more than one photo would fail this for reasons
+        // having nothing to do with the case's subject.
+        console.log(
+          `[C-TC-056] Before Photos tile complete after attach = ${await coffee
+            .isPhotoTileComplete('before')
+            .catch(() => 'unreadable')}`
+        );
+      });
+    }
+  );
+
 });

@@ -1073,6 +1073,241 @@ export class BaseScreen {
     await this.tap(this.attachPhotoButton);
   }
 
+  // ---- In-app camera controls (C-TC-046) ----
+  //
+  // The camera screen carries ZERO content-descs - 12 nodes, not one labelled.
+  // Live-mapped 2026-08-27 on Coffee/Charlotte 103 and found identical to
+  // Market/Miami 001's, so this is one shared component and the mapping holds
+  // for both LOBs.
+  //
+  // It exposes exactly three clickable nodes along the bottom edge, left to
+  // right: an android.widget.Button, a larger android.view.View (the shutter),
+  // and an android.widget.ImageView.
+  //
+  // Naming them by POSITION alone would be a guess presented as a fact - such
+  // a test keeps passing if flash and flip are swapped, or if one is replaced
+  // by something else entirely. So each is identified by what tapping it
+  // demonstrably DOES, which is what tapCameraControlAndMeasure() exists for.
+  // Live-measured on the emulator: tapping the left control repaints 3% of its
+  // OWN bounds and restores them exactly on a second tap (a two-state icon
+  // toggle - the live preview could never round-trip to zero); tapping the
+  // right control changes 98% of the preview against 14.5% idle feed jitter (a
+  // camera switch, and nothing else can do that).
+  protected readonly anyClickable = '//*[@clickable="true"]';
+
+  /**
+   * The camera's clickable controls, ordered left to right, each with the
+   * bounds needed to sample its own region.
+   */
+  async getCameraControls(): Promise<
+    { el: any; className: string; x: number; y: number; width: number; height: number }[]
+  > {
+    const found: { el: any; className: string; x: number; y: number; width: number; height: number }[] = [];
+    for (const el of [...(await this.driver.$$(this.anyClickable))]) {
+      const [location, size] = await Promise.all([el.getLocation(), el.getSize()]);
+      found.push({
+        el,
+        className: (await el.getAttribute('class')) ?? '',
+        x: location.x,
+        y: location.y,
+        width: size.width,
+        height: size.height
+      });
+    }
+    return found.sort((a, b) => a.x - b.x);
+  }
+
+  /**
+   * Whether the unlabelled in-app camera is the screen currently showing.
+   *
+   * Its signature is exactly three clickable controls, none of which carries a
+   * content-desc. Both halves matter: the photo REVIEW screen also has a
+   * handful of clickable nodes, but they are labelled ("Delete photo",
+   * "Attach Photo"), so the absence of labels is what tells the two apart.
+   */
+  async isCameraScreen(): Promise<boolean> {
+    const controls = await this.getCameraControls();
+    if (controls.length !== 3) return false;
+    for (const c of controls) {
+      const desc = ((await c.el.getAttribute('content-desc')) ?? '').trim();
+      if (desc && desc !== 'null') return false;
+    }
+    return true;
+  }
+
+  /**
+   * Leaves the caller on the in-app CAMERA, whatever state the photo tile was
+   * already in.
+   *
+   * Tapping "Take photo" opens the camera on a tile carrying no photo yet -
+   * but on one that ALREADY has a photo attached it opens THAT photo's review
+   * screen instead. Live-verified 2026-08-27, and the reason C-TC-046 and
+   * C-TC-056 both passed in isolation and then both failed on their next run
+   * against the same stop: one found the review screen's labelled controls
+   * where it expected the camera's unlabelled three, the other found the
+   * previous run's label already filled in.
+   *
+   * Deleting from the review screen drops back to the camera, so discarding
+   * whatever is there is what makes this idempotent - and that matters more
+   * than it sounds, because Charlotte 103 carried a single Coffee stop on
+   * 2026-08-27. Without this, every run would need a fresh stop.
+   */
+  async reachCamera(): Promise<void> {
+    await this.tap('//android.widget.Button[@content-desc="Take photo"]');
+    await this.driver.pause(4_000);
+    // Bounded rather than while(true): if deleting ever stops returning to the
+    // camera, this must fail with waitForCameraScreen's message rather than
+    // spin.
+    for (let i = 0; i < 3; i++) {
+      if (!(await this.isPhotoReviewVisible()).review) break;
+      await this.deleteCapturedPhoto();
+      await this.driver.pause(3_000);
+    }
+    await this.waitForCameraScreen();
+  }
+
+  async waitForCameraScreen(): Promise<void> {
+    await this.driver.waitUntil(async () => this.isCameraScreen(), {
+      timeout: 30_000,
+      interval: 1_000,
+      timeoutMsg: 'The in-app camera never appeared (expected three unlabelled controls)'
+    });
+  }
+
+  /** The screen as a decoded PNG. Shared by every pixel-based check here. */
+  protected async screenshotPng(): Promise<PNG> {
+    return PNG.sync.read(Buffer.from(await this.driver.takeScreenshot(), 'base64'));
+  }
+
+  /**
+   * Share (0-100) of sampled pixels inside `rect` that differ between two
+   * screenshots. Sampled every `step` pixels rather than exhaustively - the
+   * signals this separates are 3% vs 0% and 98% vs 14%, nowhere near fine
+   * enough to need every pixel, and a full scan of a 1080x2400 frame in JS is
+   * slow enough to matter when it runs four times in one test.
+   */
+  protected diffPercent(
+    before: PNG,
+    after: PNG,
+    rect: { x: number; y: number; width: number; height: number },
+    step = 3,
+    threshold = 40
+  ): number {
+    const endX = Math.min(before.width, after.width, Math.round(rect.x + rect.width));
+    const endY = Math.min(before.height, after.height, Math.round(rect.y + rect.height));
+    let sampled = 0;
+    let changed = 0;
+    for (let y = Math.max(0, Math.round(rect.y)); y < endY; y += step) {
+      for (let x = Math.max(0, Math.round(rect.x)); x < endX; x += step) {
+        const idx = (before.width * y + x) << 2;
+        const jdx = (after.width * y + x) << 2;
+        sampled++;
+        const delta =
+          Math.abs(before.data[idx] - after.data[jdx]) +
+          Math.abs(before.data[idx + 1] - after.data[jdx + 1]) +
+          Math.abs(before.data[idx + 2] - after.data[jdx + 2]);
+        if (delta > threshold) changed++;
+      }
+    }
+    return sampled === 0 ? 0 : Math.round((1000 * changed) / sampled) / 10;
+  }
+
+  /**
+   * Taps a camera control and reports how much changed - separately inside the
+   * control's OWN bounds and across the live preview above it.
+   *
+   * That split is the entire discriminator between the two unlabelled
+   * controls, so it is reported rather than judged here: a flash toggle
+   * repaints its own icon and leaves the scene alone, while a camera flip
+   * replaces the whole feed.
+   *
+   * `reference` lets the caller measure against the state BEFORE an earlier
+   * tap instead of the state right before this one, which is how the flash
+   * round-trip is proven.
+   */
+  async tapCameraControlAndMeasure(
+    control: { el: any; x: number; y: number; width: number; height: number },
+    reference?: PNG
+  ): Promise<{ own: number; preview: number; before: PNG; after: PNG }> {
+    const before = reference ?? (await this.screenshotPng());
+    await control.el.click();
+    await this.driver.pause(2_500);
+    const after = await this.screenshotPng();
+    // The preview band, kept clear of the status bar at the top and of the
+    // control strip itself at the bottom, so "the feed changed" cannot be
+    // satisfied by a control's own icon repainting.
+    const preview = {
+      x: 0,
+      y: Math.round(after.height * 0.15),
+      width: after.width,
+      height: Math.round(after.height * 0.6)
+    };
+    return {
+      own: this.diffPercent(before, after, control),
+      preview: this.diffPercent(before, after, preview),
+      before,
+      after
+    };
+  }
+
+  /**
+   * How much the live preview drifts on its own between two reads, with
+   * nothing tapped. The camera feed is never pixel-identical frame to frame,
+   * so "the feed changed" has to be judged against this floor rather than
+   * against zero - measured at ~14% on the emulator, against the ~98% a real
+   * camera switch produces.
+   */
+  async measureCameraPreviewJitter(): Promise<number> {
+    const first = await this.screenshotPng();
+    await this.driver.pause(2_000);
+    const second = await this.screenshotPng();
+    return this.diffPercent(first, second, {
+      x: 0,
+      y: Math.round(first.height * 0.15),
+      width: first.width,
+      height: Math.round(first.height * 0.6)
+    });
+  }
+
+  /**
+   * The label currently chosen on the photo review screen, or '' if none.
+   *
+   * Reads content-desc AND text: the picker exposes its selection as `text` on
+   * Coffee and the two LOBs have not been seen to agree on which attribute
+   * carries it, so relying on either alone silently returns '' on the other.
+   */
+  async getSelectedPhotoLabel(): Promise<string> {
+    const el = await this.driver.$(this.photoLabelPicker);
+    if (!(await el.isExisting())) return '';
+    // Appium hands back the literal STRING "null" for an attribute the node
+    // does not carry, not null - so `?? ''` never fires and an unlabelled
+    // picker reads as the four characters n-u-l-l. Both are normalised to ''.
+    const read = async (name: string): Promise<string> => {
+      const raw = ((await el.getAttribute(name)) ?? '').trim();
+      return raw === 'null' ? '' : raw;
+    };
+    return (await read('content-desc')) || (await read('text'));
+  }
+
+  /** The "Select Label" sheet opened by tapping the review screen's label picker. */
+  protected readonly selectLabelTitle = '~Select Label';
+
+  async isSelectLabelSheetVisible(): Promise<boolean> {
+    return this.isVisible(this.selectLabelTitle);
+  }
+
+  /** Every label the "Select Label" sheet offers, in the order it lists them. */
+  async getPhotoLabelOptions(): Promise<{ el: any; label: string }[]> {
+    const options: { el: any; label: string }[] = [];
+    for (const el of [
+      ...(await this.driver.$$('//android.view.View[@clickable="true" and string-length(@content-desc)>2]'))
+    ]) {
+      const label = ((await el.getAttribute('content-desc')) ?? '').trim();
+      if (label && label !== 'Select Label') options.push({ el, label });
+    }
+    return options;
+  }
+
   /**
    * Every content-desc currently on screen, joined. Used to EVIDENCE what a
    * screen actually shows rather than asserting blind against a field that may
