@@ -2932,4 +2932,92 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       // fully covered.
     }
   );
+
+  // ==== M-TC-040 (keypad arrows move only between editable fields) ====
+  //
+  // "Keypad arrows move only between editable product quantity fields" ->
+  // "focus should move to the next editable quantity field; And focus should
+  // not move to read-only ordered quantity or unrelated screen buttons".
+  // The sheet marks it Fail with an EXISTING PBI: "Keypad arrows not moving to
+  // next editable field in one click, requires two click."
+  //
+  // SCREEN MATTERS. TC102 already asserts the Down arrow moving focus in ONE
+  // tap - and it PASSES - but it runs on Removals & Returns, where the defect
+  // does not reproduce. It reproduces on PRODUCT FILLS, where each product row
+  // carries an editable Delivery field. Written against the wrong screen this
+  // case would go green while the documented defect stayed unexercised.
+  //
+  // Live-captured on Teva (2 products, 2 editable Delivery fields):
+  //   focus after click   = "Delivery"   <- first field
+  //   focus after DOWN x1 = null         <- a NON-editable element
+  //   focus after DOWN x2 = "Delivery"   <- the next field, second tap
+  //
+  // Split as C-TC-005 is, so test.fail() cannot mask a broken setup.
+  test(
+    'M-TC-040: Fills offers multiple editable quantity fields reachable by keypad arrow',
+    { tag: ['@Market-M-TC-040'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const market = await reachMoneyOpsChecklist(driver);
+
+      await test.step('Product fills has at least two editable quantity fields', async () => {
+        await market.openFills();
+        const fields = [...(await driver.$$('//android.widget.EditText'))];
+        console.log(`[M-TC-040] editable quantity fields = ${fields.length}`);
+        expect(fields.length).toBeGreaterThan(1);
+        await fields[0].click();
+        expect(await market.isNumericKeypadVisible()).toBe(true);
+        expect(await market.getFocusedFieldHint()).toBe('Delivery');
+      });
+
+      await test.step('M-TC-040: the next editable field IS reachable - in two taps', async () => {
+        // Documents the ACTUAL behaviour so the gap below is evidenced rather
+        // than asserted blind. The first tap parks focus on something with no
+        // hint at all - not an editable quantity field.
+        await market.tapKeypadDownArrow();
+        const afterOne = await market.getFocusedFieldHint();
+        console.log(`[M-TC-040] focus after one Down = ${JSON.stringify(afterOne)}`);
+        await market.tapKeypadDownArrow();
+        const afterTwo = await market.getFocusedFieldHint();
+        console.log(`[M-TC-040] focus after two Downs = ${JSON.stringify(afterTwo)}`);
+        expect(afterTwo).toBe('Delivery');
+      });
+
+      await test.step('Leave without saving', async () => {
+        await market.dismissNumericKeypadIfPresent();
+        await market.pressKeyCode(4);
+      });
+    }
+  );
+
+  // The FAILING half - the documented PBI.
+  //
+  // Intended: ONE Down tap moves focus from one editable quantity field to the
+  // NEXT editable quantity field. Actual: the first tap lands on an element
+  // with no hint - i.e. not an editable field - and a second tap is needed.
+  // That breaks BOTH of the case's clauses at once: focus does not reach the
+  // next editable field in one move, and it DOES move somewhere that is not an
+  // editable quantity field.
+  test(
+    'M-TC-040 (gap): one Down-arrow tap does not reach the next editable quantity field',
+    { tag: ['@Market-M-TC-040', '@known-pbi'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const market = await reachMoneyOpsChecklist(driver);
+      try {
+        await market.openFills();
+        const fields = [...(await driver.$$('//android.widget.EditText'))];
+        expect(fields.length).toBeGreaterThan(1);
+        await fields[0].click();
+        expect(await market.getFocusedFieldHint()).toBe('Delivery');
+        await market.tapKeypadDownArrow();
+        // The assertion the case makes, which the build does not satisfy.
+        expect(await market.getFocusedFieldHint()).toBe('Delivery');
+      } finally {
+        await market.dismissNumericKeypadIfPresent().catch(() => {});
+        await market.pressKeyCode(4).catch(() => {});
+      }
+    }
+  );
 });
