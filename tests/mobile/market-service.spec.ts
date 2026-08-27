@@ -1849,4 +1849,409 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       expect(await market.isFillsContinueEnabled()).toBe(true);
     });
   });
+
+  // ==== MONEY OPERATIONS (regression sheet "Market", M-TC-017..021/030/031) ====
+  //
+  // ROUTE/DAY: Miami 001 on YESTERDAY, not the miamiRoute001 default of TODAY.
+  // The app is parked on 26 Aug (user-configured 2026-08-27) and the Route
+  // Setup "Select operation" modal is currently BROKEN - it returns no results
+  // for any query and traps the app - so any day/route switch fails. Matching
+  // the day the app is already on means no switch is attempted at all.
+  const MONEY_OPS_ROUTE = { ...mobileConfig.miamiRoute001, day: 'YESTERDAY' as const };
+
+  const reachMoneyOpsChecklist = async (driver: any, account = 'Teva Pharmaceutical'): Promise<MarketServiceScreen> => {
+    const prepTasks = new PrepTasksScreen(driver);
+    const dashboard = new DashboardScreen(driver);
+    const home = new HomeScreen(driver);
+    await loginAndEnsureRoute(driver, MONEY_OPS_ROUTE);
+    await home.returnToHome();
+    // Unconditional, never state-detected: loginAndEnsureRoute() only runs prep
+    // tasks on the fresh-login select-day path, so a KEEP_APP_SESSION resume
+    // landing straight on Home skips them silently - exactly what broke
+    // M-TC-005/008/013/014/015/016 on 2026-08-25.
+    await prepTasks.openFromHamburgerMenu();
+    await prepTasks.ensureFullDayPrepComplete();
+    await home.returnToHome();
+    await reachMarketAccount(driver, account);
+    await dashboard.openFirstServiceStation('market');
+    return new MarketServiceScreen(driver);
+  };
+
+  // ==== M-TC-020 - OUT OF SCOPE (no live scanner) ====
+  //
+  // "Money bag entry validation and duplicate prevention [scans a valid money
+  // bag barcode | add the bag with the scanned code listed]".
+  //
+  // NOT AUTOMATED, deliberately. The Bag code field does carry a scanner icon
+  // at its right edge, so the control exists - but the emulator has no usable
+  // camera, the same reason Coffee's C-TC-008/C-TC-009 (Before/After Photos)
+  // are recorded Not Feasible. Driving the scanner would test the emulator's
+  // camera stack, not the app.
+  //
+  // Recorded here rather than silently skipped so the gap is visibly a
+  // DECISION. Everything the scan path shares with typed entry - the code
+  // landing in the field, duplicate rejection, the bag appearing on the tile -
+  // is already covered by M-TC-017/018/021, so what is genuinely untested is
+  // only the barcode capture itself.
+  //
+  // Revisit if this suite ever runs on a physical device.
+
+  // ==== M-TC-021 ====
+  //
+  // "Money Operations category displays total money bags added" -> "the Money
+  // Operations category should display the count of added money bags".
+  //
+  // CORRECTED 2026-08-27. An earlier version of this asserted a GAP and was
+  // WRONG: it read the tile without ever adding a money bag, saw the generic
+  // subtitle, and concluded the count was never shown. The tile does update -
+  // it just has nothing to report until a bag exists. The green "58 |
+  // VSH311173" row is the POS header, NOT a list of bags; the Bag code field
+  // below it is where a bag is entered.
+  //
+  // Live-verified full cycle: enter code "77" -> Save -> the tile reads
+  // "Money Operations | POS 58 [77]"; clear the bag -> it reverts to
+  // "Collect and replace money materials".
+  test(
+    'M-TC-021: the Money Operations tile reports the money bag once one is added',
+    { tag: ['@Market-M-TC-021'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const market = await reachMoneyOpsChecklist(driver);
+      const code = '77';
+
+      await test.step('Before any bag, the tile shows only its generic subtitle', async () => {
+        const before = await market.getMoneyOperationsTileText();
+        console.log(`[M-TC-021] tile before = "${before}"`);
+        expect(before).not.toContain(code);
+      });
+
+      await test.step('Add a money bag and save', async () => {
+        await market.openMoneyOperations();
+        await market.enterBagCode(code);
+        expect(await market.getBagCodeValue()).toBe(code);
+        await market.saveMoneyOperations();
+      });
+
+      await test.step('The tile now reports the added bag', async () => {
+        const after = await market.getMoneyOperationsTileText();
+        console.log(`[M-TC-021] tile after = "${after}"`);
+        expect(after).toContain(code);
+      });
+
+      await test.step('Cleanup: clear the bag so the stop is left as found', async () => {
+        await market.openMoneyOperations();
+        await market.clearMoneyBag();
+        await market.pressKeyCode(4);
+        await expect
+          .poll(() => market.getMoneyOperationsTileText().catch(() => ''), { timeout: 20_000 })
+          .not.toContain(code);
+      });
+    }
+  );
+
+  // ==== M-TC-017 ====
+  //
+  // "Money bag entry validation and duplicate prevention [deletes a bag and
+  // confirms | remove the bag from the list and update the task title count]"
+  // -> "the app should remove the bag from the list and update the task title
+  // count".
+  //
+  // The delete affordance is a swipe on the BAG CODE FIELD, not on the green
+  // POS header row - swiping that row reveals nothing, which is what made this
+  // look unreachable at first. The revealed control is an unlabelled Button
+  // overlapping the field's right edge, and it is NOT a child of the field, so
+  // BaseScreen.revealRowDeleteResilient() cannot find it (see
+  // moneyBagClearButton's own note).
+  //
+  // Confirming clears the bag code and amounts but LEAVES the POS header
+  // intact - the dialog's wording ("clear the money bag contents from
+  // VSH311173") describes clearing contents, not removing the POS. The seeded
+  // POS is therefore never at risk, and this test only ever clears a bag it
+  // added itself.
+  test(
+    'M-TC-017: a money bag can be deleted after confirmation, and the tile updates',
+    { tag: ['@Market-M-TC-017'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const market = await reachMoneyOpsChecklist(driver);
+      const code = '88';
+
+      await test.step('Precondition: add a money bag of our own', async () => {
+        await market.openMoneyOperations();
+        await market.enterBagCode(code);
+        await market.saveMoneyOperations();
+        expect(await market.getMoneyOperationsTileText()).toContain(code);
+      });
+
+      await test.step('M-TC-017: swiping the Bag code field reveals a clear control', async () => {
+        await market.openMoneyOperations();
+        expect(await market.revealBagCodeClearControl()).toBe(true);
+      });
+
+      await test.step('M-TC-017: it asks for confirmation before clearing', async () => {
+        // The "and confirms" half of the case - the destructive action must
+        // not happen on the swipe alone.
+        await market.tapMoneyBagClearControl();
+        expect(await market.isClearMoneyBagDialogVisible()).toBe(true);
+      });
+
+      await test.step('M-TC-017: confirming removes the bag', async () => {
+        await market.confirmClearMoneyBag();
+        await expect.poll(() => market.getBagCodeValue().catch(() => 'x'), { timeout: 20_000 }).toBe('');
+      });
+
+      await test.step('M-TC-017: the task title no longer reports the bag', async () => {
+        await market.pressKeyCode(4);
+        await expect
+          .poll(() => market.getMoneyOperationsTileText().catch(() => ''), { timeout: 20_000 })
+          .not.toContain(code);
+        console.log(`[M-TC-017] tile after clear = "${await market.getMoneyOperationsTileText()}"`);
+      });
+    }
+  );
+
+  // ==== M-TC-018 ====
+  //
+  // "Money bag entry validation and duplicate prevention [enters a bag number
+  // already used on the same day | block the duplicate and show a confirming
+  // error message]".
+  //
+  // "Already used on the same day" is exercised ACROSS STOPS: the code is
+  // claimed on Teva, then re-entered on United Collection Bureau, the route's
+  // other Market stop. The seeded bag cannot serve as the duplicate - its code
+  // VSH311173 is 9 characters and the field caps at 5 (live-verified), so it
+  // is physically untypeable. The duplicate therefore has to be one we create.
+  //
+  // The error appears only AFTER Save - typing a used code raises nothing - so
+  // this must commit before asserting.
+  test(
+    'M-TC-018: a bag code already used that day is rejected with an error',
+    // Also carries M-TC-031's "duplicate or invalid bag codes should be
+    // rejected" clause - same assertion, so it is tagged rather than
+    // duplicated into a second 1.2-minute run.
+    { tag: ['@Market-M-TC-018', '@Market-M-TC-031'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const home = new HomeScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const code = '55';
+      const market = await reachMoneyOpsChecklist(driver);
+
+      try {
+        await test.step('Precondition: claim the code on the first Market stop', async () => {
+          await market.openMoneyOperations();
+          await market.enterBagCode(code);
+          await market.saveMoneyOperations();
+          expect(await market.getMoneyOperationsTileText()).toContain(code);
+        });
+
+        await test.step('Re-enter the same code on the other Market stop', async () => {
+          await home.returnToHome();
+          await reachMarketAccount(driver, 'United Collection Bureau');
+          await dashboard.openFirstServiceStation('market');
+          expect(await market.isMoneyOperationsVisible()).toBe(true);
+          await market.openMoneyOperations();
+          await market.enterBagCode(code);
+          expect(await market.getBagCodeValue()).toBe(code);
+        });
+
+        await test.step('M-TC-018: the duplicate is blocked with a confirming error', async () => {
+          await market.saveMoneyOperations();
+          expect(await market.isBagUsedErrorVisible()).toBe(true);
+          const text = await market.getBagUsedErrorText();
+          console.log(`[M-TC-018] error = "${text}"`);
+          // The message names the offending code, which is what makes it
+          // "confirming" rather than a generic failure.
+          expect(text).toContain(code);
+        });
+      } finally {
+        // Always runs: the error dialog blocks the screen behind it, so
+        // leaving it up would strand the cleanup and leave a claimed code
+        // behind for the next run to trip over.
+        await market.dismissBagUsedError().catch(() => {});
+        await home.returnToHome().catch(() => {});
+        await reachMarketAccount(driver, 'Teva Pharmaceutical').catch(() => {});
+        await dashboard.openFirstServiceStation('market').catch(() => {});
+        await market.openMoneyOperations().catch(() => {});
+        await market.clearMoneyBag().catch(() => {});
+        await market.pressKeyCode(4).catch(() => {});
+      }
+    }
+  );
+
+  // ==== M-TC-019 and M-TC-031 ====
+  //
+  // M-TC-019: "enters Refunds, Replenished Bills, and Coins | allow Continue
+  // when required values are valid".
+  // M-TC-031: "Skip Money Bag should disable bag code entry when selected; And
+  // duplicate or invalid bag codes should be rejected; And valid replenishment
+  // and refund values should enable Continue when requirements are met".
+  //
+  // BOTH SAY "Continue". THIS SCREEN HAS NO CONTINUE BUTTON.
+  // Live-verified 2026-08-27: Money Collection offers no Continue at all -
+  // leaving the screen raises "Save Changes? (Cancel / No / Save)" and Save is
+  // what commits. On explicit instruction, these assert the SAVE path as the
+  // equivalent of "Continue is allowed": valid values commit successfully and
+  // the checklist tile reflects the saved bag.
+  //
+  // Recorded rather than silently substituted - if the sheet's wording
+  // reflects an older design, that is worth knowing; if the screen changed,
+  // the sheet needs updating. Either way the behaviour asserted here is the
+  // behaviour the build actually has.
+  test(
+    'M-TC-019/M-TC-031: valid bag code, bills, coins and refund commit via Save',
+    { tag: ['@Market-M-TC-019', '@Market-M-TC-031'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const market = await reachMoneyOpsChecklist(driver);
+      const code = '66';
+
+      try {
+        await test.step('Enter a valid bag code and all three amounts', async () => {
+          await market.openMoneyOperations();
+          await market.enterBagCode(code);
+          await market.typeIntoMoneyField('bills', '120');
+          await market.typeIntoMoneyField('coins', '250');
+          await market.typeIntoMoneyField('refund', '5');
+          // Read back BEFORE committing - Coins and Refund reformat to 2dp
+          // currency while Bills does not (see M-TC-030).
+          console.log(
+            `[M-TC-019] bills="${await market.getMoneyFieldValue('bills')}" ` +
+              `coins="${await market.getMoneyFieldValue('coins')}" ` +
+              `refund="${await market.getMoneyFieldValue('refund')}"`
+          );
+        });
+
+        await test.step('Saving is allowed and commits', async () => {
+          // saveMoneyOperations() throws if the Save Changes dialog never
+          // appears, so reaching the assertion already proves the commit path
+          // was offered.
+          await market.saveMoneyOperations();
+          expect(await market.isBagUsedErrorVisible()).toBe(false);
+          const tile = await market.getMoneyOperationsTileText();
+          console.log(`[M-TC-019] tile after save = "${tile}"`);
+          expect(tile).toContain(code);
+        });
+      } finally {
+        await market.openMoneyOperations().catch(() => {});
+        await market.clearMoneyBag().catch(() => {});
+        await market.pressKeyCode(4).catch(() => {});
+      }
+    }
+  );
+
+  // The FAILING clause of M-TC-031, split out so test.fail() cannot mask a
+  // broken setup (same reason C-TC-005 is split).
+  //
+  // "Skip Money Bag should disable bag code entry when selected" does not
+  // hold: after ticking the checkbox the Bag code field is still enabled and
+  // still accepts input (live-verified 2026-08-27 - enabled=true,
+  // displayed=true). A driver can tick "skip" and still type a bag code, which
+  // is the contradiction the clause exists to prevent.
+  test(
+    'M-TC-031 (gap): ticking Skip money bag does not disable Bag code entry',
+    { tag: ['@Market-M-TC-031'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const market = await reachMoneyOpsChecklist(driver);
+      try {
+        await market.openMoneyOperations();
+        await market.setSkipMoneyBag(true);
+        expect(await market.isBagCodeFieldEnabled()).toBe(false);
+      } finally {
+        // Untick and leave without saving, so the stop is unchanged.
+        await market.setSkipMoneyBag(false).catch(() => {});
+        await market.discardMoneyOperationsChanges().catch(() => {});
+      }
+    }
+  );
+
+  // ==== M-TC-030 ====
+  //
+  // "Numeric entry validation accepts valid and blocks invalid values [Money
+  // Operations]" -> "valid values should be accepted; And invalid values
+  // should be rejected".
+  //
+  // Values are INJECTED with setValue rather than typed on the custom keypad
+  // - deliberately, and the same technique TC109/TC110 already use for
+  // Removals & Returns. The keypad offers no letter keys at all, so driving it
+  // could never test whether the FIELD rejects letters; it would only prove
+  // the keypad has no letter buttons, which is not the claim.
+  //
+  // Split as C-TC-005 is, so test.fail() cannot mask a broken setup.
+  test(
+    'M-TC-030: Money Operations accepts valid numeric input and strips a negative sign',
+    { tag: ['@Market-M-TC-030'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const market = await reachMoneyOpsChecklist(driver);
+      await market.openMoneyOperations();
+
+      await test.step('Bills takes a whole number unchanged', async () => {
+        await market.typeIntoMoneyField('bills', '222');
+        expect(await market.getMoneyFieldValue('bills')).toBe('222');
+      });
+
+      await test.step('Coins and Refund auto-format as currency', async () => {
+        // Live-verified 2026-08-27: these two reformat a bare integer into
+        // 2dp currency ("333" -> "3.33"), while Bills above does NOT. The
+        // asymmetry is real app behaviour, not a test artefact.
+        await market.typeIntoMoneyField('coins', '333');
+        expect(await market.getMoneyFieldValue('coins')).toBe('3.33');
+        await market.typeIntoMoneyField('refund', '444');
+        expect(await market.getMoneyFieldValue('refund')).toBe('4.44');
+      });
+
+      await test.step('A negative sign is rejected', async () => {
+        // "-5" comes back as "0.05" - the sign is dropped and the digits are
+        // currency-formatted. Rejecting the sign is the behaviour the case
+        // asks for, so this clause PASSES.
+        await market.typeIntoMoneyField('coins', '-5');
+        const v = await market.getMoneyFieldValue('coins');
+        console.log(`[M-TC-030] coins after "-5" = "${v}"`);
+        expect(v).not.toContain('-');
+      });
+
+      await test.step('Leave without saving anything', async () => {
+        await market.discardMoneyOperationsChanges();
+        expect(await market.isMoneyOperationsVisible()).toBe(true);
+      });
+    }
+  );
+
+  // The FAILING half - a REAL validation gap, not a mis-specified case.
+  //
+  // Bills and Refund accept alphabetic input outright: "abc" and "xyz" are
+  // stored verbatim and read straight back (live-verified 2026-08-27). Coins
+  // is the only one of the three that coerces its input. These are money
+  // fields, so accepting letters is exactly what M-TC-030 says must not
+  // happen.
+  //
+  // Same family as Market TC109/TC110, which already document Removals &
+  // Returns' Theft field accepting injected alphabetic input - so this is a
+  // recurring validation weakness across screens rather than a one-off.
+  test(
+    'M-TC-030 (gap): Bills and Refund accept alphabetic input',
+    { tag: ['@Market-M-TC-030'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const market = await reachMoneyOpsChecklist(driver);
+      await market.openMoneyOperations();
+      try {
+        await market.typeIntoMoneyField('bills', 'abc');
+        const bills = await market.getMoneyFieldValue('bills');
+        await market.typeIntoMoneyField('refund', 'xyz');
+        const refund = await market.getMoneyFieldValue('refund');
+        console.log(`[M-TC-030] bills after "abc" = "${bills}"; refund after "xyz" = "${refund}"`);
+        expect(bills).not.toBe('abc');
+        expect(refund).not.toBe('xyz');
+      } finally {
+        // In a finally: this test is EXPECTED to throw above, and without
+        // this the junk values would be left sitting on a real stop.
+        await market.discardMoneyOperationsChanges();
+      }
+    }
+  );
 });

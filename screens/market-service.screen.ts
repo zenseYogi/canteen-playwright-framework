@@ -76,9 +76,26 @@ export class MarketServiceScreen extends BaseScreen {
   // matching where RF's own keyword ("Market Perform Money operations") lived.
   private readonly moneyOperations = '//android.view.View[starts-with(@content-desc, "Money Operations")]';
   private readonly skipMoneyBagCheckbox = '//android.widget.CheckBox';
+  // CORRECTED 2026-08-27 (build 0.1.90, live-verified from a full page-source
+  // dump): COINS AND BILLS WERE SWAPPED. The real on-screen order inside the
+  // ScrollView is [1] Bag code, [2] Bills, [3] Coins, [4] Amounts (Refund) -
+  // this previously declared coins as [2] and bills as [3], so
+  // performMoneyOperations({coins, bills}) wrote each value into the OTHER
+  // field. Nothing caught it: no test asserts which field holds which value,
+  // and neither field rejects the other's range, so it failed silently.
+  //
+  // Corroborated by VendingServiceScreen, whose own money screen has no Coins
+  // field at all and correctly maps billsField to EditText[2].
+  //
+  // The indices are stable regardless of how many money bags are listed: the
+  // add CTA and the bag rows are Buttons/Views, not EditTexts.
+  //
+  // These fields carry NO content-desc and no text until typed - their only
+  // label is the `hint` ("Bag code", "Bills", "Coins", "Amounts"), which is
+  // why they are addressed positionally at all.
   private readonly bagCodeField = '//android.widget.ScrollView/android.widget.EditText[1]';
-  private readonly coinsField = '//android.widget.ScrollView/android.widget.EditText[2]';
-  private readonly billsField = '//android.widget.ScrollView/android.widget.EditText[3]';
+  private readonly billsField = '//android.widget.ScrollView/android.widget.EditText[2]';
+  private readonly coinsField = '//android.widget.ScrollView/android.widget.EditText[3]';
   private readonly refundField = '//android.widget.ScrollView/android.widget.EditText[4]';
   // Live-verified (build 0.1.73): the Money Operations sub-screen's own
   // title is "Money Collection", NOT "Money Operations" - that's only the
@@ -852,10 +869,215 @@ export class MarketServiceScreen extends BaseScreen {
     await this.tap(this.onlyOneMarketOkButton);
   }
 
+  // The clear control revealed by swiping the Bag code field LEFT - an
+  // unlabelled Button that overlaps the field's right edge. NOT a child of the
+  // field, which is why BaseScreen.revealRowDeleteResilient() (which looks for
+  // `${row}/android.widget.Button`) never finds it. Matched as "the Button
+  // inside the ScrollView that has no content-desc": the only other Button in
+  // there is section_header_add_cta, which does have one, and the header's
+  // back arrow sits outside the ScrollView.
+  private readonly moneyBagClearButton =
+    '//android.widget.ScrollView//android.widget.Button[not(@content-desc) or @content-desc=""]';
+  private readonly clearMoneyBagDialog = '//*[starts-with(@content-desc,"Clear money bag?")]';
+
+  /** Types a bag code. Max 5 characters - live-verified 2026-08-27 ("ABCDEFGH" -> "ABCDE"). */
+  async enterBagCode(code: string): Promise<void> {
+    await this.typeIntoMoneyField('bagCode', code);
+  }
+
+  async getBagCodeValue(): Promise<string> {
+    return this.getMoneyFieldValue('bagCode');
+  }
+
+  /**
+   * Commits Money Collection. This screen has no Continue button - leaving it
+   * raises "Save Changes? (Cancel / No / Save)" and Save is what persists.
+   *
+   * The back-presses are counted defensively rather than fixed: the Bag code
+   * field raises the SYSTEM IME (not the in-app numeric keypad), so
+   * isNumericKeypadVisible() cannot tell whether a keyboard is up. The first
+   * BACK may therefore be consumed dismissing it. Press, look for the dialog,
+   * and press once more only if it did not appear.
+   */
+  async saveMoneyOperations(): Promise<void> {
+    for (let i = 0; i < 2; i++) {
+      await this.pressKeyCode(4);
+      const save = await this.driver.$('~Save');
+      if (await save.waitForDisplayed({ timeout: 4_000 }).catch(() => false)) {
+        await save.click();
+        return;
+      }
+    }
+    throw new Error('saveMoneyOperations: the "Save Changes?" dialog never appeared');
+  }
+
+  /** Swipes the Bag code field left to reveal its clear control. Returns whether it appeared. */
+  async revealBagCodeClearControl(): Promise<boolean> {
+    await this.revealRowDelete(this.bagCodeField, { slow: true });
+    return this.isVisible(this.moneyBagClearButton);
+  }
+
+  async isClearMoneyBagDialogVisible(): Promise<boolean> {
+    return this.isVisible(this.clearMoneyBagDialog);
+  }
+
+  /**
+   * The full clear-a-money-bag flow: swipe the Bag code field, tap the clear
+   * control, confirm "Clear money bag?" with OK. Live-verified 2026-08-27 that
+   * this empties the bag code and amounts while LEAVING the POS header row
+   * ("58 / VSH311173") intact - it clears the bag's contents, it does not
+   * remove the POS.
+   */
+  // The duplicate-bag-code error, live-captured 2026-08-27:
+  // "Bag used\nThis bag has been used already (55)". It appears only AFTER
+  // Save is tapped - typing a used code raises nothing, so a test must commit
+  // before asserting.
+  private readonly bagUsedError = '//*[starts-with(@content-desc,"Bag used")]';
+
+  async isBagUsedErrorVisible(): Promise<boolean> {
+    return this.isVisible(this.bagUsedError);
+  }
+
+  async getBagUsedErrorText(): Promise<string> {
+    const el = await this.driver.$(this.bagUsedError);
+    return ((await el.getAttribute('content-desc')) ?? '').replace(/\n/g, ' | ');
+  }
+
+  /** Dismisses the "Bag used" error. Tries its OK, falling back to BACK - the dialog blocks everything behind it, so leaving it up strands the next step. */
+  async dismissBagUsedError(): Promise<void> {
+    const ok = await this.driver.$('~OK');
+    if (await ok.waitForDisplayed({ timeout: 4_000 }).catch(() => false)) {
+      await ok.click();
+      return;
+    }
+    await this.pressKeyCode(4);
+  }
+
+  /** Taps the clear control revealed by revealBagCodeClearControl() - separate from clearMoneyBag() so a test can assert the confirmation dialog appears BEFORE confirming it. */
+  async tapMoneyBagClearControl(): Promise<void> {
+    await this.tap(this.moneyBagClearButton);
+    await this.waitFor(this.clearMoneyBagDialog);
+  }
+
+  /** Confirms an already-open "Clear money bag?" dialog. */
+  async confirmClearMoneyBag(): Promise<void> {
+    await this.tap('~OK');
+  }
+
+  async clearMoneyBag(): Promise<void> {
+    if (!(await this.revealBagCodeClearControl())) {
+      throw new Error('clearMoneyBag: swiping the Bag code field revealed no clear control');
+    }
+    await this.tap(this.moneyBagClearButton);
+    await this.waitFor(this.clearMoneyBagDialog);
+    await this.tap('~OK');
+  }
+
+  private moneyFieldSelector(field: 'bagCode' | 'bills' | 'coins' | 'refund'): string {
+    return { bagCode: this.bagCodeField, bills: this.billsField, coins: this.coinsField, refund: this.refundField }[field];
+  }
+
+  /**
+   * Injects a raw value straight into a Money Collection field, bypassing the
+   * custom numeric keypad, so the FIELD'S OWN validation is what gets
+   * exercised rather than the keypad's key set. Same technique and rationale
+   * as typeIntoRemovalsField() above - a keypad that offers no letter keys
+   * proves nothing about whether the field rejects letters.
+   *
+   * Note the keypad opens on focus and covers the money-bag list; callers
+   * that need the list afterwards must dismissNumericKeypadIfPresent().
+   */
+  async typeIntoMoneyField(field: 'bagCode' | 'bills' | 'coins' | 'refund', value: string): Promise<void> {
+    const el = await this.driver.$(this.moneyFieldSelector(field));
+    await el.click();
+    await el.setValue(value);
+  }
+
+  /** Reads a Money Collection field back, to see whether an injected value was accepted, reformatted, or rejected. */
+  async getMoneyFieldValue(field: 'bagCode' | 'bills' | 'coins' | 'refund'): Promise<string> {
+    const el = await this.driver.$(this.moneyFieldSelector(field));
+    return ((await el.getAttribute('text')) ?? '').trim();
+  }
+
+  /** Whether the Bag code field is currently enabled - M-TC-031 expects ticking "Skip money bag" to disable it. */
+  async isBagCodeFieldEnabled(): Promise<boolean> {
+    return this.isEnabled(this.bagCodeField);
+  }
+
+  /** Ticks/unticks "Skip money bag". */
+  async setSkipMoneyBag(state: boolean): Promise<void> {
+    await this.setCheckboxState(this.skipMoneyBagCheckbox, state);
+  }
+
+  /**
+   * Leaves Money Collection DISCARDING whatever was typed. This screen has no
+   * Continue when real money bags already exist - committing or discarding
+   * happens through the back-press "Save Changes?" dialog (Cancel / No / Save)
+   * instead. Answers "No", so a test that injected junk values leaves the
+   * stop exactly as it found it.
+   */
+  async discardMoneyOperationsChanges(): Promise<void> {
+    await this.dismissNumericKeypadIfPresent();
+    await this.pressKeyCode(4);
+    const no = await this.driver.$('~No');
+    if (await no.waitForDisplayed({ timeout: 5_000 }).catch(() => false)) {
+      await no.click();
+    }
+  }
+
   /** Opens Money Operations without filling/submitting anything - lets callers assert field presence before performMoneyOperations() commits values. */
   /** Not every Market stop's checklist has a Money Operations tile (e.g. CuraLeaf doesn't, FedEx/Breakroom does) - check before deciding whether it must be completed for Continue to enable. */
   async isMoneyOperationsVisible(): Promise<boolean> {
     return this.isVisible(this.moneyOperations);
+  }
+
+  /**
+   * The money-bag rows currently listed on the Money Collection screen.
+   *
+   * Each row's content-desc packs amount and bag code on two lines (e.g.
+   * "58\nVSH311173"). Two OTHER clickable Views on this screen also carry a
+   * newline - the "Replenishment Amount\ncheck starting cash in machine" and
+   * "Refund\nprovide requested refunds" section labels - so the generic
+   * "clickable View containing a newline" shape used elsewhere in this suite
+   * would over-count by exactly two here. Both are excluded by name.
+   *
+   * IMPORTANT: the custom numeric keypad HIDES this list. Focusing any field
+   * opens it, and while it is up the bag rows and the add CTA are absent from
+   * the tree entirely - which reads as "there are no bags" rather than as
+   * "something is covering them". Dismiss it first (one BACK closes the
+   * keypad without leaving the screen); live-verified 2026-08-27.
+   */
+  async getMoneyBagRows(): Promise<string[]> {
+    const rows = [
+      ...(await this.driver.$$(
+        '//android.view.View[@clickable="true" and contains(@content-desc,"\n")' +
+          ' and not(contains(@content-desc,"Replenishment"))' +
+          ' and not(contains(@content-desc,"Refund"))]'
+      ))
+    ];
+    const out: string[] = [];
+    for (const r of rows) {
+      out.push(((await r.getAttribute('content-desc')) ?? '').replace(/\n/g, ' | '));
+    }
+    return out;
+  }
+
+  /** The Money Operations checklist tile's full label, both lines - M-TC-021 asks whether the second line carries a money-bag COUNT. */
+  async getMoneyOperationsTileText(): Promise<string> {
+    const el = await this.driver.$(this.moneyOperations);
+    return ((await el.getAttribute('content-desc')) ?? '').replace(/\n/g, ' | ');
+  }
+
+  /**
+   * Closes the custom numeric keypad without leaving the Money Collection
+   * screen. One BACK dismisses the keypad only; a SECOND BACK leaves the
+   * screen and raises the "Save Changes?" dialog, so this is deliberately
+   * conditional rather than an unconditional back-press.
+   */
+  async dismissNumericKeypadIfPresent(): Promise<void> {
+    if (await this.isNumericKeypadVisible()) {
+      await this.pressKeyCode(4);
+    }
   }
 
   async openMoneyOperations(): Promise<void> {
