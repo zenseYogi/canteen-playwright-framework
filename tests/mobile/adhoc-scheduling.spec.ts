@@ -2,6 +2,7 @@ import { test, expect } from '../../fixtures/appium.fixture';
 import { loginAndEnsureRoute, ensureOnRoute } from '../../utils/login-flow';
 import { HomeScreen } from '../../screens/home.screen';
 import { AdhocDeliveryScreen } from '../../screens/adhoc-delivery.screen';
+import { DashboardScreen } from '../../screens/dashboard.screen';
 import { mobileConfig } from '../../config/mobile.config';
 
 // PBI 850155 "Ad-hoc Scheduling" (Start of The Day area). Four TCs:
@@ -75,6 +76,124 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
 
       await test.step('Return to Home', async () => {
         await home.returnToHome();
+      });
+    }
+  );
+
+  // ==== SD-TC-017 (regression sheet, "Start of the day") ====
+  //
+  // "User is able to successfully create an ad-hoc delivery for Coffee by
+  // selecting Customer and location/Machine/POS and clicking Continue" -> the
+  // user is taken to the Coffee Service screen.
+  //
+  // REUSES the existing Ad-hoc machinery rather than restating it: the customer
+  // search/select and the Service/Service-Type pickers are the same
+  // AdhocDeliveryScreen methods TC053-TC068 already exercises field by field,
+  // and the same sequence coffee-service.spec.ts's own bootstrap uses. What is
+  // NOT covered anywhere yet, and is the whole point of this case, is the
+  // OUTCOME: that submitting lands the driver on the Coffee service screen.
+  //
+  // Uses selectFirstCoffeeService() rather than naming a service - the picker's
+  // contents are route data and change.
+  test(
+    'SD-TC-017: creating an ad-hoc Coffee delivery lands on the Coffee service screen',
+    { tag: ['@StartOfDay-SD-TC-017'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const home = new HomeScreen(driver);
+      const adhoc = new AdhocDeliveryScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+
+      await test.step('Log in and open Ad-hoc delivery creation', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await home.returnToHome();
+        await home.openAdhocDeliveryCreation();
+        expect(await adhoc.isTitleVisible()).toBe(true);
+      });
+
+      let customer = '';
+      await test.step('SD-TC-017: select a customer, then a Coffee service and service type', async () => {
+        // The list only populates after a search - selectFirstSearchedCustomer
+        // picks the first ROW, it does not perform the search itself. TC055
+        // above uses the same 'a' term for the same reason.
+        await adhoc.searchCustomer('a');
+        expect(await adhoc.getResultRowCount()).toBeGreaterThan(0);
+        customer = await adhoc.selectFirstSearchedCustomer();
+        expect(customer).not.toBe('');
+        // Add Delivery is gated until the service selection is made - already
+        // proven by TC060; re-checked here only as the starting state.
+        expect(await adhoc.isAddDeliveryButtonEnabled()).toBe(false);
+        await adhoc.selectFirstCoffeeService();
+        await adhoc.selectServiceType('FULL');
+        expect(await adhoc.isAddDeliveryButtonEnabled()).toBe(true);
+      });
+
+      await test.step('SD-TC-017: submitting takes the driver to the Coffee service screen', async () => {
+        await adhoc.submitAddDelivery();
+        // The outcome clause. Landing on a Coffee service station is what
+        // distinguishes this from TC053-TC068, which stop at the form.
+        await expect
+          .poll(() => dashboard.isLobCardVisible('coffee').catch(() => false), { timeout: 30_000 })
+          .toBe(true);
+        console.log(`[SD-TC-017] ad-hoc Coffee delivery created for "${customer}"`);
+      });
+    }
+  );
+
+  // ==== SD-TC-024 (regression sheet, "Start of the day") ====
+  //
+  // "Driver can Start Day with no scheduled deliveries on the route" -> Start
+  // Day should complete successfully; and the driver should still be able to
+  // add ad-hoc deliveries from the schedule.
+  //
+  // REUSES TC025's route and setup exactly - mobileConfig.emptyRoute (Miami /
+  // Route 001), the dedicated zero-delivery test route.
+  //
+  // Note TC025 already asserts that with zero deliveries Start Day is DISABLED,
+  // which reads as a contradiction of this case. The reconciliation is in
+  // SD-TC-024's own second clause: ad-hoc deliveries are not SCHEDULED ones, so
+  // the route still has "no scheduled deliveries" after one is added, and that
+  // is what makes Start Day actionable. This asserts that sequence rather than
+  // assuming either the sheet or TC025 is wrong.
+  test(
+    'SD-TC-024: on a route with no scheduled deliveries, an ad-hoc delivery makes Start Day actionable',
+    { tag: ['@StartOfDay-SD-TC-024'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const home = new HomeScreen(driver);
+      const adhoc = new AdhocDeliveryScreen(driver);
+
+      await test.step('Log in to the dedicated zero-delivery route', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.emptyRoute, day: 'TODAY' });
+      });
+
+      await test.step('SD-TC-024 (baseline): no scheduled deliveries, and Start Day is not actionable', async () => {
+        // Settle on Home first - the deliveries count lives on the schedule
+        // screen, and a route switch does not necessarily leave us there.
+        await home.returnToHome();
+        const count = await home.getDeliveriesCount();
+        console.log(`[SD-TC-024] scheduled deliveries on the empty route = ${count}`);
+        expect(count).toBe(0);
+        expect(await home.isStartDayDisabled()).toBe(true);
+      });
+
+      await test.step('SD-TC-024: the driver can still add an ad-hoc delivery from the schedule', async () => {
+        // The case's second clause, and the mechanism behind the first.
+        await home.openAdhocDeliveryCreation();
+        expect(await adhoc.isTitleVisible()).toBe(true);
+        await adhoc.searchCustomer('a');
+        expect(await adhoc.getResultRowCount()).toBeGreaterThan(0);
+        expect(await adhoc.selectFirstSearchedCustomer()).not.toBe('');
+        await adhoc.selectFirstServiceAnyLob();
+        await adhoc.selectServiceType('FULL');
+        expect(await adhoc.isAddDeliveryButtonEnabled()).toBe(true);
+        await adhoc.submitAddDelivery();
+      });
+
+      await test.step('SD-TC-024: Start Day is now actionable', async () => {
+        await home.returnToHome();
+        console.log(`[SD-TC-024] deliveries after ad-hoc = ${await home.getDeliveriesCount()}`);
+        await expect.poll(() => home.isStartDayDisabled(), { timeout: 30_000 }).toBe(false);
       });
     }
   );

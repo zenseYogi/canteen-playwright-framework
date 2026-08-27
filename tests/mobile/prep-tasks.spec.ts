@@ -83,8 +83,16 @@ test.describe('Prep Tasks / Start of Day', () => {
   // genuinely pristine, zero-selected state, which only this continuous
   // flow can guarantee).
   test(
-    'skip then complete Additional Prep via the back-press popup, twice',
-    { tag: ['@StartOfDay-TC198', '@StartOfDay-TC199', '@StartOfDay-TC200', '@StartOfDay-TC201'] },
+    'SD-TC-023: back-press offers Skip/Complete on all four prep sub-screens',
+    {
+      tag: [
+        '@StartOfDay-TC198',
+        '@StartOfDay-TC199',
+        '@StartOfDay-TC200',
+        '@StartOfDay-TC201',
+        '@StartOfDay-SD-TC-023'
+      ]
+    },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
 
@@ -127,6 +135,26 @@ test.describe('Prep Tasks / Start of Day', () => {
       await test.step('TC201: tap Complete and verify navigation back to the Prep Tasks list', async () => {
         await prepTasks.confirmComplete();
         expect(await prepTasks.isPrepTasksListVisible()).toBe(true);
+      });
+
+      // SD-TC-023 extends the four TC198-TC201 steps above from ONE sub-screen
+      // to all four the case names: "For Product Collection, Money Operations,
+      // Additional Prep, and Checks screen, on hitting the back button user is
+      // displayed the Skip and continue options."
+      //
+      // Additional Prep is already proven above (both branches, Skip and
+      // Complete), so this only has to establish that the SAME popup appears on
+      // the other three - the branch behaviour is one shared component, not
+      // four implementations. Each is dismissed with Skip so the sub-screen is
+      // left untouched and Start Day is not partially completed as a side
+      // effect.
+      await test.step('SD-TC-023: the same Skip/Complete popup appears on the other three sub-screens', async () => {
+        for (const name of ['productCollection', 'moneyOperations', 'checks'] as const) {
+          await prepTasks.openBackPressPopup(prepTasks.subScreenTriggers[name]);
+          expect(await prepTasks.isBackPressPopupVisible()).toBe(true);
+          await prepTasks.confirmSkip();
+          expect(await prepTasks.isPrepTasksListVisible()).toBe(true);
+        }
       });
     }
   );
@@ -234,7 +262,15 @@ test.describe('Prep Tasks / Start of Day', () => {
   // was never actually reaching Prep Tasks at all.
   test(
     'view the Product collection title, Add product (+) icon, open Add product, and add a product with a quantity',
-    { tag: ['@StartOfDay-TC074', '@StartOfDay-TC075', '@StartOfDay-TC080', '@StartOfDay-TC110'] },
+    {
+      tag: [
+        '@StartOfDay-TC074',
+        '@StartOfDay-TC075',
+        '@StartOfDay-TC080',
+        '@StartOfDay-TC110',
+        '@StartOfDay-SD-TC-032'
+      ]
+    },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
 
@@ -277,6 +313,13 @@ test.describe('Prep Tasks / Start of Day', () => {
       await test.step('TC110: search "Snickers", enter qty 5, submit, and verify the count updates', async () => {
         await prepTasks.fillAndSubmitAddProduct('Snickers', '5');
         const afterLines = await prepTasks.getProductCollectionSummaryLines();
+        // SD-TC-032 rides on this test rather than repeating its setup: the
+        // case asks that collected items show "name, quantity, and package
+        // size", and a product has just been added with a quantity, so the
+        // summary is already on screen. Logged as well as asserted because the
+        // package-size token's exact shape is data-dependent (e.g. "1.86oz",
+        // "pkg: 1").
+        console.log(`[SD-TC-032] product collection lines: ${JSON.stringify(afterLines)}`);
         const parseLine = (line: string) => {
           const [category, countText] = line.split('\n');
           return { category, count: Number(countText) };
@@ -289,7 +332,56 @@ test.describe('Prep Tasks / Start of Day', () => {
           return a.count === priorCount + 5;
         });
         expect(increasedByFive).toBe(true);
+
+        // SD-TC-032, the half this build satisfies: a collected item shows a
+        // QUANTITY. Live-verified 2026-08-27 that the ENTIRE screen is
+        //   ["27 Aug 2026","Route ","Product Collection",
+        //    "section_header_add_cta","CANDY | 10","Continue"]
+        // - i.e. items are summarised by CATEGORY and total quantity. The
+        // product name and package size the case also asks for are absent; that
+        // half is carried as a test.fail() gap below.
+        expect(afterLines.join(' | ')).toMatch(/\d+/);
+
+        // SD-TC-032, second half: "no camera or photo prompt should appear
+        // during Product Collection". Asserted as the ABSENCE of the shared
+        // photo component this suite uses everywhere else (BaseScreen's
+        // takePhoto / Add supporting photo), so it cannot pass merely because a
+        // different locator was chosen.
+        expect(await prepTasks.isVisible('~Take photo')).toBe(false);
+        expect(await prepTasks.isVisible('~Add supporting photo')).toBe(false);
       });
+    }
+  );
+
+  // FAILING HALF of SD-TC-032 - the product NAME and PACKAGE SIZE.
+  //
+  // Live-verified 2026-08-27: Product Collection summarises what has been
+  // collected by CATEGORY only ("CANDY | 10"), even though the product added
+  // was "Snickers". The case asks that "collected items should display with
+  // name, quantity, and package size" - only the quantity is there.
+  //
+  // Asserted as INTENDED behaviour under test.fail() so it flags if per-product
+  // detail is added, rather than asserting today's category-only summary and
+  // going silently green. Same convention as the Coffee C-TC gaps.
+  //
+  // Reuses whatever is already collected on the screen - it does not add a
+  // product, since the preceding test has already established that path.
+  test(
+    'SD-TC-032 (gap): Product Collection shows each item with its name and package size',
+    { tag: ['@StartOfDay-SD-TC-032'] },
+    async ({ driver }) => {
+      test.setTimeout(600_000);
+      test.fail();
+      const prepTasks = new PrepTasksScreen(driver);
+
+      await loginToFreshStartDayRoute(driver, mobileConfig.defaultRoute);
+      await prepTasks.openFromHamburgerMenu();
+      await prepTasks.openProductCollection();
+
+      const lines = (await prepTasks.getProductCollectionSummaryLines()).join(' | ');
+      console.log(`[SD-TC-032 gap] summary: ${lines}`);
+      // A package-size token (oz / ct / gal / pkg) next to the item.
+      expect(lines).toMatch(/\d+(\.\d+)?\s*(oz|ct|gal|pkg)/i);
     }
   );
 

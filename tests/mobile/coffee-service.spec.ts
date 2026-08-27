@@ -2862,7 +2862,14 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       });
 
       await test.step('C-TC-049: the service station shows a green tick and full progress', async () => {
-        await coffee.pressKeyCode(4);
+        // NO back press. "Complete Delivery" already lands on the stop detail -
+        // its own log line shows "coffee | 1 Service stations | 100". An
+        // earlier version pressed BACK here and EXITED THE APP INTO GOOGLE
+        // MAPS, because C-TC-045 leaves Maps in the activity back stack, so
+        // backing out of our last screen reveals it. Two lessons in one: do not
+        // navigate when already on the target screen, and a test that hands off
+        // to an external app leaves it behind in the stack even after
+        // activateApp brings ours back to the front.
         await driver.pause(2_000);
         console.log(`[DESTRUCTIVE] stop detail: ${await coffee.getVisibleScreenText()}`);
         expect(await dashboard.getServiceStationProgress('coffee')).toBe(100);

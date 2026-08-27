@@ -373,7 +373,32 @@ export class HomeScreen extends BaseScreen {
       await this.driver.pause(700);
     }
     if (!reachedHamburger) {
-      throw new Error(`returnToHome: no screen with the hamburger menu appeared after ${maxBackPresses} BACK presses`);
+      // LAST-RESORT RECOVERY. BACK cannot always get us home, and when it
+      // cannot, the failure lands on the NEXT run rather than the one that
+      // caused it - which makes it read as an unrelated login failure. Seen
+      // three times: the in-app camera (which traps BACK entirely), the
+      // Equipment audit's "complete audit?" loop, and - after a test that hands
+      // off to Google Maps - backing out of our own last screen surfacing MAPS,
+      // because the external app stays in the activity stack even once
+      // activateApp has brought ours to the front.
+      //
+      // Relaunching is safe here: it terminates and reactivates the app WITHOUT
+      // clearing data, so the login survives (see BaseScreen.relaunchApp).
+      await this.relaunchApp();
+      for (let i = 0; i < maxBackPresses; i++) {
+        if (await this.isVisible(this.hamburgerIcon)) {
+          reachedHamburger = true;
+          break;
+        }
+        await this.pressKeyCode(4);
+        await this.driver.pause(700);
+      }
+    }
+    if (!reachedHamburger) {
+      throw new Error(
+        `returnToHome: no screen with the hamburger menu appeared after ${maxBackPresses} BACK presses, ` +
+          'and the app could not be recovered by relaunching either'
+      );
     }
     await this.tap(this.hamburgerIcon);
     await this.tap('~Schedule overview');
