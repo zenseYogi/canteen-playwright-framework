@@ -465,6 +465,80 @@ export class DashboardScreen extends BaseScreen {
     return true;
   }
 
+  // The "No Service" bottom sheet raised by tapping the skip control on a
+  // service station row. Live-captured 2026-08-27 on Miami 001 / United
+  // Collection Bureau:
+  //   "No Service" / account+address / "Reason for skipping stop | Select
+  //   reason" / "Select order option" / (o) Leave on truck / (o) Return to
+  //   warehouse / [Skip stop] DISABLED
+  private readonly skipSheetTitle = '~No Service';
+  private readonly skipReasonRow = '//android.view.View[starts-with(@content-desc,"Reason for skipping stop")]';
+  private readonly skipDispositionLeaveOnTruck = '//android.widget.RadioButton[@content-desc="Leave on truck"]';
+  private readonly skipDispositionReturnToWarehouse =
+    '//android.widget.RadioButton[@content-desc="Return to warehouse"]';
+  private readonly skipStopButton = '//android.widget.Button[@content-desc="Skip stop"]';
+
+  /**
+   * Opens the skip sheet for a service station WITHOUT skipping anything -
+   * swipe the row, tap the revealed control, stop there. Lets M-TC-023 assert
+   * the sheet's defaults and its disabled-until-complete gating without
+   * actually taking a stop out of service.
+   *
+   * Distinct from swipeAndSkipServiceStation() above, which commits. Note the
+   * same swipe reveals a control that DELETES rather than skips in other
+   * contexts (see deleteNthServiceStation) - the outcome is contextual, so
+   * assert what you expect rather than trusting the gesture.
+   */
+  async openSkipStopSheet(lob: Lob, position: Position): Promise<void> {
+    await this.clickLob(lob);
+    const row = this.nthServiceStationUnder(lob, position);
+    await this.revealRowDelete(row, { slow: true });
+    await this.tap(`${row}/android.widget.Button`);
+    await this.waitFor(this.skipSheetTitle);
+  }
+
+  async isSkipStopSheetVisible(): Promise<boolean> {
+    return this.isVisible(this.skipSheetTitle);
+  }
+
+  /** The reason row's full label - M-TC-023 expects it to still read "Select reason" with nothing chosen. */
+  async getSkipReasonText(): Promise<string> {
+    const el = await this.driver.$(this.skipReasonRow);
+    return ((await el.getAttribute('content-desc')) ?? '').replace(/\n/g, ' | ');
+  }
+
+  /** Whether EITHER disposition radio is selected - M-TC-023 expects neither to be, initially. */
+  async isAnySkipDispositionSelected(): Promise<boolean> {
+    for (const sel of [this.skipDispositionLeaveOnTruck, this.skipDispositionReturnToWarehouse]) {
+      const el = await this.driver.$(sel);
+      if ((await el.getAttribute('checked').catch(() => 'false')) === 'true') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async isSkipStopButtonEnabled(): Promise<boolean> {
+    return this.isEnabled(this.skipStopButton);
+  }
+
+  /** Opens the reason picker and chooses one. Options live-captured 2026-08-27: Serviced Using Client App, Driver Skipped, Holiday-Vacation, Inaccessible-Closed, Acct Request-No Serv, Out of Order, Removed, Vehicle Issue, Weather. */
+  async selectSkipReason(reason: string): Promise<void> {
+    await this.tap(this.skipReasonRow);
+    await this.tap(`//*[@content-desc="${reason}"]`);
+  }
+
+  async selectSkipDisposition(which: 'leaveOnTruck' | 'returnToWarehouse'): Promise<void> {
+    await this.tap(
+      which === 'leaveOnTruck' ? this.skipDispositionLeaveOnTruck : this.skipDispositionReturnToWarehouse
+    );
+  }
+
+  /** Backs out of the skip sheet without skipping. */
+  async dismissSkipStopSheet(): Promise<void> {
+    await this.pressKeyCode(4);
+  }
+
   /** Whether "Complete Stop" is available on the current location-detail screen (present once every checklist tile - including any just-skipped station - is done). */
   async isCompleteStopVisible(): Promise<boolean> {
     return this.isVisible(this.completeStopButton);

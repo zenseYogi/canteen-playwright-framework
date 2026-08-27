@@ -2364,4 +2364,81 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       });
     }
   );
+
+  // ==== M-TC-023 (Skip Stop gating) ====
+  //
+  // "Skip Stop requires reason and disposition with no defaults pre-selected"
+  // -> "Reason for Skipping should default to 'Select reason' with no option
+  // pre-chosen; And no disposition radio button should be pre-selected; And
+  // the Skip Stop button should remain disabled until both reason and
+  // disposition are selected".
+  //
+  // NON-DESTRUCTIVE BY CONSTRUCTION. Every clause is about the sheet's state
+  // BEFORE committing, so this opens the sheet, exercises the gating, and
+  // backs out - it never taps Skip stop, so no stop is taken out of service.
+  //
+  // Runs against United Collection Bureau, the route's SECOND Market stop,
+  // rather than Teva: Teva carries the data the other Market tests lean on,
+  // and there is no reason to put it near a skip flow.
+  test(
+    'M-TC-023: Skip Stop needs both a reason and a disposition, with neither pre-selected',
+    { tag: ['@Market-M-TC-023'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const home = new HomeScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const prepTasks = new PrepTasksScreen(driver);
+
+      await test.step('Reach the second Market stop', async () => {
+        await loginAndEnsureRoute(driver, MONEY_OPS_ROUTE);
+        await home.returnToHome();
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+        await reachMarketAccount(driver, 'United Collection Bureau');
+      });
+
+      try {
+        await test.step('Open the skip sheet from the service station row', async () => {
+          await dashboard.openSkipStopSheet('market', 'first');
+          expect(await dashboard.isSkipStopSheetVisible()).toBe(true);
+        });
+
+        await test.step('M-TC-023: no reason is pre-chosen', async () => {
+          const reason = await dashboard.getSkipReasonText();
+          console.log(`[M-TC-023] reason row = "${reason}"`);
+          expect(reason).toContain('Select reason');
+        });
+
+        await test.step('M-TC-023: no disposition is pre-selected', async () => {
+          expect(await dashboard.isAnySkipDispositionSelected()).toBe(false);
+        });
+
+        await test.step('M-TC-023: Skip stop is disabled with neither chosen', async () => {
+          expect(await dashboard.isSkipStopButtonEnabled()).toBe(false);
+        });
+
+        await test.step('M-TC-023: still disabled with only a reason chosen', async () => {
+          // The gating claim is "until BOTH", so a reason alone must not be
+          // enough - checking the halfway state is what distinguishes this
+          // from a test that would pass on any two-field form.
+          await dashboard.selectSkipReason('Driver Skipped');
+          expect(await dashboard.isSkipStopButtonEnabled()).toBe(false);
+        });
+
+        await test.step('M-TC-023: enabled once a disposition is chosen too', async () => {
+          await dashboard.selectSkipDisposition('leaveOnTruck');
+          expect(await dashboard.isAnySkipDispositionSelected()).toBe(true);
+          await expect
+            .poll(() => dashboard.isSkipStopButtonEnabled().catch(() => false), { timeout: 15_000 })
+            .toBe(true);
+        });
+      } finally {
+        // Always: leave WITHOUT skipping. The button is enabled by this point,
+        // so an accidental tap here would take a real stop out of service.
+        await dashboard.dismissSkipStopSheet().catch(() => {});
+        await home.returnToHome().catch(() => {});
+      }
+    }
+  );
 });
