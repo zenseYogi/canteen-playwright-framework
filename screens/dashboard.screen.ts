@@ -339,6 +339,28 @@ export class DashboardScreen extends BaseScreen {
     await this.tap(this.pendingActionTab);
   }
 
+  /**
+   * The number in a schedule tab pill - "Pending action (N)" / "Completed (N)".
+   *
+   * M-TC-035 needs these to check a SCHEDULE INVARIANT: the header's delivery
+   * count should equal pending + completed. The sheet records that invariant
+   * breaking after a skip-then-complete ("showing Deliveries as 3, but only 1
+   * Pending & 1 Completed"), which is the defect that case exists to catch.
+   */
+  private async tabCount(label: 'Pending action' | 'Completed'): Promise<number> {
+    const el = await this.driver.$(`//android.view.View[starts-with(@content-desc,"${label} (")]`);
+    const desc = (await el.getAttribute('content-desc').catch(() => '')) ?? '';
+    return Number(/\((\d+)\)/.exec(desc)?.[1] ?? NaN);
+  }
+
+  async getPendingActionCount(): Promise<number> {
+    return this.tabCount('Pending action');
+  }
+
+  async getCompletedCount(): Promise<number> {
+    return this.tabCount('Completed');
+  }
+
   /** TC021 "view Pending action tab" - the tab pill itself is present regardless of which one is currently selected. */
   async isPendingActionTabVisible(): Promise<boolean> {
     return this.isVisible(this.pendingActionTab);

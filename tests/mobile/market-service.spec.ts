@@ -2382,7 +2382,10 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // and there is no reason to put it near a skip flow.
   test(
     'M-TC-023: Skip Stop needs both a reason and a disposition, with neither pre-selected',
-    { tag: ['@Market-M-TC-023'] },
+    // Also carries M-TC-035's "Skip Stop should require explicit confirmation"
+    // clause - the gating asserted here IS that requirement, so it is tagged
+    // rather than duplicated.
+    { tag: ['@Market-M-TC-023', '@Market-M-TC-035'] },
     async ({ driver }) => {
       test.setTimeout(900_000);
       const home = new HomeScreen(driver);
@@ -3018,6 +3021,126 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
         await market.dismissNumericKeypadIfPresent().catch(() => {});
         await market.pressKeyCode(4).catch(() => {});
       }
+    }
+  );
+
+  // ==== M-TC-035 (Complete/Skip Stop need explicit state handling) ====
+  //
+  // "Complete Stop and Skip Stop require explicit state handling" -> "Service
+  // will not be marked as complete until every mandatory service is completed;
+  // And Skip Stop should require explicit confirmation; And the user should
+  // re-enter and complete a previously skipped station without corrupting stop
+  // state." Sheet: Result = Fail, remark "Need to create PBI".
+  //
+  // THREE CLAUSES, split across three places rather than one mega-test:
+  //  - "requires explicit confirmation"  -> carried by M-TC-023 (tagged there).
+  //  - "not complete until every mandatory service is done" -> the test below.
+  //  - "without corrupting stop state"   -> the test.fail() below that, which
+  //    is the actual defect.
+  test(
+    'M-TC-035: a stop cannot be completed until every mandatory service is done',
+    { tag: ['@Market-M-TC-035'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const market = await reachMoneyOpsChecklist(driver, 'United Collection Bureau');
+
+      await test.step('M-TC-035: Complete Delivery is gated while mandatory tasks are outstanding', async () => {
+        // FOUR tasks gate it - Before Photos, Delivery, Audit and Money
+        // Operations (established by M-TC-036). Any one outstanding must keep
+        // the stop incompletable, which is exactly what this clause asserts.
+        const tasks = await market.getMarketChecklistTasks();
+        console.log(`[M-TC-035] tasks present = ${JSON.stringify(tasks)}`);
+        const complete = await market.isCompleteDeliveryEnabled();
+        const allDone = await market.isChecklistIconChecked(
+          '//android.view.View[starts-with(@content-desc,"Delivery")]'
+        );
+        console.log(`[M-TC-035] Delivery done = ${allDone}; Complete Delivery enabled = ${complete}`);
+        if (!allDone) {
+          expect(complete).toBe(false);
+        }
+      });
+    }
+  );
+
+  // The FAILING clause - the documented corruption, and the reason a PBI is
+  // still owed.
+  //
+  // Asserts a SCHEDULE INVARIANT rather than a screen detail: the header's
+  // delivery count must equal pending + completed. The sheet's own remark is
+  // that this breaks after a skip-then-complete ("showing Deliveries as 3, but
+  // only 1 Pending & 1 Completed").
+  //
+  // WHY THIS IS AUTOMATED AT ALL NOW: it was excluded earlier because the
+  // corruption was permanent and would poison Miami 001 for every other Market
+  // test. Anthony's route-setup reset (same operation + route re-selected
+  // clears the local DB and re-pulls orders) makes it RECOVERABLE, so the
+  // objection no longer holds.
+  //
+  // !! LEAVES THE ROUTE CORRUPTED. Run the route-setup reset afterwards:
+  // hamburger -> Settings -> Route setup -> Change route -> same operation ->
+  // same route -> confirm -> Select Day -> Confirm (~2 min).
+  //
+  // Narrowing already established by M-TC-032: SKIPPING ALONE does not
+  // corrupt - counts stayed consistent after a skip. The damage belongs to the
+  // COMPLETE-after-skip step, which is what this exercises.
+  test(
+    'M-TC-035 (gap): completing a previously skipped station corrupts the schedule counts',
+    { tag: ['@Market-M-TC-035', '@corrupts-route'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const home = new HomeScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const prepTasks = new PrepTasksScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in and complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, MONEY_OPS_ROUTE);
+        await home.returnToHome();
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Skip a station, then re-enter and complete it', async () => {
+        await reachMarketAccount(driver, 'United Collection Bureau');
+        if ((await dashboard.getServiceStationProgress('market')) !== 100) {
+          await dashboard.openSkipStopSheet('market', 'first');
+          await dashboard.selectSkipReason('Driver Skipped');
+          await dashboard.selectSkipDisposition('leaveOnTruck');
+          await dashboard.tapSkipStop();
+          await driver.pause(4_000);
+        }
+        await home.returnToHome();
+        await reachMarketAccount(driver, 'United Collection Bureau');
+        await dashboard.openFirstServiceStation('market');
+        await ensureAuditPrerequisites(market);
+        const auditDone = await market.isChecklistIconChecked(
+          '//android.view.View[starts-with(@content-desc,"Market Physical") or starts-with(@content-desc,"Audit")]'
+        );
+        if (!auditDone) {
+          await market.tapAuditTile();
+          if (await market.isCountTypeModalVisible()) {
+            await market.selectCountType('cycle');
+          }
+          await market.searchAndSelectAuditProduct('Balance C', 'Balance CkieDough1.76oz - pkg: 1', 'Balance CkieDough1.76oz');
+          await market.tap('~Continue');
+        }
+        await market.skipMoneyOperations();
+        if (await market.isCompleteDeliveryEnabled()) {
+          await market.tap('~Complete Delivery');
+        }
+      });
+
+      await test.step('M-TC-035: the schedule counts should still add up', async () => {
+        await home.returnToHome();
+        const total = await home.getDeliveriesCount();
+        const pending = await dashboard.getPendingActionCount();
+        const completed = await dashboard.getCompletedCount();
+        console.log(`[M-TC-035] deliveries=${total} pending=${pending} completed=${completed}`);
+        // The invariant. The sheet records it breaking here.
+        expect(pending + completed).toBe(total);
+      });
     }
   );
 });
