@@ -857,8 +857,25 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // pasted invalid input (disables Add), so Product fills' Delivery field
   // is inconsistent with that sibling field's own validation.
   test(
-    'M-TC-009/M-TC-010/M-TC-011: Delivery field accepts malformed/negative input unchanged; Continue never reflects validity',
-    { tag: ['@Market-TC009', '@Market-TC010', '@Market-TC011'] },
+    'M-TC-009/M-TC-010/M-TC-011/M-TC-026: Delivery field accepts malformed/negative input unchanged; Continue never reflects validity',
+    // !! CURRENTLY FAILS ON THE WORKING ROUTE - pre-existing, not a
+    // regression. It hardcodes "CureLeaf", a Miami 010 stop, and Miami 010
+    // needs BA data prep (documented elsewhere in this file). On Miami 001 the
+    // row is simply not there: "Can't call click ... content-desc='CureLeaf'".
+    // Fixing it means reworking it onto a live stop the way the M-TC-0xx tests
+    // here already are; until then it should not be counted as passing
+    // coverage for the rows it names.
+    //
+    // M-TC-026 makes the same claim on the same field and is deliberately NOT
+    // tagged here - claiming it from a test that cannot run would overstate
+    // coverage. It has its own test below instead.
+    //
+    // The @Market-M-TC-* tags ARE added alongside the old-scheme ones: those
+    // rows previously had no tag traceability at all, only a test title.
+    { tag: [
+      '@Market-TC009', '@Market-TC010', '@Market-TC011',
+      '@Market-M-TC-009', '@Market-M-TC-010', '@Market-M-TC-011'
+    ] },
     async ({ driver }) => {
       const dashboard = new DashboardScreen(driver);
       const home = new HomeScreen(driver);
@@ -2565,8 +2582,14 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   //     Delivery tile never ticks even after Fills is submitted.
   //  3. A SINGLE-station stop has no separate "Complete Stop" button at all.
   test(
-    'M-TC-036: completing a stop navigates back to the Schedule',
-    { tag: ['@Market-M-TC-036'] },
+    'M-TC-036/M-TC-027: a full market service journey completes the stop and returns to the Schedule',
+    // Also carries M-TC-027 ("Route driver completes full market service
+    // journey end to end" -> "the home screen should reflect the updated
+    // completed stop status"). The journey below IS that end-to-end flow -
+    // Before Photos, Delivery, Audit, Money Operations, then completion - so
+    // it is tagged rather than duplicated as a second expensive run. The
+    // Home-status clause is asserted in its own step at the end.
+    { tag: ['@Market-M-TC-036', '@Market-M-TC-027'] },
     async ({ driver }) => {
       test.setTimeout(900_000);
       const home = new HomeScreen(driver);
@@ -2647,6 +2670,17 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
         await home.returnToHome();
         console.log(`[M-TC-036] after completing the stop, deliveries = ${await home.getDeliveriesCount()}`);
         expect(await home.isLoaded()).toBe(true);
+      });
+
+      await test.step('M-TC-027: Home reflects the updated completed-stop status', async () => {
+        // The clause M-TC-036 alone does not cover: not just that we ARRIVED
+        // at the Schedule, but that the Schedule now REPORTS the stop as
+        // completed. Asserted on the tab counts rather than on a row, since a
+        // completed stop moves between tabs.
+        const completed = await dashboard.getCompletedCount();
+        const pending = await dashboard.getPendingActionCount();
+        console.log(`[M-TC-027] pending=${pending} completed=${completed}`);
+        expect(completed).toBeGreaterThan(0);
       });
     }
   );
@@ -3280,6 +3314,114 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       await test.step('Leave', async () => {
         await market.pressKeyCode(4).catch(() => {});
       });
+    }
+  );
+
+  // ==== M-TC-022 (no nearby markets blocks transfer creation) ====
+  //
+  // "No nearby markets blocks transfer creation with informational message" ->
+  // "an exclamation icon should indicate no nearby markets; And an
+  // informational message should explain transfers cannot be created".
+  //
+  // The existing TC301/TC302 test asserts this same popup, but runs on
+  // defaultRoute (Miami 010) and reaches its stop by POSITION - both flagged
+  // in this file as unreliable (Miami 010 needs BA data prep; stop order
+  // drifts). This runs the same assertion on Miami 001 by NAME instead, so the
+  // M-TC row has coverage that does not depend on either.
+  //
+  // The "exclamation icon" clause is logged rather than asserted: the icon
+  // carries no content-desc of its own, and asserting an unlabelled glyph
+  // positionally would be the same guess-as-fact problem that put M-TC-039 out
+  // of scope. The INFORMATIONAL MESSAGE is the substantive clause and is
+  // asserted properly.
+  test(
+    'M-TC-022: with no nearby markets, Market Transfers explains transfers cannot be created',
+    { tag: ['@Market-M-TC-022'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      // Runs on UNITED COLLECTION BUREAU: Teva turned out to HAVE a nearby
+      // market ("Actavis Weston Break room"), so its Market Transfers opens a
+      // Select Market picker rather than the no-nearby-markets message - the
+      // case's precondition is simply not met there.
+      const market = await reachMoneyOpsChecklist(driver, 'United Collection Bureau');
+
+      await test.step('M-TC-022: opening Market Transfers shows the informational message', async () => {
+        await market.openMarketTransfers();
+        const shown = await market.getVisibleScreenText();
+        console.log(`[M-TC-022] transfers popup: ${shown.slice(0, 240)}`);
+        expect(await market.isOnlyOneMarketMessageVisible()).toBe(true);
+      });
+
+      await test.step('Dismissing returns to the checklist', async () => {
+        await market.dismissOnlyOneMarketMessage();
+        expect(await market.isServiceStopLocationHeaderVisible()).toBe(true);
+      });
+    }
+  );
+
+  // ==== M-TC-026 (numeric validation on the Delivery quantity field) ====
+  //
+  // "Numeric entry validation accepts valid and blocks invalid values
+  // [Delivery]" -> "valid values should be accepted; And invalid values should
+  // be rejected; And Continue or Save should remain disabled until corrected".
+  //
+  // Its own test rather than a tag on the M-TC-009/010/011 one: that test
+  // hardcodes a Miami 010 stop and currently cannot run (see its note), so
+  // tagging this onto it would claim coverage that does not execute.
+  //
+  // Values are INJECTED with setValue, bypassing the custom keypad, for the
+  // same reason as M-TC-030 and TC109/TC110: the keypad has no letter keys, so
+  // driving it could never test whether the FIELD rejects letters.
+  //
+  // Split as C-TC-005 is, so test.fail() cannot mask a broken setup.
+  test(
+    'M-TC-026: the Delivery quantity field accepts a valid number',
+    { tag: ['@Market-M-TC-026'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const market = await reachMoneyOpsChecklist(driver);
+
+      await test.step('A valid quantity is accepted', async () => {
+        await market.openFills();
+        const fields = [...(await driver.$$('//android.widget.EditText'))];
+        expect(fields.length).toBeGreaterThan(0);
+        await fields[0].click();
+        await fields[0].setValue('5');
+        const read = await fields[0].getAttribute('text');
+        console.log(`[M-TC-026] wrote "5" -> "${read}"`);
+        expect(read).toBe('5');
+      });
+
+      await test.step('Leave without saving', async () => {
+        await market.dismissNumericKeypadIfPresent();
+        await market.pressKeyCode(4);
+      });
+    }
+  );
+
+  // The FAILING half. Same validation weakness this suite has now found on
+  // three separate screens - Removals & Returns (TC109/TC110), Money
+  // Operations (M-TC-030) and here - so it is one recurring theme, not three
+  // isolated bugs.
+  test(
+    'M-TC-026 (gap): the Delivery quantity field accepts alphabetic input',
+    { tag: ['@Market-M-TC-026'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const market = await reachMoneyOpsChecklist(driver);
+      try {
+        await market.openFills();
+        const fields = [...(await driver.$$('//android.widget.EditText'))];
+        await fields[0].click();
+        await fields[0].setValue('abc');
+        const read = await fields[0].getAttribute('text');
+        console.log(`[M-TC-026] wrote "abc" -> "${read}"`);
+        expect(read).not.toBe('abc');
+      } finally {
+        await market.dismissNumericKeypadIfPresent().catch(() => {});
+        await market.pressKeyCode(4).catch(() => {});
+      }
     }
   );
 });
