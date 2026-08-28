@@ -860,10 +860,80 @@ export class CoffeeServiceScreen extends BaseScreen {
    * lands as "04" - live-verified 2026-08-25. The value is numerically
    * correct; callers should compare with Number(), not string equality.
    */
-  async setDeliveredQuantity(value: string): Promise<void> {
-    const field = await this.driver.$(this.deliveredQtyField);
-    await field.click();
-    await field.setValue(value);
+  async setDeliveredQuantity(value: string, acceptSignatureWarning = false): Promise<void> {
+    // Written as a RETRY LOOP rather than a linear click-then-type, because on
+    // a signed delivery the warning dialog can be raised more than once: once
+    // by the first touch of the field, and again by the re-focus after it is
+    // accepted. A single accept therefore is not enough - the dialog is back
+    // over the field by the time setValue runs, which fails as "element wasn't
+    // found" against an element that is merely covered. Re-resolving the field
+    // each pass also handles the row being rebuilt when the signature clears.
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (acceptSignatureWarning) {
+        // FIRST, before going anywhere near the field. On a signed delivery
+        // the warning is raised by OPENING the Deliveries screen, not by
+        // touching the quantity - it just animates in slowly enough that a
+        // quick read of the product row wins the race while the field lookup
+        // loses it. And the dialog is its OWN WINDOW: while it is up the
+        // screen behind is not in the accessibility tree at all (13 nodes,
+        // dialog only), so resolving the field first can only ever time out.
+        await this.confirmSignedDeliveryEditIfPresent();
+      }
+      const field = await this.driver.$(this.deliveredQtyField);
+      await field.waitForDisplayed({ timeout: 15_000 });
+      await field.click();
+      if (acceptSignatureWarning) {
+        // POLLED, not read once - the dialog animates in, so reading
+        // immediately after the click races it and finds nothing.
+        await this.driver
+          .waitUntil(async () => this.isSignedDeliveryEditWarningVisible(), { timeout: 4_000, interval: 500 })
+          .catch(() => undefined);
+        await this.confirmSignedDeliveryEditIfPresent();
+      }
+      try {
+        const focused = await this.driver.$(this.deliveredQtyField);
+        await focused.setValue(value);
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
+  }
+
+  // Raised by touching ANY editable part of a delivery that has already been
+  // signed: "A customer signature has already been captured. Any changes to
+  // this delivery will remove the signature and require the customer to
+  // re-sign." with Cancel / Yes. Live-mapped 2026-08-28.
+  //
+  // It is a MODAL, and it covers the quantity field - so without handling it a
+  // setValue fails against the scrim and reports "element wasn't found", which
+  // reads like the field is missing when it is plainly there behind the
+  // dialog. That misdiagnosis cost a run.
+  //
+  // This is C-TC-018's subject. Accepting it CLEARS THE SIGNATURE, so it is
+  // opt-in per call rather than swallowed automatically - a caller that is not
+  // about to re-sign must not silently discard one.
+  private readonly signedDeliveryEditWarning =
+    '//android.view.View[contains(@content-desc,"customer signature has already been captured")]';
+
+  async isSignedDeliveryEditWarningVisible(): Promise<boolean> {
+    return this.isVisible(this.signedDeliveryEditWarning);
+  }
+
+  /** Accepts the signed-delivery edit warning if it is showing. Returns whether it was. */
+  async confirmSignedDeliveryEditIfPresent(): Promise<boolean> {
+    if (!(await this.isSignedDeliveryEditWarningVisible())) {
+      return false;
+    }
+    await this.tap('//android.widget.Button[@content-desc="Yes"]');
+    await this.driver.waitUntil(async () => !(await this.isSignedDeliveryEditWarningVisible()), {
+      timeout: 20_000,
+      interval: 1_000,
+      timeoutMsg: 'The signed-delivery edit warning did not dismiss'
+    });
+    return true;
   }
 
   async isDeliveryContinueEnabled(): Promise<boolean> {

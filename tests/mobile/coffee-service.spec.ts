@@ -4595,4 +4595,332 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
     }
   );
 
+
+  // ==== C-TC-038 / C-TC-040 (end-to-end delivery WITH payment) ====
+  //
+  //   C-TC-038  "Coffee presales, delivery, signing order, and payment
+  //             complete end to end" -> "presale and delivery summaries
+  //             should preserve saved product, quantity, signature, and
+  //             payment state; And the coffee service should be marked
+  //             complete"
+  //   C-TC-040  "Driver completes coffee delivery with signature and optional
+  //             payment" -> "the coffee delivery should be marked complete on
+  //             the service menu; And delivery summary should reflect
+  //             signature, payment state, and final quantity"
+  //
+  // ONE test, deliberately. These are two readings of a SINGLE journey -
+  // presale, delivery quantity, payment, signature, completion - and the setup
+  // to reach the end of it is the expensive part. Same reasoning as the
+  // C-TC-013 batch above. C-TC-039 is NOT folded in with them: it requires the
+  // order to complete with NO payment, which directly contradicts these two.
+  //
+  // PRESERVATION is asserted BEFORE signing, not after. Re-opening a signed
+  // delivery triggers the app's own edit-confirmation flow and clears the
+  // signature (that is C-TC-018's subject, and the sheet records it as Fail),
+  // so proving "the quantity survived" by re-reading it after sign-off would
+  // damage the very state under test. Setting the quantity, leaving the
+  // screen, and coming back proves persistence just as well and costs nothing.
+  //
+  // Destructive, but sustainably so: a completed Coffee stop on this route is
+  // fully RE-WORKABLE - live-verified 2026-08-28 that 24Hundred Marketplace,
+  // completed earlier the same day, showed "Customer sign-off required" again
+  // with Continue enabled and its product row intact. So these do not consume
+  // the route the way the C-TC-013 batch appeared to.
+  test(
+    'C-TC-038/040: presale, delivery, payment and signature complete the service end to end',
+    { tag: ['@Coffee-C-TC-038', '@Coffee-C-TC-040'] },
+    async ({ driver }) => {
+      test.setTimeout(1_200_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      let stopName = '';
+      await test.step('Reach a Coffee stop with a workable delivery', async () => {
+        stopName = await reachCoffeeStop(
+          driver,
+          'coffee-end-to-end',
+          async (c) => {
+            await c.openDelivery();
+            if (!(await c.isDeliveryContinueEnabled())) return false;
+            // The Delivered field must still be EDITABLE, which is NOT implied
+            // by Continue being enabled. On a station this suite completed
+            // minutes earlier the row still renders (ordered quantity and all)
+            // and Continue is still enabled, but the quantity field is gone -
+            // and setDeliveredQuantity then fails on a missing element rather
+            // than on anything the case is about. A stop only qualifies if the
+            // journey can actually be walked.
+            if (!(await c.isDeliveredQtyFieldVisible())) return false;
+            await c.pressKeyCode(4);
+            await driver.pause(1_500);
+            // Deliberately NOT requiring an UNSIGNED delivery. That looked
+            // right and emptied the route: after a few runs of these journeys
+            // every stop is signed, and discovery then fails with "no stop
+            // satisfying..." on a route that is perfectly workable. Editing a
+            // signed delivery is a supported action - the app asks first and
+            // re-signing is part of this journey anyway - so the tests accept
+            // that dialog instead (see setDeliveredQuantity's second argument).
+            // Still offering "Complete Delivery" == the service is not already
+            // finished, so this journey has somewhere to go.
+            return c.isVisible('~Complete Delivery');
+          },
+          []
+        );
+        console.log(`[C-TC-038/040] stop = "${stopName}"`);
+      });
+
+      let presaleBaseline = 0;
+      await test.step('C-TC-038: a presale order is saved and preserved', async () => {
+        await coffee.tapAddPresaleTrigger();
+        presaleBaseline = await coffee.getSavedPresaleCount();
+        await coffee.openAddPresalesOrder();
+        await coffee.typeAddPresalesProduct('sugar');
+        await expect.poll(() => coffee.getPresaleSearchResultCount(), { timeout: 15_000 }).toBeGreaterThan(0);
+        const chosen = await coffee.selectFirstPresaleSearchResult();
+        expect(chosen).not.toBe('');
+        await coffee.dismissPresaleKeypadIfPresent();
+        // The product really is on the form - asserted on its DETAILS, since
+        // the two screens render the same product's name differently (see
+        // getPresaleFormProductHint).
+        const onForm = await coffee.getPresaleFormProductHint();
+        expect(onForm).toContain('SKU');
+        expect(onForm).toContain('Qty');
+
+        await coffee.selectFirstAvailableDeliveryDate();
+        expect(await coffee.isAddPresalesSaveEnabled()).toBe(true);
+        await coffee.saveAddPresalesOrder();
+        // "preserve saved product" - the order survives the save and is listed.
+        await expect.poll(() => coffee.getSavedPresaleCount(), { timeout: 20_000 }).toBe(presaleBaseline + 1);
+        console.log(`[C-TC-038] presale saved: ${presaleBaseline} -> ${presaleBaseline + 1}`);
+        await home.returnToHome();
+        await dashboard.scrollToAndClickLocationByName(stopName);
+        await dashboard.openFirstServiceStation('coffee');
+      });
+
+      let finalQty = 0;
+      await test.step('C-TC-038/040: a delivered quantity is set and survives leaving the screen', async () => {
+        await coffee.openDelivery();
+        const rowBefore = await coffee.getFirstDeliveryProductRowText();
+        console.log(`[C-TC-038/040] delivery row = ${rowBefore}`);
+        finalQty = 6;
+        // Accepts the signed-delivery warning if this stop was signed by an
+        // earlier run - discarding that signature is harmless here because
+        // this journey signs again below.
+        await coffee.setDeliveredQuantity(String(finalQty), true);
+        // Compared numerically - this keypad field clears to "0" rather than
+        // empty, so setting 6 lands as the text "06" (see setDeliveredQuantity).
+        expect(Number(await coffee.getDeliveredQty())).toBe(finalQty);
+
+        // Leave and come back. This is the "delivery summary preserves
+        // quantity" clause, proven as persistence rather than as a value still
+        // sitting in a field nobody navigated away from.
+        await coffee.pressKeyCode(4);
+        await driver.pause(1_500);
+        await coffee.openDelivery();
+        expect(Number(await coffee.getDeliveredQty())).toBe(finalQty);
+        console.log(`[C-TC-038/040] delivered quantity ${finalQty} preserved across navigation`);
+      });
+
+      await test.step('Reach Signing Order (still reversible up to this point)', async () => {
+        expect(await coffee.isDeliveryContinueEnabled()).toBe(true);
+        await coffee.tapDeliveryContinue();
+        expect(await coffee.isSigningOrderTitleVisible()).toBe(true);
+      });
+
+      await test.step('C-TC-038/040: a payment is recorded and its state persists on Signing Order', async () => {
+        // RECORDS A REAL PAYMENT against this order, same as C-TC-026 does.
+        expect(await coffee.isSummaryLineVisible('Payment')).toBe(true);
+        await coffee.openOrderPayment();
+        await coffee.selectPaymentType('Cash');
+        // "1000" lands as 10 - this field fills from the cents end (see
+        // C-TC-025). Read back numerically rather than as a string.
+        await coffee.typePaymentField('Amount*', '1000');
+        expect(Number(await coffee.getPaymentFieldValue('Amount*'))).toBe(10);
+        await coffee.tapPaymentDone();
+        // Accepted = the Payment screen closes and we are back on Signing
+        // Order, rather than held there by a validation message.
+        await expect
+          .poll(() => coffee.isOrderPaymentScreenVisible().catch(() => true), { timeout: 20_000 })
+          .toBe(false);
+        expect(await coffee.isSigningOrderTitleVisible()).toBe(true);
+        console.log(`[C-TC-038/040] signing order after payment: ${await coffee.getVisibleScreenText()}`);
+      });
+
+      // ---- everything below this line is IRREVERSIBLE ----
+      await test.step('C-TC-038/040: signing off enables Continue', async () => {
+        expect(await coffee.isDeliveryContinueEnabled()).toBe(false);
+        await coffee.openSignOff();
+        expect(await coffee.isSignOffEnabled()).toBe(false);
+        await coffee.drawSignature();
+        await expect.poll(() => coffee.isSignOffEnabled(), { timeout: 20_000 }).toBe(true);
+        await coffee.submitSignOff();
+        // The signature is what unlocks Continue - the "signature state" clause
+        // both cases make, asserted as the gate it actually controls.
+        await expect.poll(() => coffee.isDeliveryContinueEnabled(), { timeout: 20_000 }).toBe(true);
+      });
+
+      await test.step('C-TC-040: the delivery is marked complete on the Coffee menu', async () => {
+        await coffee.tapDeliveryContinue();
+        await driver.pause(2_500);
+        await expect.poll(() => coffee.isChecklistTileComplete('Delivery'), { timeout: 20_000 }).toBe(true);
+      });
+
+      await test.step('C-TC-038: the Coffee service is marked complete', async () => {
+        // The tile above means SIGNED. The service is not finished until
+        // Complete Delivery is tapped, and the station's own progress is the
+        // unambiguous signal - see the C-TC-013 batch's note on the run that
+        // passed the tile check while progress was still 0.
+        expect(await coffee.isVisible('~Complete Delivery')).toBe(true);
+        await coffee.tap('~Complete Delivery');
+        await driver.pause(3_000);
+        console.log(`[C-TC-038/040] after Complete Delivery: ${await coffee.getVisibleScreenText()}`);
+        // The STATION's own tick is the assertion - see C-TC-039's note on why
+        // the LOB card's percentage is the wrong instrument here (it spans
+        // every station under the card, so a multi-station stop never reads
+        // 100 off one completed service).
+        console.log(`[C-TC-038/040] coffee card progress = ${await dashboard.getServiceStationProgress('coffee')}`);
+        expect(await dashboard.isNthServiceStationComplete('coffee', 'first')).toBe(true);
+      });
+    }
+  );
+
+  // ==== C-TC-039 (over-delivery, and completing with NO payment) ====
+  //
+  // "Coffee service supports presales, over-delivery, and optional payment on
+  // Signing Order" -> "ordered and delivered quantities should be shown
+  // clearly; And Signing Order should complete successfully even when payment
+  // is not entered".
+  //
+  // SCOPED TO THE EXPECTED RESULT. The scenario line also names presales, but
+  // the expected result asserts nothing about them - it is context, and
+  // presale creation is already covered by C-TC-010/027/031 and again by
+  // C-TC-038 above. What is genuinely specific to this case is over-delivery,
+  // which nothing else in this file exercises.
+  //
+  // Kept separate from C-TC-038/040 because it contradicts them: those record a
+  // payment, this one must complete with none.
+  test(
+    'C-TC-039: an over-delivered quantity is shown against Ordered, and completes with no payment',
+    { tag: ['@Coffee-C-TC-039'] },
+    async ({ driver }) => {
+      test.setTimeout(1_200_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach a Coffee stop with a workable delivery', async () => {
+        const stop = await reachCoffeeStop(
+          driver,
+          'coffee-over-delivery',
+          async (c) => {
+            await c.openDelivery();
+            if (!(await c.isDeliveryContinueEnabled())) return false;
+            // The Delivered field must still be EDITABLE, which is NOT implied
+            // by Continue being enabled. On a station this suite completed
+            // minutes earlier the row still renders (ordered quantity and all)
+            // and Continue is still enabled, but the quantity field is gone -
+            // and setDeliveredQuantity then fails on a missing element rather
+            // than on anything the case is about. A stop only qualifies if the
+            // journey can actually be walked.
+            if (!(await c.isDeliveredQtyFieldVisible())) return false;
+            await c.pressKeyCode(4);
+            await driver.pause(1_500);
+            // Deliberately NOT requiring an UNSIGNED delivery. That looked
+            // right and emptied the route: after a few runs of these journeys
+            // every stop is signed, and discovery then fails with "no stop
+            // satisfying..." on a route that is perfectly workable. Editing a
+            // signed delivery is a supported action - the app asks first and
+            // re-signing is part of this journey anyway - so the tests accept
+            // that dialog instead (see setDeliveredQuantity's second argument).
+            return c.isVisible('~Complete Delivery');
+          },
+          []
+        );
+        console.log(`[C-TC-039] stop = "${stop}"`);
+      });
+
+      let ordered = 0;
+      await test.step('C-TC-039: the ordered quantity is shown on the delivery row', async () => {
+        await coffee.openDelivery();
+        const row = await coffee.getFirstDeliveryProductRowText();
+        console.log(`[C-TC-039] delivery row = ${row}`);
+        // The row concatenates product, packaging, price, the "Ordered" label
+        // and its value into ONE content-desc - so the ordered quantity is
+        // parsed out of it rather than read from a field of its own.
+        expect(row).toContain('Ordered');
+        const match = row.match(/Ordered\s+(\d+)/);
+        expect(match, `could not read an ordered quantity from "${row}"`).not.toBeNull();
+        ordered = Number(match![1]);
+        expect(ordered).toBeGreaterThan(0);
+      });
+
+      const overDelivered = () => ordered + 4;
+      await test.step('C-TC-039: delivering MORE than ordered is accepted and both are shown', async () => {
+        // Second argument as per C-TC-038/040 - the stop may carry a signature
+        // from an earlier run, and this journey re-signs regardless.
+        await coffee.setDeliveredQuantity(String(overDelivered()), true);
+        expect(Number(await coffee.getDeliveredQty())).toBe(overDelivered());
+        // "shown clearly" means BOTH at once - the over-delivered figure must
+        // not overwrite or hide what was ordered. Re-read the row rather than
+        // trusting the value captured before the edit.
+        const rowAfter = await coffee.getFirstDeliveryProductRowText();
+        console.log(`[C-TC-039] ordered=${ordered} delivered=${overDelivered()} row=${rowAfter}`);
+        expect(rowAfter).toContain('Ordered');
+        expect(rowAfter).toMatch(new RegExp(`Ordered\\s+${ordered}\\b`));
+        expect(await coffee.isDeliveryContinueEnabled()).toBe(true);
+      });
+
+      await test.step('C-TC-039: Signing Order is reached with no payment entered', async () => {
+        await coffee.tapDeliveryContinue();
+        expect(await coffee.isSigningOrderTitleVisible()).toBe(true);
+        // The Payment row exists and is deliberately left alone - "optional
+        // payment" is the case's own wording, and Anthony confirmed only the
+        // sign-off gates Continue.
+        expect(await coffee.isSummaryLineVisible('Payment')).toBe(true);
+        expect(await coffee.isDeliveryContinueEnabled()).toBe(false);
+      });
+
+      // ---- everything below this line is IRREVERSIBLE ----
+      await test.step('C-TC-039: the order completes successfully without payment', async () => {
+        await coffee.openSignOff();
+        await coffee.drawSignature();
+        await expect.poll(() => coffee.isSignOffEnabled(), { timeout: 20_000 }).toBe(true);
+        await coffee.submitSignOff();
+        await expect.poll(() => coffee.isDeliveryContinueEnabled(), { timeout: 20_000 }).toBe(true);
+        await coffee.tapDeliveryContinue();
+        await driver.pause(2_500);
+        await expect.poll(() => coffee.isChecklistTileComplete('Delivery'), { timeout: 20_000 }).toBe(true);
+
+        expect(await coffee.isVisible('~Complete Delivery')).toBe(true);
+        await coffee.tap('~Complete Delivery');
+        await driver.pause(3_000);
+        console.log(`[C-TC-039] after Complete Delivery: ${await coffee.getVisibleScreenText()}`);
+        // Asserted on THIS STATION's own tick, not on the LOB card's
+        // percentage. getServiceStationProgress reads the card, which spans
+        // every station under it - on a 2-station stop one finished station is
+        // legitimately 50, and an earlier version of this step demanded 100 and
+        // failed on a stop that had done nothing wrong. The card's figure is
+        // logged as evidence instead.
+        console.log(`[C-TC-039] coffee card progress = ${await dashboard.getServiceStationProgress('coffee')}`);
+        expect(await dashboard.isNthServiceStationComplete('coffee', 'first')).toBe(true);
+      });
+    }
+  );
+
 });
