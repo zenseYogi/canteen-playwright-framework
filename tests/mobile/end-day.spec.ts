@@ -631,4 +631,75 @@ test.describe('End Day - regression suite (ED-TC-xxx)', () => {
     }
   );
 
+
+  // ==== ED-TC-013 (the Reports step's header and contents) ====
+  //
+  // "Reports step lists available EOD reports with correct defaults" -> "the
+  // Reports screen should display the Date and Route Number at the top; And
+  // display the Reports heading; And list available report categories such as
+  // Coffee, Market, and Vending with their respective..."
+  //
+  // CATEGORIES ARE READ, NOT DICTATED. The case names Coffee, Market and
+  // Vending, but which appear depends on what the ROUTE actually did - Miami
+  // 001 is Market-only, so MARKET is the only category there, and asserting
+  // all three would fail a screen behaving perfectly correctly. What is
+  // asserted is that the screen lists at least one real category and names a
+  // report against it.
+  //
+  // NON-TERMINAL. Reports is the last step before Done, and Done is what
+  // uploads and completes the day (ED-TC-014/015). This asserts the screen's
+  // contents and stops.
+  //
+  // Reaching Reports requires the route's activities to be resolved - with any
+  // pending, End Day shows the gate instead (ED-TC-002). This does not resolve
+  // them itself: skipping is destructive and the state is shared, so the test
+  // states the precondition and fails clearly if it is not met.
+  test(
+    'ED-TC-013: the Reports step shows date, route and the report categories for the day',
+    { tag: ['@EndDay-ED-TC-013'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const home = new HomeScreen(driver);
+      const endDay = new EndDayScreen(driver);
+
+      await test.step('Log in and switch to the Market route (Miami 001)', async () => {
+        await loginAndEnsureRoute(driver, mobileConfig.marketRoute);
+        await home.returnToHome();
+      });
+
+      await test.step('Reach the Reports step', async () => {
+        await endDay.openFromHamburgerMenu();
+        expect(
+          await endDay.isFinishServiceGateVisible(),
+          'ED-TC-013 needs the activities for the day already resolved - End Day is showing its gate ' +
+            'instead, so this route has unfinished stops (that situation is ED-TC-002)'
+        ).toBe(false);
+        // Unused Kits sits between End Day and Reports whenever stops were
+        // skipped; step past it if it is there.
+        if (await endDay.isUnusedKitsScreenVisible()) {
+          await endDay.tapContinue();
+        }
+        await expect.poll(() => endDay.isReportsScreenVisible(), { timeout: 30_000 }).toBe(true);
+      });
+
+      await test.step('ED-TC-013: the header carries the date and route number', async () => {
+        const header = await endDay.getReportsHeader();
+        console.log(`[ED-TC-013] header = ${JSON.stringify(header)}`);
+        expect(header.date).not.toBe('');
+        expect(header.route).not.toBe('');
+      });
+
+      await test.step('ED-TC-013: report categories and their reports are listed', async () => {
+        const categories = await endDay.getReportCategories();
+        const lines = await endDay.getReportLines();
+        console.log(`[ED-TC-013] categories = ${JSON.stringify(categories)}`);
+        console.log(`[ED-TC-013] report lines = ${JSON.stringify(lines)}`);
+        expect(categories.length).toBeGreaterThan(0);
+        expect(lines.length).toBeGreaterThan(0);
+        // Done is offered but deliberately NOT tapped - see this block's note.
+        expect(await endDay.isDoneVisible()).toBe(true);
+      });
+    }
+  );
+
 });

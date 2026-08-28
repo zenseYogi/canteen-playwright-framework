@@ -204,6 +204,47 @@ export class EndDayScreen extends BaseScreen {
   // NB: `doneButton` is inherited from BaseScreen ('~Done') - redeclaring it
   // here shadows the base member and fails the build.
 
+  /**
+   * ED-TC-013 - the Reports step's header (date + route) and the report
+   * categories it lists.
+   *
+   * Categories are read as whatever the screen offers rather than checked
+   * against a fixed list. The case says "such as Coffee, Market, and Vending",
+   * but which appear depends on what the ROUTE actually did - Miami 001 is
+   * Market-only, so MARKET is the only category there, and demanding all three
+   * would fail a screen that is behaving correctly.
+   */
+  async getReportsHeader(): Promise<{ date: string; route: string }> {
+    const parts: string[] = [];
+    for (const el of [...(await this.driver.$$('//android.view.View[@content-desc!=""]'))]) {
+      parts.push(((await el.getAttribute('content-desc')) ?? '').trim());
+    }
+    return {
+      date: parts.find((p) => /\d{1,2}\s+\w{3}\s+\d{4}/.test(p)) ?? '',
+      route: parts.find((p) => /^Route\s+\d+/i.test(p)) ?? ''
+    };
+  }
+
+  /** ED-TC-013 - the report category tiles (e.g. MARKET), which are the clickable all-caps rows. */
+  async getReportCategories(): Promise<string[]> {
+    const found: string[] = [];
+    for (const el of [...(await this.driver.$$('//android.view.View[@clickable="true" and @content-desc!=""]'))]) {
+      const desc = ((await el.getAttribute('content-desc')) ?? '').trim();
+      if (desc && desc === desc.toUpperCase() && /^[A-Z ]{3,}$/.test(desc)) found.push(desc);
+    }
+    return found;
+  }
+
+  /** ED-TC-013 - a named report line and its count, e.g. "No Service Report (Count: 2)". */
+  async getReportLines(): Promise<string[]> {
+    const found: string[] = [];
+    for (const el of [...(await this.driver.$$('//android.view.View[contains(@content-desc,"Report")]'))]) {
+      const desc = ((await el.getAttribute('content-desc')) ?? '').replace(/\n/g, ' | ').trim();
+      if (desc && desc !== 'Reports') found.push(desc);
+    }
+    return found;
+  }
+
   async isReportsScreenVisible(): Promise<boolean> {
     return this.isVisible(this.reportsTitle);
   }
