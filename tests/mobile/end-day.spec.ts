@@ -539,4 +539,96 @@ test.describe('End Day - regression suite (ED-TC-xxx)', () => {
     }
   );
 
+
+  // ==== ED-TC-002 / ED-TC-003 (the End Day gate, and its No Service sheet) ====
+  //
+  //   ED-TC-002 "End of Day is blocked until required activities are complete"
+  //             -> "the driver should be taken to an End Day is Disabled
+  //             screen; And pending activities should be listed with Service
+  //             and No Service actions"
+  //   ED-TC-003 "No Service pop-up presents order options when a current-day
+  //             order exists" -> "order options should be displayed under
+  //             Select Order Option"
+  //
+  // RUNS ON THE MARKET ROUTE (Miami 001), and has to. On the Coffee route this
+  // gate never appears at all - End Day opens straight into the closure flow
+  // with Coffee stops still pending, which is ED-TC-009's subject. Pending
+  // MARKET stops are what block End Day, so that is where these two live.
+  //
+  // NON-DESTRUCTIVE by construction. It opens the No Service sheet to assert
+  // its contents and then dismisses it via the scrim - openNoServiceSheet()
+  // exists precisely so this can be done without resolveWithNoService()'s
+  // commit. Nothing is skipped, no stop is resolved, and the route is left
+  // exactly as found. That matters: skipping is how ED-TC-010/011/012 get
+  // their money-bag data, and doing it here would spend that state early.
+  //
+  // NOTE Start Day is NOT completed first. The gate appeared without it on
+  // 2026-08-28, and these cases are about pending ACTIVITIES blocking End Day
+  // rather than about the day being started - so requiring Start Day would add
+  // a precondition the cases do not have.
+  test(
+    'ED-TC-002/003: pending Market stops block End Day and list Service/No Service, whose sheet offers order options',
+    { tag: ['@EndDay-ED-TC-002', '@EndDay-ED-TC-003'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const home = new HomeScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const endDay = new EndDayScreen(driver);
+
+      await test.step('Log in and switch to the Market route (Miami 001)', async () => {
+        await loginAndEnsureRoute(driver, mobileConfig.marketRoute);
+        await home.returnToHome();
+      });
+
+      let pending = 0;
+      await test.step('Precondition: the route has unfinished activities', async () => {
+        pending = await dashboard.getPendingActionCount();
+        console.log(`[ED-TC-002] pending stops = ${pending}`);
+        expect(
+          pending,
+          'ED-TC-002/003 need UNFINISHED activities - with none, End Day would open unblocked and there ' +
+            'would be no gate to assert (that situation is ED-TC-004)'
+        ).toBeGreaterThan(0);
+      });
+
+      await test.step('ED-TC-002: End Day is blocked, listing the pending activities', async () => {
+        await endDay.openFromHamburgerMenu();
+        expect(await endDay.isFinishServiceGateVisible()).toBe(true);
+        // It did NOT enter the closure flow - the gate is a block, not a
+        // banner shown alongside it.
+        expect(await endDay.isUnusedKitsScreenVisible()).toBe(false);
+        expect(await endDay.isReportsScreenVisible()).toBe(false);
+
+        const listed = await endDay.getGatePendingActivityCount();
+        console.log(`[ED-TC-002] activities listed on the gate = ${listed}`);
+        expect(listed).toBeGreaterThan(0);
+      });
+
+      await test.step('ED-TC-002: each pending activity offers Service and No Service', async () => {
+        const actions = await endDay.isGateActionPairVisible();
+        console.log(`[ED-TC-002] gate actions = ${JSON.stringify(actions)}`);
+        expect(actions.service).toBe(true);
+        expect(actions.noService).toBe(true);
+      });
+
+      await test.step('ED-TC-003: the No Service sheet presents its order options', async () => {
+        await endDay.openNoServiceSheet();
+        const options = await endDay.getOrderOptions();
+        console.log(`[ED-TC-003] order options = ${JSON.stringify(options)}`);
+        expect(options.heading).toBe(true);
+        expect(options.leaveOnTruck).toBe(true);
+        expect(options.returnToWarehouse).toBe(true);
+      });
+
+      await test.step('Leave the route as found - dismiss without resolving anything', async () => {
+        await endDay.dismissNoServiceSheet();
+        await home.returnToHome();
+        // The stop really was left unresolved. Without this the test could
+        // pass having quietly skipped a stop, spending the very data
+        // ED-TC-010/011/012 need.
+        expect(await dashboard.getPendingActionCount()).toBe(pending);
+      });
+    }
+  );
+
 });

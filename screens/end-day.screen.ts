@@ -27,7 +27,17 @@ export class EndDayScreen extends BaseScreen {
   // DashboardScreen's own Pending action list at all - End Day itself shows
   // a "Please finish the following" screen naming it, with the same
   // Service/No Service choice TC001 describes.
-  private readonly finishServiceGateTitle = '~Please finish the following';
+  // CONTAINS, not an exact accessibility-id match. The gate's text lives in a
+  // single node whose content-desc is the WHOLE block:
+  //   "Information\ni\nPlease finish the following\nYou need to complete the
+  //    service or provide a No Service reason."
+  // `~Please finish the following` requires equality, so it matched nothing and
+  // isFinishServiceGateVisible() reported the gate absent while it was plainly
+  // on screen. Same class as the Transfers LOB-tab casing bug fixed earlier
+  // today: an exact match against a content-desc that carries more than the
+  // label being looked for.
+  private readonly finishServiceGateTitle =
+    '//android.view.View[contains(@content-desc,"Please finish the following")]';
   private readonly noServiceButton = '~No Service';
   private readonly noServiceReasonField = '//android.widget.EditText';
   private readonly noServiceConfirmButton = '(//*[@content-desc="No Service"])[2]';
@@ -42,10 +52,87 @@ export class EndDayScreen extends BaseScreen {
   private readonly kitRow = (lob: string, accountName: string, machineOrAccount: string) =>
     `//android.view.View[starts-with(@content-desc,"${lob}\n${accountName}\n${machineOrAccount}")]`;
 
-  /** Opens End Day from the hamburger menu. Assumes it's already enabled (see this class's own note on the TC001 gate). */
+  // ---- The "Please finish the following" gate, and its No Service sheet ----
+  //
+  // Live-mapped 2026-08-28 on Miami 001 with two pending Market stops. The gate
+  // lists one row per unfinished activity, each carrying its own Service and
+  // No Service buttons. Note it appeared WITHOUT Start Day having been
+  // completed on that route/day.
+  private readonly selectOrderOptionLabel = '~Select order option';
+
+  /** ED-TC-002 - how many pending activities the gate is listing, counted by their No Service buttons. */
+  async getGatePendingActivityCount(): Promise<number> {
+    return [...(await this.driver.$$(this.noServiceButton))].length;
+  }
+
+  /** ED-TC-002 - whether the gate offers BOTH actions the case names. */
+  async isGateActionPairVisible(): Promise<{ service: boolean; noService: boolean }> {
+    return {
+      service: await this.isVisible('~Service'),
+      noService: await this.isVisible(this.noServiceButton)
+    };
+  }
+
+  /**
+   * ED-TC-003 - opens the No Service sheet for the FIRST listed activity,
+   * without resolving anything. Distinct from resolveWithNoService(), which
+   * commits: this one only opens, so the sheet's contents can be asserted and
+   * then dismissed leaving the stop untouched.
+   */
+  async openNoServiceSheet(): Promise<void> {
+    await this.tap(this.noServiceButton);
+    await this.waitFor(this.selectOrderOptionLabel);
+  }
+
+  /** ED-TC-003 - the "Select order option" heading and the two options under it. */
+  async getOrderOptions(): Promise<{ heading: boolean; leaveOnTruck: boolean; returnToWarehouse: boolean }> {
+    return {
+      heading: await this.isVisible(this.selectOrderOptionLabel),
+      leaveOnTruck: await this.isVisible(this.leaveOnTruckOption),
+      returnToWarehouse: await this.isVisible(this.returnToWarehouseOption)
+    };
+  }
+
+  /** The No Service sheet's own Skip stop button - gated until a reason is chosen. */
+  async isNoServiceSkipEnabled(): Promise<boolean> {
+    return this.isEnabled(this.skipStopSheetTitle.replace('~', '//android.widget.Button[@content-desc="') + '"]');
+  }
+
+  /** Dismisses the No Service sheet via its scrim, leaving the stop unresolved. */
+  async dismissNoServiceSheet(): Promise<void> {
+    await this.tap('~Scrim');
+    await this.driver
+      .waitUntil(async () => !(await this.isVisible(this.selectOrderOptionLabel)), { timeout: 15_000, interval: 500 })
+      .catch(() => undefined);
+  }
+
+  /**
+   * Opens End Day from the hamburger menu.
+   *
+   * WAITS FOR THE DRAWER, both open and closed. The previous version tapped
+   * the hamburger and then immediately tapped the menu item, with no wait
+   * between - so the second tap could land while the drawer was still sliding
+   * in, hit whatever sat at those coordinates on the screen behind, and leave
+   * the app exactly where it started. Observed 2026-08-28 on Miami 001: the
+   * test ended on Home having "opened" End Day, and the same navigation done
+   * by hand a minute earlier had worked fine. TransfersScreen.open() already
+   * had the waits; this did not.
+   *
+   * The close is detected via "Schedule overview" - a drawer-only item -
+   * rather than by waiting for the End Day screen's own header, because that
+   * header carries the SAME content-desc ("End day") as the drawer item that
+   * was just tapped, so waiting for it would pass before anything happened.
+   */
   async openFromHamburgerMenu(): Promise<void> {
     await this.tap(this.hamburgerIcon);
-    await this.tap(this.endDayMenuItem);
+    // tapWhenSettled, not tap: the drawer reports its final bounds while still
+    // sliding, so a click aimed there lands on the scrim and closes it again.
+    await this.tapWhenSettled(this.endDayMenuItem);
+    await this.driver.waitUntil(async () => !(await this.isVisible('~Schedule overview')), {
+      timeout: 30_000,
+      interval: 500,
+      timeoutMsg: 'The navigation drawer did not close after tapping End day'
+    });
   }
 
   /** Whether End Day is showing the "Please finish the following" gate instead of Unused Kits - a stop (e.g. a Warehouse stop) still needs Service or No Service. */

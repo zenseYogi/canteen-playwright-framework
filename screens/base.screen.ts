@@ -195,6 +195,41 @@ export class BaseScreen {
     return el.getText();
   }
 
+  /**
+   * Taps an element only once its position has STOPPED MOVING.
+   *
+   * For anything that slides in - the navigation drawer above all - waiting
+   * for the element to exist is not enough: it reports its FINAL bounds while
+   * still animating, so a click aimed at that centre can land on whatever is
+   * currently under those coordinates. With the drawer that is the scrim,
+   * which closes it again, and the app is left exactly where it started with
+   * no error raised.
+   *
+   * Diagnosed 2026-08-28: EndDayScreen.openFromHamburgerMenu appeared to open
+   * End Day and silently stayed on Home, while the identical navigation done
+   * by hand - with a human-sized pause between taps - worked every time.
+   *
+   * Polls the location instead of sleeping a fixed amount, so it costs only
+   * what the animation actually takes.
+   */
+  async tapWhenSettled(selector: string, timeoutMs = 15_000): Promise<void> {
+    const el = await this.driver.$(selector);
+    await el.waitForDisplayed({ timeout: timeoutMs });
+    let previous = { x: -1, y: -1 };
+    await this.driver
+      .waitUntil(
+        async () => {
+          const current = await el.getLocation();
+          const settled = current.x === previous.x && current.y === previous.y;
+          previous = { x: current.x, y: current.y };
+          return settled;
+        },
+        { timeout: timeoutMs, interval: 250 }
+      )
+      .catch(() => undefined);
+    await el.click();
+  }
+
   async isVisible(selector: string): Promise<boolean> {
     const el = await this.driver.$(selector);
     return el.isDisplayed().catch(() => false);
