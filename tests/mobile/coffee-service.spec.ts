@@ -4681,23 +4681,16 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
             // than on anything the case is about. A stop only qualifies if the
             // journey can actually be walked.
             if (!(await c.isDeliveredQtyFieldVisible())) return false;
+            // The delivery must be genuinely EDITABLE. Asserted by probing an
+            // edit rather than by reading a flag - see isDeliveryEditable for
+            // why the Delivery tile's green does not answer this.
+            if (!(await c.isDeliveryEditable())) return false;
             await c.pressKeyCode(4);
             await driver.pause(1_500);
-            // The delivery must be UNSIGNED. Not a preference - a signed one
-            // CANNOT be edited on this build at all: changing a value raises a
-            // confirmation whose "Yes" is unresponsive, so there is no way
-            // forward (see the BUG note on setDeliveredQuantity).
-            //
-            // An earlier version dropped this check because requiring it
-            // emptied the route. The real cause of that was discovery only
-            // ever opening the FIRST service station, so a stop whose first
-            // station was spent looked exhausted while a fresh second one sat
-            // behind it. Now that attempt() walks every station, requiring an
-            // unsigned delivery is affordable again.
-            //
-            // The Delivery tile's green means SIGNED here - not "service
-            // complete", which is the Complete Delivery button below.
-            if (await c.isChecklistTileComplete('Delivery')) return false;
+            // Requiring an editable delivery is affordable only because
+            // attempt() now walks EVERY service station: a stop whose first
+            // station this suite already signed still has a fresh second one
+            // behind it. Before that, this requirement emptied the route.
             // Still offering "Complete Delivery" == the service is not already
             // finished, so this journey has somewhere to go.
             return c.isVisible('~Complete Delivery');
@@ -4866,23 +4859,16 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
             // than on anything the case is about. A stop only qualifies if the
             // journey can actually be walked.
             if (!(await c.isDeliveredQtyFieldVisible())) return false;
+            // The delivery must be genuinely EDITABLE. Asserted by probing an
+            // edit rather than by reading a flag - see isDeliveryEditable for
+            // why the Delivery tile's green does not answer this.
+            if (!(await c.isDeliveryEditable())) return false;
             await c.pressKeyCode(4);
             await driver.pause(1_500);
-            // The delivery must be UNSIGNED. Not a preference - a signed one
-            // CANNOT be edited on this build at all: changing a value raises a
-            // confirmation whose "Yes" is unresponsive, so there is no way
-            // forward (see the BUG note on setDeliveredQuantity).
-            //
-            // An earlier version dropped this check because requiring it
-            // emptied the route. The real cause of that was discovery only
-            // ever opening the FIRST service station, so a stop whose first
-            // station was spent looked exhausted while a fresh second one sat
-            // behind it. Now that attempt() walks every station, requiring an
-            // unsigned delivery is affordable again.
-            //
-            // The Delivery tile's green means SIGNED here - not "service
-            // complete", which is the Complete Delivery button below.
-            if (await c.isChecklistTileComplete('Delivery')) return false;
+            // Requiring an editable delivery is affordable only because
+            // attempt() now walks EVERY service station: a stop whose first
+            // station this suite already signed still has a fresh second one
+            // behind it. Before that, this requirement emptied the route.
             return c.isVisible('~Complete Delivery');
           },
           []

@@ -941,6 +941,35 @@ export class CoffeeServiceScreen extends BaseScreen {
     return true;
   }
 
+  /**
+   * Whether this delivery can actually be EDITED - the only dependable test,
+   * and the one stop discovery needs.
+   *
+   * There is no readable "signed" flag to go on. The Delivery tile's green
+   * looked like one, but once a service has been COMPLETED the checklist
+   * reverts to showing "Customer sign-off required" with the tile no longer
+   * green, while the delivery underneath is still signed enough to raise the
+   * edit confirmation. So the tile answers a different question than the one
+   * being asked.
+   *
+   * Since the confirmation is raised by a value actually CHANGING, the probe
+   * has to change one. It writes a throwaway value, and any station that
+   * qualifies has its quantity set properly by the caller straight afterwards.
+   * A station that does NOT qualify is left untouched: the dialog is dismissed
+   * with Cancel, which abandons the edit.
+   */
+  async isDeliveryEditable(): Promise<boolean> {
+    const field = await this.driver.$(this.deliveredQtyField);
+    if (!(await field.isExisting().catch(() => false))) {
+      return false;
+    }
+    await field.click().catch(() => undefined);
+    // May throw the moment the dialog covers the field - that is a RESULT, not
+    // an error, so it is swallowed and the dialog checked for below.
+    await field.setValue('1').catch(() => undefined);
+    return !(await this.dismissSignedDeliveryEditIfPresent(3_000));
+  }
+
   async isDeliveryContinueEnabled(): Promise<boolean> {
     return this.isEnabled(this.continueButton);
   }
