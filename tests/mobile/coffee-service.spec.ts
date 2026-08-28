@@ -4312,4 +4312,163 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
     }
   );
 
+
+  // ==== C-TC-009 / C-TC-008 (capture, label and attach a photo) ====
+  //
+  //   C-TC-009  "Driver captures, labels, and attaches Before Photos" -> "the
+  //             photo should be attached successfully; And Before Photos
+  //             should be marked complete in green"
+  //   C-TC-008  the same for After Photos -> "After Photos should be marked
+  //             completed in green"
+  //
+  // BOTH WERE RECORDED "NOT FEASIBLE" (camera). That verdict is wrong on build
+  // 0.1.90 and was set before the camera was ever mapped: one BACK press
+  // escapes it, the shutter works, and the post-capture review screen is fully
+  // labelled. See BaseScreen's camera helpers, and C-TC-046 for the controls.
+  //
+  // Relationship to C-TC-056, which walks the same flow: that case asks only
+  // that the photo be saved against its chosen label, and deliberately does
+  // NOT assert tile completion. These two ask precisely the opposite - the
+  // green tile IS their expected result - so the assertion C-TC-056 leaves as
+  // a logged observation is the one being made here.
+  //
+  // Asserted DIFFERENTIALLY, as BaseScreen.hasCompletionGreen requires: the
+  // tile carries no accessible completed state, so an absolute "is it green"
+  // check would pass on a tile an earlier run left complete, without this test
+  // having done anything. Each run therefore clears the tile first (see the
+  // normalisation step) and proves the transition.
+
+  test(
+    'C-TC-009: a Before Photo can be captured, labelled and attached, turning the tile green',
+    { tag: ['@Coffee-C-TC-009'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach a Coffee stop', async () => {
+        await reachCoffeeStop(driver, 'any-coffee', async () => true, ['24Hundred Marketplace', 'Amerock']);
+      });
+
+      await test.step('Normalise: clear any photo a previous run attached', async () => {
+        // reachCamera() discards whatever photo is already on the tile, and
+        // deleting one reverts the tile to "Record pre-service condition" with
+        // its Optional badge back - live-verified 2026-08-28. That is what
+        // makes the green assertion below a real transition on every run
+        // rather than only the first.
+        await coffee.openBeforePhotos();
+        await coffee.reachCamera();
+        await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+        await expect
+          .poll(() => coffee.isPhotoTileComplete('before').catch(() => true), { timeout: 30_000 })
+          .toBe(false);
+      });
+
+      let chosen = '';
+      await test.step('C-TC-009: capture, label and attach a Before Photo', async () => {
+        await coffee.openBeforePhotos();
+        await coffee.reachCamera();
+        await coffee.tapCameraShutter();
+        expect((await coffee.isPhotoReviewVisible()).attach).toBe(true);
+
+        await coffee.tapPhotoLabelPicker();
+        await driver.pause(2_000);
+        expect(await coffee.isSelectLabelSheetVisible()).toBe(true);
+        const options = await coffee.getPhotoLabelOptions();
+        expect(options.length).toBeGreaterThan(0);
+        chosen = options[0].label;
+        await options[0].el.click();
+        await driver.pause(1_500);
+        await expect.poll(() => coffee.getSelectedPhotoLabel(), { timeout: 20_000 }).toBe(chosen);
+
+        await coffee.tapAttachPhoto();
+        await expect
+          .poll(() => coffee.isPhotoReviewVisible().then((r) => r.review).catch(() => false), { timeout: 30_000 })
+          .toBe(false);
+        console.log(`[C-TC-009] attached against label "${chosen}"`);
+      });
+
+      await test.step('C-TC-009: Before Photos is now marked complete in green', async () => {
+        await expect.poll(() => coffee.isPhotoTileComplete('before'), { timeout: 30_000 }).toBe(true);
+      });
+    }
+  );
+
+  test(
+    'C-TC-008: an After Photo can be captured, labelled and attached, turning the tile green',
+    { tag: ['@Coffee-C-TC-008'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach a Coffee stop whose After Photos tile is actionable', async () => {
+        // NOT any stop. After Photos is gated on the delivery being complete
+        // (see isAfterPhotosAvailable), so this discovers a stop that has one -
+        // which the destructive walk leaves behind. Stating the precondition
+        // and letting discovery satisfy it is what stops this failing for DATA
+        // reasons and reading as a regression.
+        const stop = await reachCoffeeStop(
+          driver,
+          'coffee-after-photos-available',
+          async (c) => c.isAfterPhotosAvailable(),
+          ['24Hundred Marketplace']
+        );
+        console.log(`[C-TC-008] using stop "${stop}"`);
+      });
+
+      await test.step('Normalise: clear any photo a previous run attached', async () => {
+        await coffee.openAfterPhotos();
+        await coffee.reachCamera();
+        await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+        await expect
+          .poll(() => coffee.isPhotoTileComplete('after').catch(() => true), { timeout: 30_000 })
+          .toBe(false);
+      });
+
+      let chosen = '';
+      await test.step('C-TC-008: capture, label and attach an After Photo', async () => {
+        await coffee.openAfterPhotos();
+        await coffee.reachCamera();
+        await coffee.tapCameraShutter();
+        expect((await coffee.isPhotoReviewVisible()).attach).toBe(true);
+
+        await coffee.tapPhotoLabelPicker();
+        await driver.pause(2_000);
+        const options = await coffee.getPhotoLabelOptions();
+        expect(options.length).toBeGreaterThan(0);
+        chosen = options[0].label;
+        await options[0].el.click();
+        await driver.pause(1_500);
+        await expect.poll(() => coffee.getSelectedPhotoLabel(), { timeout: 20_000 }).toBe(chosen);
+
+        await coffee.tapAttachPhoto();
+        await expect
+          .poll(() => coffee.isPhotoReviewVisible().then((r) => r.review).catch(() => false), { timeout: 30_000 })
+          .toBe(false);
+        console.log(`[C-TC-008] attached against label "${chosen}"`);
+      });
+
+      await test.step('C-TC-008: After Photos is now marked complete in green', async () => {
+        await expect.poll(() => coffee.isPhotoTileComplete('after'), { timeout: 30_000 }).toBe(true);
+      });
+    }
+  );
+
 });

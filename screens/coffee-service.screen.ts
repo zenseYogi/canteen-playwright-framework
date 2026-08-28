@@ -1077,6 +1077,28 @@ export class CoffeeServiceScreen extends BaseScreen {
     await this.openPhotoTrigger(this.afterPhotos);
   }
 
+  /**
+   * Whether the After Photos tile can be actioned yet.
+   *
+   * It is GATED: on a stop whose delivery is not yet complete the tile renders
+   * inert - and not merely disabled, it splits into two separate
+   * non-clickable Views ("After Photos" and "Document Completed Services")
+   * where an available tile is a single clickable View carrying both lines.
+   * Once the delivery completes it becomes clickable and opens the same "Add
+   * supporting photo" modal as Before Photos. Live-verified 2026-08-28 on
+   * Charlotte 103, comparing a pending stop against a completed one.
+   *
+   * This is the same gate C-TC-035 is about, used here as C-TC-008's
+   * precondition rather than as its subject.
+   */
+  async isAfterPhotosAvailable(): Promise<boolean> {
+    const el = await this.driver.$(this.afterPhotos);
+    if (!(await el.isExisting())) {
+      return false;
+    }
+    return (await el.getAttribute('clickable')) === 'true';
+  }
+
   /** Excel TC001/TC002/TC003 "view the delivery header" - assumes the service stop's checklist screen is already open. */
   async isServiceStopLocationHeaderVisible(): Promise<boolean> {
     return this.isVisible(this.serviceStopLocationHeader);
