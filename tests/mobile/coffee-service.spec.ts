@@ -5003,4 +5003,42 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
     }
   );
 
+  // ==== C-TC-043 - NOT REACHABLE ON COFFEE (there is no Complete Stop) ====
+  //
+  // "App navigates to Schedule after Complete Stop is selected" -> "Then the
+  // app should navigate to the Scheduled screen". Cross-App case, sub-feature
+  // "Vending/Market/coffee".
+  //
+  // NOT AUTOMATED HERE, on evidence rather than assumption. Written, run, and
+  // then withdrawn 2026-08-28 - what it found is recorded because it is worth
+  // more than the test would have been.
+  //
+  // COFFEE HAS NO "Complete Stop" BUTTON, on any stop. A stop completes
+  // IMPLICITLY once all of its service stations are complete. Walked live on
+  // Atrium Health, the route's only multi-station Coffee stop (2 stations):
+  //
+  //   before any work    - Complete Stop visible=false, 2 stations outstanding
+  //   first station done - coffee card progress 50, still visible=false
+  //   second done        - coffee card progress 100, still visible=false
+  //   afterwards         - the stop had moved to Home's Completed tab by itself
+  //
+  // The single-station case behaves the same way and was established earlier
+  // the same day under C-TC-020 (24Hundred Marketplace and ADI Global both
+  // reached Completed with no Complete Stop ever tapped). So this is not a
+  // multi-station gate that failed to open - the control does not exist on
+  // this LOB. Nor does the navigation half hold: completing the last station
+  // lands on the STOP DETAIL, not the Schedule.
+  //
+  // WHY THE FIRST ATTEMPT ASSERTED OTHERWISE.
+  // DashboardScreen.isCompleteStopEnabled's note says a stop with 2+ stations
+  // under one LOB shows the button, disabled until every station is actioned.
+  // That note is honest about its source - live-verified on a MARKET card
+  // (FedEx's "Breakroom" + "Homestead Warehouse") - and it was applied here
+  // without rechecking. Same error as inheriting Coffee's camera verdict onto
+  // Market: behaviour established on one LOB is not evidence about another.
+  //
+  // WHERE THIS CASE PROBABLY BELONGS: Market, where the button is recorded as
+  // existing. Not moved unilaterally - it is a C-TC row, and re-homing it to
+  // the Market suite is a call for QA, not for this file.
+
 });
