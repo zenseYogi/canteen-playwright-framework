@@ -332,6 +332,14 @@ test.describe('End Day - regression suite (ED-TC-xxx)', () => {
   // Coffee has no Skip Stop at all, which is ED-TC-008's subject. It belongs
   // with the Market cases, where skipping is what populates the screen.
   //
+  // THE STEP IS NOT UNCONDITIONAL, which is what makes this a real gap rather
+  // than "the app always shows it". ED-TC-004 runs the same flow on the EMPTY
+  // route (Charlotte 001, nothing scheduled) and Unused Kits is ABSENT there -
+  // End Day goes straight to Reports (logged: unusedKits=false reports=true).
+  // So the app does suppress this step in at least one situation; it simply
+  // does not suppress it for a Coffee route with nothing skipped, which is the
+  // situation both these cases are about.
+  //
   // Split passing/failing per this suite's convention - a lone test.fail()
   // cannot tell "the gap is still there" from "the setup broke", and the setup
   // here (reaching End Day at all) is exactly what has been shifting.
@@ -455,6 +463,78 @@ test.describe('End Day - regression suite (ED-TC-xxx)', () => {
         console.log(`[ED-TC-008] transfers landing = ${JSON.stringify(tabs)}`);
         expect(tabs.routeToWarehouse).toBe(true);
         expect(tabs.coffee).toBe(true);
+      });
+    }
+  );
+
+
+  // ==== ED-TC-004 (End Day is available on a day with nothing scheduled) ====
+  //
+  // "End of Day is available when no scheduled activities exist for the day"
+  // -> "End of Day should be enabled since there are no pending activities to
+  // block it".
+  //
+  // RUNS ON THE DEDICATED EMPTY ROUTE (mobileConfig.emptyRoute, Charlotte 001)
+  // on YESTERDAY. The route is empty on all three days the picker offers, and
+  // the day matters for collision avoidance rather than data: SD-TC-024 ADDS a
+  // delivery to TODAY and SD-TC-022 to TOMORROW, so either would put a
+  // scheduled activity in front of a case whose entire precondition is that
+  // there are none. Same separate-by-day approach as those two use on each
+  // other.
+  //
+  // The precondition is ASSERTED, not assumed. "End Day opened" proves nothing
+  // about this case unless the day really was empty - and on a route two other
+  // tests write to, that is exactly the thing most likely to stop being true.
+  //
+  // Start Day is completed first, deliberately. A day has to be started before
+  // it can be ended, and SD-TC-024 is the standing evidence that Start Day
+  // completes fine with zero deliveries. Doing it here also means a failure
+  // afterwards is about End Day rather than about an un-started day.
+  //
+  // Like every other non-terminal case here, this stops at the closure flow and
+  // never taps Done.
+  test(
+    'ED-TC-004: End Day is available on a day with no scheduled activities',
+    { tag: ['@EndDay-ED-TC-004'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const home = new HomeScreen(driver);
+      const endDay = new EndDayScreen(driver);
+
+      await test.step('Log in and switch to the empty route (Charlotte 001) on YESTERDAY', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.emptyRoute, day: 'YESTERDAY' });
+        await home.returnToHome();
+      });
+
+      await test.step('ED-TC-004 (precondition): the day has no scheduled activities', async () => {
+        const deliveries = await home.getDeliveriesCount();
+        console.log(`[ED-TC-004] deliveries scheduled = ${deliveries}`);
+        expect(
+          deliveries,
+          'ED-TC-004 needs a day with NOTHING scheduled - if this route has acquired deliveries, ' +
+            'the case is being judged against the wrong situation'
+        ).toBe(0);
+      });
+
+      await test.step('Complete Start Day (a day must be started before it can be ended)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('ED-TC-004: End Day opens with nothing blocking it', async () => {
+        await endDay.openFromHamburgerMenu();
+        // The "End Day is Disabled" gate ED-TC-001/002 describe. With no
+        // pending activities there is nothing for it to list, so it must not
+        // appear - that IS this case.
+        expect(await endDay.isFinishServiceGateVisible()).toBe(false);
+        // And it genuinely entered the closure flow rather than merely not
+        // showing the gate: one of its steps is on screen.
+        const unusedKits = await endDay.isUnusedKitsScreenVisible();
+        const reports = await endDay.isReportsScreenVisible();
+        console.log(`[ED-TC-004] closure flow reached: unusedKits=${unusedKits} reports=${reports}`);
+        expect(unusedKits || reports).toBe(true);
       });
     }
   );
