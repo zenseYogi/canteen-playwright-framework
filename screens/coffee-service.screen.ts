@@ -1558,7 +1558,18 @@ export class CoffeeServiceScreen extends BaseScreen {
    * complete. See BaseScreen.hasCompletionGreen.
    */
   async isChecklistTileComplete(label: string): Promise<boolean> {
-    const el = await this.driver.$(`//android.view.View[starts-with(@content-desc,"${label}")]`);
+    // CASE-INSENSITIVE on purpose. The same tile is labelled "Equipment audit"
+    // on one stop and "Equipment Audit" on another (live-verified 2026-08-28:
+    // 24Hundred Marketplace vs ADI Global on the same route, same build). An
+    // exact-case match simply does not find the tile on half the route - and
+    // because this method returns false for a MISSING element, that read as
+    // "not complete" and quietly passed the assertions that wanted false. Same
+    // family as the two-screens-same-name casing bug already recorded for
+    // login/route setup.
+    const lower = label.toLowerCase();
+    const el = await this.driver.$(
+      `//android.view.View[starts-with(translate(@content-desc,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"${lower}")]`
+    );
     if (!(await el.isExisting())) {
       return false;
     }

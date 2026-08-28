@@ -90,16 +90,30 @@ export class DashboardScreen extends BaseScreen {
   }
 
   /**
-   * M-TC-008 "green tick" - whether a given service station row shows its
-   * completed/green-checkmark visual state. Same "no accessibility signal,
-   * state exists only in the rendered bitmap" situation BaseScreen's
-   * isChecklistIconChecked already solves for Prep Tasks/Checks checkboxes -
-   * live-verified 2026-08-22 this reuses cleanly here too (a completed
-   * station row's light-green tinted background registers the same way).
-   * Assumes the card is already expanded.
+   * M-TC-008 / C-TC-049 "green tick" - whether a given service station row
+   * shows its completed state. Same "no accessibility signal, the state exists
+   * only in the rendered bitmap" situation BaseScreen's pixel helpers already
+   * solve for the Prep Tasks checkboxes. Assumes the card is already expanded.
+   *
+   * CORRECTED 2026-08-28 (build 0.1.90, live-verified on Coffee/Charlotte 103):
+   * this used isChecklistIconChecked, which samples only the row's top-left
+   * 140x140. That is right for a checkbox and wrong here - the tick sits at the
+   * row's TRAILING edge, so the scan never reached it. The note it carried
+   * ("the light-green tinted background registers the same way") does not hold
+   * either: the tint is far too pale to satisfy isCompletionGreen's
+   * g > r + 30 test, so on a genuinely completed station this returned false
+   * while the screenshot plainly showed the tick. BaseScreen.hasCompletionGreen
+   * scans the WHOLE element, which is the case its own docstring was written
+   * for.
+   *
+   * Because the pale tint does not register, what this effectively detects is
+   * the saturated tick itself. Both callers assert it AFTER a completion
+   * action, so treat a bare true here as corroboration of a transition the
+   * caller has already driven, not as a standalone claim about the row.
    */
   async isNthServiceStationComplete(lob: Lob, position: Position): Promise<boolean> {
-    return this.isChecklistIconChecked(this.nthServiceStationUnder(lob, position));
+    const el = await this.driver.$(this.nthServiceStationUnder(lob, position));
+    return this.hasCompletionGreen(el);
   }
 
   /** Like openFirstServiceStation, but for LOBs with more than one service station per stop (confirmed needed for Vending, and for Market stops like FedEx's "Breakroom" + "Homestead Warehouse"). */
@@ -581,6 +595,56 @@ export class DashboardScreen extends BaseScreen {
    */
   async isCompleteStopEnabled(): Promise<boolean> {
     return this.isEnabled(this.completeStopButton);
+  }
+
+  // Reuses completedTab declared above. Its sibling has no declaration yet -
+  // each tab also carries its own live count ("Pending action (3)").
+  private readonly pendingTab = '//android.view.View[contains(@content-desc,"Pending action")]';
+
+  async openCompletedTab(): Promise<void> {
+    await this.tap(this.completedTab);
+    await this.driver.pause(1_500);
+  }
+
+  async openPendingTab(): Promise<void> {
+    await this.tap(this.pendingTab);
+    await this.driver.pause(1_500);
+  }
+
+  /**
+   * Whether a stop with this name is listed on whichever Home tab is showing -
+   * the evidence that a stop really did complete, as opposed to a button
+   * having been tapped.
+   *
+   * Scrolls, because Home renders only a few rows at a time, and ALWAYS
+   * restores the scroll position afterwards: "Deliveries" is the title
+   * returnToHome() anchors on, and it scrolls off the top, so leaving the list
+   * scrolled breaks every later navigation. That has bitten this suite before
+   * - see enumerateAllStops in coffee-service.spec.ts.
+   */
+  async isStopListedOnCurrentTab(name: string): Promise<boolean> {
+    let found = false;
+    for (let i = 0; i < 12 && !found; i++) {
+      for (const row of [...(await this.driver.$$('//*[@clickable="true" and @content-desc!=""]'))]) {
+        const desc = ((await row.getAttribute('content-desc')) ?? '').split('\n')[0].trim();
+        if (desc === name) {
+          found = true;
+          break;
+        }
+      }
+      if (found) break;
+      await this.driver.executeScript('mobile: scrollGesture', [
+        { left: 100, top: 600, width: 800, height: 1200, direction: 'down', percent: 0.8 }
+      ]);
+      await this.driver.pause(500);
+    }
+    for (let i = 0; i < 14; i++) {
+      await this.driver.executeScript('mobile: scrollGesture', [
+        { left: 100, top: 600, width: 800, height: 1200, direction: 'up', percent: 1.0 }
+      ]);
+    }
+    await this.driver.pause(500);
+    return found;
   }
 
   /** Taps "Complete Stop" on the current location-detail screen. */
