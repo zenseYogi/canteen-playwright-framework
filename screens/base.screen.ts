@@ -1024,8 +1024,17 @@ export class BaseScreen {
   // zero labels), this screen IS labelled - "Photos" heading, a label picker,
   // a description EditText, and Delete photo / Take photo / Attach Photo.
   //
-  // Note "Take photo" appears on BOTH the pre-capture sheet and here, where it
-  // means RETAKE. Same label, different meaning by context.
+  // "Take photo" appears on BOTH the pre-capture sheet and here. It was
+  // recorded as meaning RETAKE on this screen; that is WRONG, corrected
+  // 2026-08-28 by counting deletes. This screen edits a LIST of captures one
+  // at a time (note the thumbnail beside the label picker) and "Take photo"
+  // ADDS a further capture rather than replacing the current one: capture,
+  // then "Take photo" and capture again, and it takes TWO deletes to get back
+  // to the camera. Deleting the last capture is what returns you there.
+  //
+  // So there is no replace affordance here at all - replacing means deleting
+  // and capturing again. C-TC-044 guards this explicitly by asserting the
+  // delete count.
   protected readonly photoReviewTitle = '~Photos';
   protected readonly deletePhotoButton = '//android.widget.Button[@content-desc="Delete photo"]';
   protected readonly retakePhotoButton = '//android.widget.Button[@content-desc="Take photo"]';
@@ -1065,6 +1074,12 @@ export class BaseScreen {
     await this.tap(this.deletePhotoButton);
   }
 
+  /**
+   * Taps the review screen's "Take photo", which ADDS a further capture -
+   * it does NOT retake/replace the current one. Named for the button, since
+   * naming it for the behaviour previously encoded an assumption that turned
+   * out to be false (see the note on retakePhotoButton).
+   */
   async tapRetakePhoto(): Promise<void> {
     await this.tap(this.retakePhotoButton);
   }

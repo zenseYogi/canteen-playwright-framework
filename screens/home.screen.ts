@@ -415,7 +415,16 @@ export class HomeScreen extends BaseScreen {
           'and the app could not be recovered by relaunching either'
       );
     }
-    await this.tap(this.hamburgerIcon);
+    // Do NOT tap the hamburger unconditionally. If the drawer is ALREADY open,
+    // that tap CLOSES it and the "Schedule overview" tap below then times out
+    // against a drawer that is no longer there - which is exactly how this
+    // failed on 2026-08-28, in the shared login/Start Day step rather than in
+    // any test's own logic. Same non-idempotent-navigation family as the
+    // Settings-expanded bug. The drawer's own item is the reliable tell that
+    // it is open.
+    if (!(await this.isVisible('~Schedule overview'))) {
+      await this.tap(this.hamburgerIcon);
+    }
     await this.tap('~Schedule overview');
     await this.scrollScheduleToTop();
     await this.waitFor(this.deliveriesTitle);

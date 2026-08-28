@@ -131,7 +131,8 @@ async function reachCoffeeStop(
   label: string,
   qualify: (coffee: CoffeeServiceScreen) => Promise<boolean>,
   preferred: string[] = [],
-  maxScan = 10
+  maxScan = 10,
+  exclude: string[] = []
 ): Promise<string> {
   const home = new HomeScreen(driver);
   const dashboard = new DashboardScreen(driver);
@@ -150,7 +151,7 @@ async function reachCoffeeStop(
   };
 
   const cached = qualifyingStopCache.get(label);
-  const ordered = [...(cached ? [cached] : []), ...preferred];
+  const ordered = [...(cached ? [cached] : []), ...preferred].filter((n) => !exclude.includes(n));
   for (const name of ordered) {
     if (await attempt(name)) {
       qualifyingStopCache.set(label, name);
@@ -160,7 +161,7 @@ async function reachCoffeeStop(
 
   let scanned = 0;
   for (const name of await enumerateAllStops(driver)) {
-    if (ordered.includes(name)) continue;
+    if (ordered.includes(name) || exclude.includes(name)) continue;
     if (scanned++ >= maxScan) break;
     if (await attempt(name)) {
       qualifyingStopCache.set(label, name);
@@ -4467,6 +4468,129 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
 
       await test.step('C-TC-008: After Photos is now marked complete in green', async () => {
         await expect.poll(() => coffee.isPhotoTileComplete('after'), { timeout: 30_000 }).toBe(true);
+      });
+    }
+  );
+
+
+  // ==== C-TC-044 (retake, delete, or skip optional photos) ====
+  //
+  // "Driver can retake, delete, or skip optional photos" -> "the new capture
+  // should replace or remove the previous image as expected; When the photo
+  // requirement is optional and the driver taps Skip photo; Then the driver
+  // should proceed without capturing a photo".
+  //
+  // Recorded hardware-blocked, from the same batch as C-TC-008/009's "Not
+  // Feasible" - and wrong for the same reason. It is the Coffee twin of
+  // Market's M-TC-037, which has been green since 2026-08-27, and needs no
+  // mechanic this suite does not already have.
+  //
+  // RUNS ON ITS OWN STOP, excluding whichever one C-TC-009 settled on. Not
+  // tidiness - the skip path COMPLETES the Before Photos tile without leaving
+  // a photo behind, and C-TC-009 clears its tile by deleting the photo on it.
+  // There is no photo to delete after a skip, so the two sharing a stop would
+  // leave C-TC-009 unable to reach its own baseline on the next run. Same
+  // separate-by-data collision avoidance as M-TC-037/M-TC-041 (by stop) and
+  // SD-TC-022/024 (by day).
+  //
+  // Caveat worth knowing: run in ISOLATION the cache is empty, so the
+  // exclusion has nothing to exclude and this may land on C-TC-009's stop
+  // anyway. That costs C-TC-009 its next run, not this one.
+  test(
+    'C-TC-044: an optional photo can be retaken, deleted, or skipped',
+    { tag: ['@Coffee-C-TC-044'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach a Coffee stop other than the one C-TC-009 owns', async () => {
+        const owned = qualifyingStopCache.get('any-coffee');
+        const stop = await reachCoffeeStop(
+          driver,
+          'coffee-photo-lifecycle',
+          async () => true,
+          [],
+          10,
+          owned ? [owned] : []
+        );
+        console.log(`[C-TC-044] using stop "${stop}" (C-TC-009 owns "${owned ?? 'none yet'}")`);
+      });
+
+      await test.step('C-TC-044: the photo requirement is optional - both paths are offered', async () => {
+        await coffee.openBeforePhotos();
+        const modal = await coffee.isPhotoModalVisible();
+        console.log(`[C-TC-044] photo sheet = ${JSON.stringify(modal)}`);
+        expect(modal.takePhoto).toBe(true);
+        expect(modal.skipPhoto).toBe(true);
+      });
+
+      await test.step('C-TC-044: a capture offers retake and delete', async () => {
+        await coffee.reachCamera();
+        await coffee.tapCameraShutter();
+        const review = await coffee.isPhotoReviewVisible();
+        console.log(`[C-TC-044] review screen = ${JSON.stringify(review)}`);
+        expect(review.review).toBe(true);
+        expect(review.retake).toBe(true);
+        expect(review.delete).toBe(true);
+      });
+
+      await test.step('C-TC-044: capturing again from the review screen is accepted', async () => {
+        // "Take photo" here ADDS a further capture - it does NOT replace the
+        // current one, despite sharing its label with the pre-capture sheet's
+        // button. Established 2026-08-28 by counting deletes (see the next
+        // step, which guards it). The app has no replace affordance on this
+        // screen at all; replacing means deleting and capturing again.
+        await coffee.tapRetakePhoto();
+        await coffee.waitForCameraScreen();
+        await coffee.tapCameraShutter();
+        expect((await coffee.isPhotoReviewVisible()).review).toBe(true);
+        // The new capture is its own image, so it arrives unlabelled rather
+        // than inheriting anything from the previous one.
+        expect(await coffee.getSelectedPhotoLabel()).toBe('');
+      });
+
+      await test.step('C-TC-044: deleting removes captures one at a time', async () => {
+        // TWO captures were made above, so it must take TWO deletes to clear
+        // them - and asserting that count is the whole point of this step. It
+        // is what pins down "Take photo" as ADD rather than REPLACE: were it a
+        // replace, one delete would empty the screen. If the app ever gains a
+        // real retake, this flags it rather than passing quietly.
+        let deletes = 0;
+        while (deletes < 5 && (await coffee.isPhotoReviewVisible()).review) {
+          await coffee.deleteCapturedPhoto();
+          deletes++;
+          await driver.pause(2_500);
+        }
+        console.log(`[C-TC-044] deletes needed to clear 2 captures = ${deletes}`);
+        expect(deletes).toBe(2);
+        // Deleting the LAST capture is what drops back to the camera.
+        await coffee.waitForCameraScreen();
+        await driver.executeScript('mobile: pressKey', [{ keycode: 4 }]);
+        // Nothing was kept - the tile is still incomplete after all that.
+        await expect
+          .poll(() => coffee.isPhotoTileComplete('before').catch(() => true), { timeout: 30_000 })
+          .toBe(false);
+      });
+
+      await test.step('C-TC-044: Skip photo proceeds without capturing', async () => {
+        await coffee.openBeforePhotos();
+        await coffee.openSkipPhotoReasonSheet();
+        await coffee.enterSkipPhotoReason("Camera can't focus and take clear picture");
+        await coffee.waitForSkipPhotoSubmitEnabled(true);
+        await coffee.confirmSkipPhoto();
+        // Proceeded WITHOUT a photo: the tile completes, and it completes with
+        // nothing attached.
+        await expect.poll(() => coffee.isPhotoTileComplete('before'), { timeout: 30_000 }).toBe(true);
+        console.log('[C-TC-044] Before Photos completed via Skip, no photo captured');
       });
     }
   );
