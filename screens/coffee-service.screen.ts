@@ -1271,7 +1271,18 @@ export class CoffeeServiceScreen extends BaseScreen {
 
   async getServiceStopLocationHeaderText(): Promise<string> {
     const el = await this.driver.$(this.serviceStopLocationHeader);
-    return (await el.getAttribute('content-desc')) ?? '';
+    if (!(await el.isExisting().catch(() => false))) {
+      return '';
+    }
+    // Appium returns the literal STRING "null" for an attribute a node does
+    // not carry, so `?? ''` never fires and a headerless screen reads as the
+    // four characters n-u-l-l. Live-hit here on ADI Global, whose checklist has
+    // NO header element at all (the content-descs run straight from "Route 103"
+    // to "Optional"), where it made a "does the header differ from the account
+    // name?" check answer yes about a header that does not exist. Same quirk
+    // already handled in getSelectedPhotoLabel.
+    const raw = ((await el.getAttribute('content-desc')) ?? '').trim();
+    return raw === 'null' ? '' : raw;
   }
 
   /** Excel TC004/TC006 - opens Equipment audit and confirms its own page title. */

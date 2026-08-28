@@ -130,7 +130,7 @@ async function enumerateAllStops(driver: any): Promise<string[]> {
 async function reachCoffeeStop(
   driver: any,
   label: string,
-  qualify: (coffee: CoffeeServiceScreen) => Promise<boolean>,
+  qualify: (coffee: CoffeeServiceScreen, stopName: string) => Promise<boolean>,
   preferred: string[] = [],
   maxScan = 10,
   exclude: string[] = []
@@ -180,7 +180,11 @@ async function reachCoffeeStop(
       // exactly the ambiguity that made this hard to diagnose.
       let qualified = false;
       try {
-        qualified = await qualify(coffee);
+        // The stop's own name is passed through because some preconditions are
+        // about the RELATIONSHIP between the stop and what a screen shows -
+        // C-TC-006 needs a stop whose checklist header differs from its account
+        // name, which is unanswerable from the screen alone.
+        qualified = await qualify(coffee, name);
       } catch (error) {
         console.log(`[attempt] ${name}/${position}: qualify threw - ${(error as Error).message.split('\n')[0]}`);
       }
@@ -5040,5 +5044,129 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
   // WHERE THIS CASE PROBABLY BELONGS: Market, where the button is recorded as
   // existing. Not moved unilaterally - it is a C-TC row, and re-homing it to
   // the Market suite is a call for QA, not for this file.
+
+
+  // ==== C-TC-006 (delivery header shows the account location name) ====
+  //
+  // "Delivery header shows account location name consistently" ->
+  //   (a) "the account location name should be displayed as the bolded
+  //       primary header"
+  //   (b) "the same account location name should persist across Coffee
+  //       delivery and product screens"
+  //   (c) "the header should show account location name instead of equipment
+  //       identifier"
+  //
+  // This was recorded HELD since 2026-08-26, pending a question to Anthony
+  // that the notes show was drafted and never sent. Un-held 2026-08-28 by
+  // re-verifying the behaviour instead: the answer only changes what the app
+  // SHOULD do, and either way the suite can assert the intended behaviour and
+  // flag when it changes.
+  //
+  // LIVE-VERIFIED on Adams Old Castle, whose account name ("Adams Old Castle")
+  // and service station name ("Adams an Old Castle - Office") differ - the only
+  // circumstance in which any of this is observable at all. On a stop where the
+  // two coincide (24Hundred Marketplace) every clause looks satisfied whether
+  // or not it is, which is precisely why the stop is DISCOVERED by that
+  // difference rather than named.
+  //
+  //   checklist header  - the SERVICE STATION name. Not the account name.
+  //   Deliveries        - neither name appears
+  //   Pre-sales         - BOTH names appear
+  //   Equipment audit   - neither name appears
+  //
+  // So (a) does not hold, and (b) holds on Pre-sales but not on Deliveries or
+  // Equipment audit - inconsistent rather than simply absent, which is the
+  // more useful thing to report. (c) is satisfied only in the weak sense that
+  // a station name is not an equipment identifier.
+  //
+  // Split into a PASSING test and a FAILING one, per this file's convention:
+  // a lone test.fail() cannot distinguish "the gap is still there" from "the
+  // setup broke", so the passing half proves the screens were reached and the
+  // names really do differ before the failing half asserts the intent.
+  test(
+    'C-TC-006: the checklist header carries the service station name, and Pre-sales carries both',
+    { tag: ['@Coffee-C-TC-006'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      let account = '';
+      let header = '';
+      await test.step('Reach a Coffee stop whose header differs from its account name', async () => {
+        account = await reachCoffeeStop(driver, 'coffee-header-differs', async (c, stopName) => {
+          const text = (await c.getServiceStopLocationHeaderText().catch(() => '')).trim();
+          return text !== '' && text !== stopName.trim();
+        });
+        header = (await coffee.getServiceStopLocationHeaderText()).trim();
+        console.log(`[C-TC-006] account="${account}" header="${header}"`);
+      });
+
+      await test.step('C-TC-006: the header is populated, and is NOT the account name', async () => {
+        expect(header).not.toBe('');
+        // The finding itself. Asserted rather than merely logged so that the
+        // day the header starts showing the account name, this test fails and
+        // the gap below starts passing - the pair moves together.
+        expect(header).not.toBe(account);
+      });
+
+      await test.step('C-TC-006: Pre-sales carries the account location name', async () => {
+        // The half of clause (b) that DOES hold. Worth asserting: it shows the
+        // name is available to the app on this journey, so its absence
+        // elsewhere is an inconsistency rather than missing data.
+        await coffee.tapAddPresaleTrigger();
+        const presales = await coffee.getVisibleScreenText();
+        console.log(`[C-TC-006] pre-sales screen = ${presales}`);
+        expect(presales).toContain(account);
+      });
+    }
+  );
+
+  // The gap. Asserts what C-TC-006 actually asks for, so it flags the day the
+  // app satisfies it. Kept separate from the test above for the reason given
+  // in that block's header.
+  test(
+    'C-TC-006 (gap): the header should show the account location name, and it should persist onto Deliveries',
+    { tag: ['@Coffee-C-TC-006'] },
+    async ({ driver }) => {
+      test.fail();
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const coffee = new CoffeeServiceScreen(driver);
+      const home = new HomeScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      let account = '';
+      await test.step('Reach a Coffee stop whose header differs from its account name', async () => {
+        account = await reachCoffeeStop(driver, 'coffee-header-differs', async (c, stopName) => {
+          const text = (await c.getServiceStopLocationHeaderText().catch(() => '')).trim();
+          return text !== '' && text !== stopName.trim();
+        });
+      });
+
+      await test.step('C-TC-006 (a): the bolded primary header should be the account location name', async () => {
+        expect((await coffee.getServiceStopLocationHeaderText()).trim()).toBe(account);
+      });
+
+      await test.step('C-TC-006 (b): that name should persist onto the Deliveries screen', async () => {
+        await coffee.openDelivery();
+        expect(await coffee.getVisibleScreenText()).toContain(account);
+      });
+    }
+  );
 
 });
