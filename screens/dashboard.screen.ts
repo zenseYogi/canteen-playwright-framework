@@ -525,6 +525,22 @@ export class DashboardScreen extends BaseScreen {
    * contexts (see deleteNthServiceStation) - the outcome is contextual, so
    * assert what you expect rather than trusting the gesture.
    */
+  /**
+   * ED-TC-008 - whether swiping the Nth service station row reveals ANY
+   * control at all (skip on Market, delete in other contexts).
+   *
+   * Exists to assert an ABSENCE safely. A swipe that reveals nothing looks
+   * identical to a swipe that did not take, so this goes through
+   * revealRowDeleteResilient, which escalates from the fast gesture to the
+   * slow one before giving up. A false from here therefore means the control
+   * is not there, rather than that the gesture missed - which is the whole
+   * claim ED-TC-008 rests on.
+   */
+  async revealsServiceStationRowControl(lob: Lob, position: Position): Promise<boolean> {
+    await this.clickLob(lob);
+    return this.revealRowDeleteResilient(this.nthServiceStationUnder(lob, position));
+  }
+
   async openSkipStopSheet(lob: Lob, position: Position): Promise<void> {
     await this.clickLob(lob);
     const row = this.nthServiceStationUnder(lob, position);

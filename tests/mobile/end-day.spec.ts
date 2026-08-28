@@ -4,6 +4,7 @@ import { PrepTasksScreen } from '../../screens/prep-tasks.screen';
 import { DashboardScreen } from '../../screens/dashboard.screen';
 import { HomeScreen } from '../../screens/home.screen';
 import { EndDayScreen } from '../../screens/end-day.screen';
+import { TransfersScreen } from '../../screens/transfers.screen';
 import { mobileConfig } from '../../config/mobile.config';
 import type { Position } from '../../utils/position';
 import type { Lob } from '../../utils/lob';
@@ -382,4 +383,80 @@ test.describe('End Day - regression suite (ED-TC-xxx)', () => {
       expect(await endDay.isUnusedKitsScreenVisible()).toBe(false);
     }
   );
+
+  // ==== ED-TC-008 (Coffee has no Skip Stop; warehouse returns go via Transfers) ====
+  //
+  // "Coffee route does not support Skip Stop" -> "Skip Stop functionality
+  // should not be available for Coffee; And Return to Warehouse for Coffee
+  // should be handled through transfer functionality".
+  //
+  // Two clauses, and both are asserted - but the second only to the extent
+  // that the MECHANISM exists. Whether Route to Warehouse actually transfers
+  // stock correctly is the Transfers suite's own subject (transfers.spec.ts
+  // covers Menu/Transfers-Route-to-Warehouse), and duplicating it here would
+  // add runtime without adding coverage.
+  //
+  // ASSERTING AN ABSENCE is the hard half. A swipe that reveals nothing is
+  // indistinguishable from a swipe that did not take - and this suite has
+  // already been bitten by exactly that, which is why revealRowDelete grew a
+  // `slow` variant in the first place. So this uses revealRowDeleteResilient,
+  // which escalates from the fast gesture to the slow one and reports whether
+  // ANYTHING appeared. A false from it means the control is absent, not that
+  // the gesture missed. Live-confirmed by hand first (2026-08-28): both a
+  // 600ms and a 1500ms swipe across a Coffee station row leave the screen with
+  // exactly one Button on it, the nav menu.
+  //
+  // Contrast with Market, where the same gesture on a service station row
+  // reveals a skip control - see DashboardScreen.openSkipStopSheet, and note
+  // its warning that the same gesture reveals a DELETE in other contexts. The
+  // outcome is contextual, so this asserts what it expects rather than
+  // trusting the gesture.
+  test(
+    'ED-TC-008: a Coffee service station offers no Skip Stop, and Transfers offers Route to Warehouse',
+    { tag: ['@EndDay-ED-TC-008'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const home = new HomeScreen(driver);
+      const transfers = new TransfersScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Open a Coffee stop with a service station on it', async () => {
+        const pending = await dashboard.getPendingActionCount();
+        expect(pending, 'need a Coffee stop to inspect').toBeGreaterThan(0);
+        await dashboard.clickLocationByPosition('first');
+        expect(await dashboard.isLobCardVisible('coffee')).toBe(true);
+        expect(await dashboard.isNthServiceStationVisible('coffee', 'first')).toBe(true);
+      });
+
+      await test.step('ED-TC-008: swiping the station row reveals no Skip Stop control', async () => {
+        const revealed = await dashboard.revealsServiceStationRowControl('coffee', 'first');
+        console.log(`[ED-TC-008] control revealed by swiping a Coffee station row = ${revealed}`);
+        expect(
+          revealed,
+          'A control appeared on a Coffee service station row - Skip Stop may now be supported for Coffee, ' +
+            'which would make ED-TC-008 obsolete rather than passing'
+        ).toBe(false);
+      });
+
+      await test.step('ED-TC-008: Route to Warehouse is offered as the transfer mechanism', async () => {
+        // The second clause, scoped to the mechanism existing. What it DOES is
+        // transfers.spec.ts's subject.
+        await home.returnToHome();
+        await transfers.open();
+        const tabs = await transfers.isLandingPageVisible();
+        console.log(`[ED-TC-008] transfers landing = ${JSON.stringify(tabs)}`);
+        expect(tabs.routeToWarehouse).toBe(true);
+        expect(tabs.coffee).toBe(true);
+      });
+    }
+  );
+
 });
