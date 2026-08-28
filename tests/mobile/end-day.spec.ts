@@ -212,3 +212,174 @@ test.describe('Menu - End Day', () => {
     }
   );
 });
+
+// ===========================================================================
+// Regression suite "End Day" (ED-TC-*), build 0.1.90
+// ===========================================================================
+//
+// SEPARATE from the "Menu - End Day" describe above, which is tagged to the
+// OLD Excel Menu numbering (@Menu-TC002/003/004) and runs on Miami 010. These
+// are the regression sheet's own ED-TC rows, and they run on the COFFEE route
+// (Charlotte 103) because that is what the three cases below are ABOUT.
+//
+// FLOW AS IT ACTUALLY IS, live-mapped 2026-08-28 on Charlotte 103:
+//
+//     Unused kits (0)  ->  Reports ("No reports are available.")  ->  Done
+//
+// Two things there contradict the older notes in this file, and both matter:
+//
+//   * MONEY BAG REVIEW DOES NOT APPEAR. The notes above assume it always sits
+//     between Unused Kits and Reports. It is populated from SKIPPED stops
+//     carrying money bags, and a Coffee route has neither - so ED-TC-010/011/
+//     012 are not reachable here at all and belong on the Market route.
+//
+//   * END DAY IS NOT BLOCKED by pending COFFEE stops. With two stops still
+//     pending it opened straight to Unused Kits, with no "End Day is Disabled"
+//     gate. That is not a defect - it is precisely what ED-TC-009 asserts -
+//     but it does mean ED-TC-001/002/003 (the blocking gate) cannot be
+//     exercised on a Coffee route and need pending MARKET stops.
+//
+// NOTHING HERE TAPS "Done". Done uploads the reports, raises the End Day
+// Successful popup (ED-TC-014) and completes the day (ED-TC-015) - which ends
+// the route day for every other test on the route. Reaching Done and asserting
+// it is offered is the non-terminal way to prove the flow completed.
+test.describe('End Day - regression suite (ED-TC-xxx)', () => {
+  test.afterEach(async ({ driver }) => {
+    await new HomeScreen(driver).returnToHome().catch(() => {});
+  });
+
+  // ==== ED-TC-009 (End Day proceeds with Coffee stops unserviced) ====
+  //
+  // "Driver completes End Day on mixed LOB without servicing all Coffee stops"
+  // -> "End Day should complete without forcing the driver to service the
+  // Coffee stops".
+  //
+  // SCOPED to the "without forcing" half. The clause "End Day should complete"
+  // is ED-TC-015's own subject and is terminal, so this asserts the flow runs
+  // unobstructed all the way to its last step (Reports, offering Done) while
+  // Coffee stops remain pending - and stops there.
+  //
+  // The pending-Coffee precondition is asserted, not assumed: if the route
+  // happened to have no pending stops the test would pass trivially while
+  // proving nothing about "without forcing".
+  test(
+    'ED-TC-009: End Day runs to its final step while Coffee stops are still pending',
+    { tag: ['@EndDay-ED-TC-009'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const home = new HomeScreen(driver);
+      const endDay = new EndDayScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      let pending = 0;
+      await test.step('Precondition: at least one Coffee stop is still unserviced', async () => {
+        pending = await dashboard.getPendingActionCount();
+        console.log(`[ED-TC-009] pending stops = ${pending}`);
+        expect(
+          pending,
+          'ED-TC-009 needs an UNSERVICED Coffee stop - with none pending it would pass trivially'
+        ).toBeGreaterThan(0);
+      });
+
+      await test.step('ED-TC-009: End Day opens without a blocking gate', async () => {
+        await endDay.openFromHamburgerMenu();
+        // The gate the sheet describes for ED-TC-001/002. On a Coffee route it
+        // must NOT appear, which is this case's whole point.
+        expect(await endDay.isFinishServiceGateVisible()).toBe(false);
+        expect(await endDay.isUnusedKitsScreenVisible()).toBe(true);
+      });
+
+      await test.step('ED-TC-009: the flow reaches its final step with Coffee still pending', async () => {
+        await endDay.tapContinue();
+        await expect.poll(() => endDay.isReportsScreenVisible(), { timeout: 30_000 }).toBe(true);
+        // Offered, deliberately not tapped - see this block's header.
+        expect(await endDay.isDoneVisible()).toBe(true);
+        expect(await endDay.isDoneEnabled()).toBe(true);
+        console.log('[ED-TC-009] reached Reports with Done enabled; not tapped');
+      });
+
+      await test.step('The Coffee stops really were left unserviced', async () => {
+        // Closes the loop: the flow got to the end AND the stops are still
+        // pending, so nothing quietly serviced them on the way through.
+        await home.returnToHome();
+        expect(await dashboard.getPendingActionCount()).toBe(pending);
+      });
+    }
+  );
+
+  // ==== ED-TC-006 / ED-TC-007 (Unused Kits should not appear) ====
+  //
+  //   ED-TC-006 "Unused Kits appears only when a stop was skipped" -> shown
+  //             when a stop was skipped; "When no stop was skipped; Then the
+  //             Unused Kits step should not appear"
+  //   ED-TC-007 "Unused Kits step is not shown for Coffee during End Day" ->
+  //             "the Unused Kits screen should not be shown"
+  //
+  // On a Coffee route with nothing skipped, both say the same thing: Unused
+  // Kits should not appear. It DOES appear, carrying a count of 0. Shown-but-
+  // empty is not "not shown", so both are recorded as gaps.
+  //
+  // ED-TC-006's POSITIVE half (skipped stop -> shown) is not covered here:
+  // Coffee has no Skip Stop at all, which is ED-TC-008's subject. It belongs
+  // with the Market cases, where skipping is what populates the screen.
+  //
+  // Split passing/failing per this suite's convention - a lone test.fail()
+  // cannot tell "the gap is still there" from "the setup broke", and the setup
+  // here (reaching End Day at all) is exactly what has been shifting.
+  test(
+    'ED-TC-006/007: on a Coffee route with nothing skipped, Unused Kits is shown with a count of zero',
+    { tag: ['@EndDay-ED-TC-006', '@EndDay-ED-TC-007'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const home = new HomeScreen(driver);
+      const endDay = new EndDayScreen(driver);
+
+      await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('ED-TC-006/007: the Unused Kits step appears, and is empty', async () => {
+        await endDay.openFromHamburgerMenu();
+        expect(await endDay.isUnusedKitsScreenVisible()).toBe(true);
+        const count = await endDay.getUnusedKitsCount();
+        console.log(`[ED-TC-006/007] Unused Kits shown on a Coffee route, count = ${count}`);
+        // Zero is the evidence that nothing was skipped - the precondition both
+        // cases are written against. If this ever becomes non-zero the gap
+        // below is being judged against the wrong situation.
+        expect(count).toBe(0);
+      });
+    }
+  );
+
+  test(
+    'ED-TC-006/007 (gap): Unused Kits should NOT be shown for Coffee, or when no stop was skipped',
+    { tag: ['@EndDay-ED-TC-006', '@EndDay-ED-TC-007'] },
+    async ({ driver }) => {
+      test.fail();
+      test.setTimeout(900_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const home = new HomeScreen(driver);
+      const endDay = new EndDayScreen(driver);
+
+      await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
+      await prepTasks.openFromHamburgerMenu();
+      await prepTasks.ensureFullDayPrepComplete();
+      await home.returnToHome();
+
+      await endDay.openFromHamburgerMenu();
+      expect(await endDay.isUnusedKitsScreenVisible()).toBe(false);
+    }
+  );
+});

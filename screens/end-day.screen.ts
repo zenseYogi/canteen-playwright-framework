@@ -105,6 +105,43 @@ export class EndDayScreen extends BaseScreen {
   }
 
   /** Whether the "Skip stop" bottom sheet (opened via DashboardScreen.swipeAndSkipServiceStation) is showing. */
+  // ---- Reports, the step AFTER Unused Kits ----
+  //
+  // Live-mapped 2026-08-28 on Charlotte 103 (Coffee). The flow observed there
+  // is Unused kits -> Reports -> Done. **Money Bag Review did not appear at
+  // all**, which the older notes in this suite assumed always sat between the
+  // two - it is populated from SKIPPED stops carrying money bags, and a Coffee
+  // route has neither.
+  private readonly reportsTitle = '~Reports';
+  private readonly noReportsMessage = '~No reports are available.';
+  // NB: `doneButton` is inherited from BaseScreen ('~Done') - redeclaring it
+  // here shadows the base member and fails the build.
+
+  async isReportsScreenVisible(): Promise<boolean> {
+    return this.isVisible(this.reportsTitle);
+  }
+
+  /** ED-TC-013 - whether Reports is empty rather than listing report categories. */
+  async isNoReportsMessageVisible(): Promise<boolean> {
+    return this.isVisible(this.noReportsMessage);
+  }
+
+  /**
+   * Whether the Reports step's Done is offered. NOT tapped by any of the
+   * non-terminal End Day tests: Done uploads the reports, raises the End Day
+   * Successful popup (ED-TC-014) and completes the day (ED-TC-015), which ends
+   * the route day for every other test on the route. Its presence is what the
+   * non-terminal tests assert - that the flow REACHED the last step - rather
+   * than pressing it.
+   */
+  async isDoneVisible(): Promise<boolean> {
+    return this.isVisible(this.doneButton);
+  }
+
+  async isDoneEnabled(): Promise<boolean> {
+    return this.isEnabled(this.doneButton);
+  }
+
   async isSkipStopSheetVisible(): Promise<boolean> {
     return this.isVisible(this.skipStopSheetTitle);
   }
