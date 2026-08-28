@@ -238,10 +238,17 @@ async function reachCoffeeStop(
  */
 async function reachCoffeeStopWithEmptyDeliveries(driver: any): Promise<void> {
   try {
+    // maxScan is deliberately LOW. Since discovery began walking every service
+    // station on a stop (not just the first), a full scan of this route takes
+    // long enough that all three tests depending on this helper hit their
+    // 15-minute timeout without ever reporting WHY - "Test timeout exceeded"
+    // says nothing about the missing precondition. Four stops is enough to
+    // establish that no empty-deliveries stop exists, and leaves time for the
+    // failure below to be raised and read.
     await reachCoffeeStop(driver, 'coffee-empty-deliveries', async (c) => {
       await c.openDelivery();
       return c.isDeliveriesEmptyStateVisible();
-    }, ['Amerock']);
+    }, ['Amerock'], 4);
     return;
   } catch {
     // Fall through to bootstrapping one.
@@ -262,7 +269,21 @@ async function reachCoffeeStopWithEmptyDeliveries(driver: any): Promise<void> {
   // empty-deliveries stop first, so C-TC-011 reuses the cache and the
   // bootstrap only executes when a test runs in ISOLATION.
   await home.returnToHome();
-  await dashboard.scrollToAndClickLocationByName(BOOTSTRAP);
+  const bootstrapExists = await dashboard.scrollToAndClickLocationByName(BOOTSTRAP).catch(() => false);
+  if (!bootstrapExists) {
+    // Say precisely what is missing. This helper's precondition - a Coffee stop
+    // whose Deliveries screen is EMPTY - stopped being satisfiable on Charlotte
+    // 103 after the route was re-pulled on 2026-08-28: every stop now carries
+    // real ordered products, and "Amerock", the account this bootstrap creates
+    // against, is no longer on the route at all. Failing here with that
+    // sentence is worth more than a timeout fifteen minutes later.
+    throw new Error(
+      `No Coffee stop with an EMPTY Deliveries screen exists on this route, and the bootstrap account ` +
+        `"${BOOTSTRAP}" is not on it either, so one cannot be created. C-TC-005 and C-TC-035 both need ` +
+        `this precondition. Restore it with an ad-hoc Coffee delivery (they arrive with no products by ` +
+        `design) or by emptying one stop's Deliveries.`
+    );
+  }
   const hasCoffee = await dashboard.isLobCardVisible('coffee').catch(() => false);
   await home.returnToHome();
   if (!hasCoffee) {
@@ -1207,7 +1228,7 @@ test.describe('Coffee - Equipment audit (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1263,7 +1284,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1331,7 +1352,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1418,7 +1439,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1485,13 +1506,13 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
     'C-TC-005: empty Deliveries shows header, search, Add/Sort icons and a disabled Continue',
     { tag: ['@Coffee-C-TC-005'] },
     async ({ driver }) => {
-      test.setTimeout(600_000);
+      test.setTimeout(900_000);
       const prepTasks = new PrepTasksScreen(driver);
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1540,13 +1561,13 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
     'C-TC-005 (BUG 918856): empty Deliveries omits Shipping & Handling and Delivery Charge',
     { tag: ['@Coffee-C-TC-005', '@bug-918856'] },
     async ({ driver }) => {
-      test.setTimeout(600_000);
+      test.setTimeout(900_000);
       test.fail();
       const prepTasks = new PrepTasksScreen(driver);
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+      await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
       await prepTasks.openFromHamburgerMenu();
       await prepTasks.ensureFullDayPrepComplete();
       await home.returnToHome();
@@ -1575,14 +1596,14 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
     'C-TC-007: cancelling a presale with unsaved changes creates no order',
     { tag: ['@Coffee-C-TC-007'] },
     async ({ driver }) => {
-      test.setTimeout(600_000);
+      test.setTimeout(900_000);
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1643,14 +1664,14 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
     'C-TC-010: a presale saves and shows its Items count and Delivery Date',
     { tag: ['@Coffee-C-TC-010'] },
     async ({ driver }) => {
-      test.setTimeout(600_000);
+      test.setTimeout(900_000);
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1732,7 +1753,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1804,7 +1825,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -1899,7 +1920,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -2062,7 +2083,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+      await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
       await prepTasks.openFromHamburgerMenu();
       await prepTasks.ensureFullDayPrepComplete();
       await home.returnToHome();
@@ -2111,7 +2132,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -2193,7 +2214,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+      await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
       await prepTasks.openFromHamburgerMenu();
       await prepTasks.ensureFullDayPrepComplete();
       await home.returnToHome();
@@ -2241,7 +2262,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -2351,7 +2372,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -2438,7 +2459,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -2483,7 +2504,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+      await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
       await prepTasks.openFromHamburgerMenu();
       await prepTasks.ensureFullDayPrepComplete();
       await home.returnToHome();
@@ -2523,7 +2544,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+      await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
       await prepTasks.openFromHamburgerMenu();
       await prepTasks.ensureFullDayPrepComplete();
       await home.returnToHome();
@@ -2564,7 +2585,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -2660,7 +2681,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -2771,7 +2792,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -2967,7 +2988,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -3035,7 +3056,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -3139,7 +3160,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+      await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
       await prepTasks.openFromHamburgerMenu();
       await prepTasks.ensureFullDayPrepComplete();
       await home.returnToHome();
@@ -3216,7 +3237,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -3247,7 +3268,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       await test.step('C-TC-019 (after): the same stop still shows Equipment audit as optional', async () => {
         // Re-navigate from scratch - a relaunch drops us wherever the app
         // restores to, which is not guaranteed to be the checklist.
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await home.returnToHome();
         expect(await dashboard.scrollToAndClickLocationByName(stopName)).toBe(true);
         await dashboard.openFirstServiceStation('coffee');
@@ -3292,7 +3313,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -3349,7 +3370,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -3404,7 +3425,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -3472,7 +3493,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+      await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
       await prepTasks.openFromHamburgerMenu();
       await prepTasks.ensureFullDayPrepComplete();
       await home.returnToHome();
@@ -3512,7 +3533,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const coffee = new CoffeeServiceScreen(driver);
       const home = new HomeScreen(driver);
 
-      await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+      await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
       await prepTasks.openFromHamburgerMenu();
       await prepTasks.ensureFullDayPrepComplete();
       await home.returnToHome();
@@ -3569,7 +3590,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -3654,7 +3675,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -3727,7 +3748,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -3816,7 +3837,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -3902,7 +3923,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -3991,7 +4012,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -4119,7 +4140,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -4271,7 +4292,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -4398,7 +4419,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -4462,7 +4483,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -4555,7 +4576,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -4686,7 +4707,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -4892,7 +4913,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -5093,7 +5114,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();
@@ -5144,7 +5165,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Charlotte 103/YESTERDAY, complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
         await home.returnToHome();

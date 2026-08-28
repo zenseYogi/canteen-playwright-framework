@@ -61,7 +61,7 @@ async function reachMarketAccount(driver: any, accountName: string): Promise<voi
  * taps through), so this is unconditional rather than state-detecting.
  */
 async function loginAndStartDay(driver: any): Promise<void> {
-  await loginAndEnsureRoute(driver, mobileConfig.miamiRoute001);
+  await loginAndEnsureRoute(driver, mobileConfig.marketRoute);
   const prepTasks = new PrepTasksScreen(driver);
   await prepTasks.openFromHamburgerMenu();
   await prepTasks.ensureFullDayPrepComplete();
@@ -1846,12 +1846,12 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
 
   // ==== MONEY OPERATIONS (regression sheet "Market", M-TC-017..021/030/031) ====
   //
-  // ROUTE/DAY: Miami 001 on YESTERDAY, not the miamiRoute001 default of TODAY.
+  // ROUTE/DAY: Miami 001 on YESTERDAY, not the marketRoute default of TODAY.
   // The app is parked on 26 Aug (user-configured 2026-08-27) and the Route
   // Setup "Select operation" modal is currently BROKEN - it returns no results
   // for any query and traps the app - so any day/route switch fails. Matching
   // the day the app is already on means no switch is attempted at all.
-  const MONEY_OPS_ROUTE = { ...mobileConfig.miamiRoute001, day: 'YESTERDAY' as const };
+  const MONEY_OPS_ROUTE = { ...mobileConfig.marketRoute, day: 'YESTERDAY' as const };
 
   const reachMoneyOpsChecklist = async (driver: any, account = 'Teva Pharmaceutical'): Promise<MarketServiceScreen> => {
     const prepTasks = new PrepTasksScreen(driver);

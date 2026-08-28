@@ -58,7 +58,7 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
       // confirmed Excel-vs-app discrepancy as TC077/TC173 (see
       // prep-tasks.spec.ts) - not an assumption.
       await test.step('Log in, ensure Charlotte/103 (Miami/010 needs BA data prep)', async () => {
-        await loginAndEnsureRoute(driver, mobileConfig.vendingRoute);
+        await loginAndEnsureRoute(driver, mobileConfig.coffeeRoute);
       });
 
       // Live-verified: this "+" icon is reachable regardless of whether the
@@ -154,7 +154,7 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
       const dashboard = new DashboardScreen(driver);
 
       await test.step('Log in to Charlotte 103', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
         await home.returnToHome();
       });
 
@@ -545,7 +545,7 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
     const prepTasks = new PrepTasksScreen(driver);
     const coffee = new CoffeeServiceScreen(driver);
 
-    await loginAndEnsureRoute(driver, { ...mobileConfig.vendingRoute, day: 'YESTERDAY' });
+    await loginAndEnsureRoute(driver, { ...mobileConfig.coffeeRoute, day: 'YESTERDAY' });
     await home.returnToHome();
     await prepTasks.openFromHamburgerMenu();
     await prepTasks.ensureFullDayPrepComplete();
