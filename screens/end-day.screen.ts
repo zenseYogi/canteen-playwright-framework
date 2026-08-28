@@ -141,20 +141,47 @@ export class EndDayScreen extends BaseScreen {
   }
 
   /** Taps No Service on the finish-service gate screen and, if a reason sheet appears, fills a generic reason and confirms - mirrors the Skip stop sheet's own trigger/confirm label-reuse convention (see confirmSkipStop's note). */
-  async resolveWithNoService(reason = 'Serviced Using Client App'): Promise<void> {
-    await this.tap(this.noServiceButton);
-    const reasonField = await this.driver.$(this.noServiceReasonField);
-    if (await reasonField.isDisplayed().catch(() => false)) {
-      await reasonField.click();
-      await reasonField.setValue(reason);
-      await this.pressKeyCode(4);
-    }
-    if (await this.isVisible(this.noServiceConfirmButton)) {
-      await this.tap(this.noServiceConfirmButton);
-    }
+  /**
+   * Resolves the FIRST activity listed on the End Day gate via No Service.
+   *
+   * REWRITTEN 2026-08-28 against the flow as it actually is. The previous
+   * version typed a reason into an `//android.widget.EditText` - there is no
+   * text field on this sheet at all. The reason is a PICKER offering nine
+   * fixed options (Serviced Using Client App, Driver Skipped, Holiday-Vacation,
+   * Inaccessible-Closed, Acct Request-No Serv, Out of Order, Removed, Vehicle
+   * Issue, Weather), and the sheet's Skip stop button stays DISABLED until both
+   * a reason and an order option are chosen.
+   *
+   * Sequence: No Service -> reason row -> pick reason -> pick disposition ->
+   * Skip stop.
+   *
+   * DESTRUCTIVE: the stop is taken out of service and does not come back
+   * without a route-setup reset.
+   */
+  async resolveWithNoService(
+    reason = 'Serviced Using Client App',
+    disposition: 'Leave on truck' | 'Return to warehouse' = 'Return to warehouse'
+  ): Promise<void> {
+    await this.tapWhenSettled(this.noServiceButton);
+    await this.waitFor(this.selectOrderOptionLabel);
+    await this.tap(this.skipStopReasonField);
+    await this.tapWhenSettled(`~${reason}`);
+    await this.tap(disposition === 'Leave on truck' ? this.leaveOnTruckOption : this.returnToWarehouseOption);
+    // Gated until both choices are made - waiting on it is what proves the
+    // reason and disposition actually registered.
+    await this.driver.waitUntil(async () => this.isEnabled(this.noServiceSkipStopButton), {
+      timeout: 20_000,
+      interval: 500,
+      timeoutMsg: 'Skip stop stayed disabled - the reason or order option did not register'
+    });
+    await this.tap(this.noServiceSkipStopButton);
+    await this.driver
+      .waitUntil(async () => !(await this.isVisible(this.selectOrderOptionLabel)), { timeout: 30_000, interval: 500 })
+      .catch(() => undefined);
   }
 
-  /** Excel TC002 - the Unused Kits screen's own title, live-verified alongside a numeric count badge next to it. */
+  private readonly noServiceSkipStopButton = '//android.widget.Button[@content-desc="Skip stop"]';
+
   async isUnusedKitsScreenVisible(): Promise<boolean> {
     return this.isVisible(this.unusedKitsTitle);
   }

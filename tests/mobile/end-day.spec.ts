@@ -702,4 +702,97 @@ test.describe('End Day - regression suite (ED-TC-xxx)', () => {
     }
   );
 
+
+  // ==== ED-TC-005 (End Day unblocks in real time as the last activity resolves) ====
+  //
+  // "End of Day becomes enabled in real time when final activity completes" ->
+  // "the End of the Day option should become enabled without requiring a page
+  // refresh".
+  //
+  // "WITHOUT A REFRESH" IS THE WHOLE CASE, so the test never re-opens End Day.
+  // It stays on the gate throughout, resolves the activities one at a time, and
+  // watches the same screen change by itself. Re-opening End Day between
+  // resolutions would prove only that it is unblocked NOW, which is what the
+  // case is careful not to ask.
+  //
+  // The intermediate assertion matters as much as the final one: while
+  // activities remain, the gate must STILL be showing. Without it a route with
+  // a single activity would pass trivially, and there would be no evidence the
+  // gate tracks the count rather than happening to vanish.
+  //
+  // DESTRUCTIVE: it skips every stop on the route, and they do not come back
+  // without a route-setup reset. Observed live before being written, on a route
+  // reset for the purpose.
+  //
+  // DAY IS PINNED TO YESTERDAY rather than using marketRoute's configured
+  // TODAY. isOnRoute() compares the DATE as well as the route number, so a
+  // mismatch triggers a full switchRoute - which on 2026-08-28 would have
+  // undone a route someone had just set up by hand, and risked the Route Setup
+  // modal that has been intermittent. The seeded Market data sat on YESTERDAY
+  // that day. Worth settling properly: the config and the device disagreed.
+  test(
+    'ED-TC-005: the End Day gate clears itself as the final activity is resolved, with no refresh',
+    { tag: ['@EndDay-ED-TC-005'] },
+    async ({ driver }) => {
+      test.setTimeout(1_800_000);
+      const home = new HomeScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const endDay = new EndDayScreen(driver);
+
+      await test.step('Log in and ensure the Market route on the day carrying its data', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.marketRoute, day: 'YESTERDAY' });
+        await home.returnToHome();
+      });
+
+      let pending = 0;
+      await test.step('Precondition: more than one activity is outstanding', async () => {
+        pending = await dashboard.getPendingActionCount();
+        console.log(`[ED-TC-005] pending activities = ${pending}`);
+        expect(
+          pending,
+          'ED-TC-005 needs at least TWO outstanding activities - with one, "still blocked while others ' +
+            'remain" cannot be observed and the case would pass trivially'
+        ).toBeGreaterThan(1);
+      });
+
+      await test.step('ED-TC-005: End Day starts blocked', async () => {
+        await endDay.openFromHamburgerMenu();
+        expect(await endDay.isFinishServiceGateVisible()).toBe(true);
+        expect(await endDay.getGatePendingActivityCount()).toBe(pending);
+      });
+
+      await test.step('ED-TC-005: the gate clears itself as activities are resolved', async () => {
+        for (let remaining = pending; remaining > 0; remaining--) {
+          await endDay.resolveWithNoService();
+          await driver.pause(2_000);
+
+          if (remaining > 1) {
+            // Still activities left, so the gate must still be blocking - and
+            // listing one fewer than before.
+            expect(await endDay.isFinishServiceGateVisible()).toBe(true);
+            await expect
+              .poll(() => endDay.getGatePendingActivityCount(), { timeout: 20_000 })
+              .toBe(remaining - 1);
+            console.log(`[ED-TC-005] resolved one; gate still blocking with ${remaining - 1} left`);
+          }
+        }
+      });
+
+      await test.step('ED-TC-005: with the last one resolved, End Day proceeds on its own', async () => {
+        // NO re-open. The same screen must have moved on by itself.
+        await expect
+          .poll(
+            async () => (await endDay.isUnusedKitsScreenVisible()) || (await endDay.isReportsScreenVisible()),
+            { timeout: 60_000 }
+          )
+          .toBe(true);
+        expect(await endDay.isFinishServiceGateVisible()).toBe(false);
+        console.log(
+          `[ED-TC-005] gate cleared without a refresh; unusedKits=${await endDay.isUnusedKitsScreenVisible()} ` +
+            `reports=${await endDay.isReportsScreenVisible()}`
+        );
+      });
+    }
+  );
+
 });
