@@ -248,6 +248,63 @@ export class EndDayScreen extends BaseScreen {
   private readonly closeButton = '//android.widget.Button[@content-desc="Close"]';
   private readonly selectDayTitle = '~Select Day';
 
+  // ---- Money Bag Review ----
+  //
+  // Only reachable when a stop was SERVICED WITH A MONEY BAG RECORDED. Skipping
+  // stops does not produce it (that fills Unused Kits, and the flow then goes
+  // straight to Reports). Live-mapped 2026-08-28 on Miami 001:
+  //
+  //   Money Bag Review: 1 | Total Bags: 1
+  //   MB # | Machine/Account | Time
+  //   91   |                 | 10:13 pm
+  //   Deliveries without bags: 0
+  //   Reason | Machine/Account | Time
+  private readonly moneyBagReviewHeading =
+    '//android.view.View[starts-with(@content-desc,"Money Bag Review")]';
+
+  async isMoneyBagReviewScreenVisible(): Promise<boolean> {
+    return this.isVisible(this.moneyBagReviewHeading);
+  }
+
+  /**
+   * ED-TC-010 - everything the case asks the review to show, read off the
+   * screen in one pass.
+   *
+   * Column headers are matched by their own labels rather than by position:
+   * "MB #", "Machine/Account", "Time" and "Reason" are the words the case
+   * names, and a positional read would keep passing if the table were
+   * reordered or relabelled.
+   */
+  async getMoneyBagReviewSummary(): Promise<{
+    totalBags: number;
+    hasBagIdColumn: boolean;
+    hasMachineAccountColumn: boolean;
+    hasTimeColumn: boolean;
+    hasDeliveriesWithoutBags: boolean;
+    hasReasonColumn: boolean;
+    bagRows: string[];
+  }> {
+    const descs: string[] = [];
+    for (const el of [...(await this.driver.$$('//android.view.View[@content-desc!=""]'))]) {
+      descs.push(((await el.getAttribute('content-desc')) ?? '').trim());
+    }
+    const totalText = descs.find((d) => /^Total Bags:/i.test(d)) ?? '';
+    // A bag row is a bare code - not a header, not one of the summary lines.
+    const headers = new Set(['MB #', 'Machine/Account', 'Time', 'Reason']);
+    const bagRows = descs.filter(
+      (d) => /^[A-Za-z0-9-]{1,12}$/.test(d) && !headers.has(d) && !/^(Continue|Done|Route)/i.test(d)
+    );
+    return {
+      totalBags: Number(/(\d+)/.exec(totalText)?.[1] ?? 0),
+      hasBagIdColumn: descs.includes('MB #'),
+      hasMachineAccountColumn: descs.includes('Machine/Account'),
+      hasTimeColumn: descs.includes('Time'),
+      hasDeliveriesWithoutBags: descs.some((d) => /^Deliveries without bags:/i.test(d)),
+      hasReasonColumn: descs.includes('Reason'),
+      bagRows
+    };
+  }
+
   /** ED-TC-014 - whether the post-upload confirmation popup is showing. */
   async isSyncCompletePopupVisible(): Promise<boolean> {
     return this.isVisible(this.syncCompletePopup);

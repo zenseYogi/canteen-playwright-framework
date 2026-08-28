@@ -4,6 +4,7 @@ import { PrepTasksScreen } from '../../screens/prep-tasks.screen';
 import { DashboardScreen } from '../../screens/dashboard.screen';
 import { HomeScreen } from '../../screens/home.screen';
 import { EndDayScreen } from '../../screens/end-day.screen';
+import { MarketServiceScreen } from '../../screens/market-service.screen';
 import { TransfersScreen } from '../../screens/transfers.screen';
 import { mobileConfig } from '../../config/mobile.config';
 import type { Position } from '../../utils/position';
@@ -885,6 +886,165 @@ test.describe('End Day - regression suite (ED-TC-xxx)', () => {
           `[ED-TC-016] layout: TODAY y=${today?.y}, others y=${others.map((o) => o.y).join(',')} - ` +
             `TODAY is ${others.every((o) => (today?.y ?? 0) < o.y) ? 'ABOVE' : 'not above'} the other options`
         );
+      });
+    }
+  );
+
+
+  // ==== ED-TC-010 / ED-TC-012 (Money Bag Review, and no photo after it) ====
+  //
+  //   ED-TC-010 "Money Bag Review displays summary and allows continue to next
+  //             step" -> total money bags, bag ID, time and machine/account
+  //             listed per bag; deliveries completed without cash bags list the
+  //             reason; Continue proceeds
+  //   ED-TC-012 "No photo is requested after Money Bag Review during End Day"
+  //
+  // WHAT ACTUALLY PRODUCES THIS SCREEN, established 2026-08-28 after several
+  // wrong turns and worth stating plainly: Money Bag Review appears only when a
+  // stop was SERVICED WITH A MONEY BAG RECORDED. Skipping stops does NOT
+  // produce it - skipping populates Unused Kits, and the flow then goes
+  // straight to Reports. This file's older note calling skipping "the
+  // genuinely intended path" to Money Bag Review was written on build 0.1.76
+  // and does not hold.
+  //
+  // BAG CODES ARE NUMERIC. An alphanumeric code is silently rejected: the field
+  // keeps only what it accepts, Save cannot complete, and the screen holds you
+  // on Money Collection - which reads exactly like a broken back-navigation and
+  // cost three runs before the cause was found. The working Market tests use
+  // '77'/'88'/'55'/'66'.
+  //
+  // Idempotent: if a previous run already completed a stop with a bag, the
+  // setup is skipped and the test goes straight to End Day.
+  test(
+    'ED-TC-010/012: Money Bag Review lists the bag and continues, with no photo requested after it',
+    { tag: ['@EndDay-ED-TC-010', '@EndDay-ED-TC-012'] },
+    async ({ driver }) => {
+      test.setTimeout(1_800_000);
+      const prepTasks = new PrepTasksScreen(driver);
+      const home = new HomeScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const market = new MarketServiceScreen(driver);
+      const endDay = new EndDayScreen(driver);
+
+      await test.step('Log in and ensure the Market route on the day carrying its data', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.marketRoute, day: 'YESTERDAY' });
+        await home.returnToHome();
+        if (await home.isStartDayVisible()) {
+          await prepTasks.openFromHamburgerMenu();
+          await prepTasks.ensureFullDayPrepComplete();
+          await home.returnToHome();
+        }
+      });
+
+      await test.step('Ensure a Market stop has been serviced WITH a money bag', async () => {
+        const pending = await dashboard.getPendingActionCount();
+        console.log(`[ED-TC-010] pending stops = ${pending}`);
+        if (pending === 0) {
+          console.log('[ED-TC-010] nothing pending - a previous run already serviced a stop; using that');
+          return;
+        }
+
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openFirstServiceStation('market');
+
+        if (!(await market.isChecklistIconChecked('//android.view.View[starts-with(@content-desc,"Before Photos")]'))) {
+          await market.openBeforePhotos();
+          await market.openSkipPhotoReasonSheet();
+          await market.enterSkipPhotoReason("Camera can't focus and take clear picture");
+          await market.waitForSkipPhotoSubmitEnabled(true);
+          await market.confirmSkipPhoto();
+        }
+        if (!(await market.isChecklistIconChecked('//android.view.View[starts-with(@content-desc,"Delivery")]'))) {
+          await market.openFills();
+          await market.ensureFillsSubmittable();
+          await market.submitFillsAndReturnToChecklist();
+        }
+        const auditDone = await market.isChecklistIconChecked(
+          '//android.view.View[starts-with(@content-desc,"Audit") or starts-with(@content-desc,"Market Physical")]'
+        );
+        if (!auditDone) {
+          await market.tapAuditTile();
+          if (await market.isCountTypeModalVisible()) {
+            await market.selectCountType('cycle');
+          }
+          await market.searchAndSelectAuditProduct(
+            'Balance C',
+            'Balance CkieDough1.76oz - pkg: 1',
+            'Balance CkieDough1.76oz'
+          );
+          await market.tap('~Continue');
+        }
+
+        // A code already used THAT DAY is rejected by name (M-TC-018's
+        // subject), so try a few rather than pinning one and colliding with an
+        // earlier run. Deliberately avoids 55/66/77/88, which the Market suite
+        // uses.
+        let recorded = false;
+        for (const code of ['92', '93', '94', '95', '96']) {
+          await market.openMoneyOperations();
+          await market.enterBagCode(code);
+          await market.saveMoneyOperations();
+          if (await market.isBagUsedErrorVisible().catch(() => false)) {
+            await market.dismissBagUsedError();
+            continue;
+          }
+          if (await market.returnToChecklistFromMoneyOperations()) {
+            console.log(`[ED-TC-010] money bag ${code} recorded`);
+            recorded = true;
+            break;
+          }
+        }
+        expect(recorded, 'could not record a money bag - see the numeric-code note above').toBe(true);
+
+        expect(await market.isCompleteDeliveryEnabled()).toBe(true);
+        await market.tap('~Complete Delivery');
+        await driver.pause(4_000);
+        await home.returnToHome();
+      });
+
+      await test.step('Reach Money Bag Review', async () => {
+        await endDay.openFromHamburgerMenu();
+        for (let guard = 0; guard < 8 && (await endDay.isFinishServiceGateVisible()); guard++) {
+          await endDay.resolveWithNoService();
+          await driver.pause(2_000);
+        }
+        if (await endDay.isUnusedKitsScreenVisible()) {
+          await endDay.tapContinue();
+          await driver.pause(3_000);
+        }
+        expect(
+          await endDay.isMoneyBagReviewScreenVisible(),
+          'Money Bag Review did not appear - it needs a stop SERVICED WITH A MONEY BAG, not a skipped one'
+        ).toBe(true);
+      });
+
+      await test.step('ED-TC-010: the review lists the bag with its columns and totals', async () => {
+        const summary = await endDay.getMoneyBagReviewSummary();
+        console.log(`[ED-TC-010] summary = ${JSON.stringify(summary)}`);
+        // Every element the case names.
+        expect(summary.totalBags).toBeGreaterThan(0);
+        expect(summary.hasBagIdColumn).toBe(true);
+        expect(summary.hasMachineAccountColumn).toBe(true);
+        expect(summary.hasTimeColumn).toBe(true);
+        // The "deliveries completed without cash bags" section, with its own
+        // Reason column. Present even at zero - the case asks that such
+        // deliveries LIST the reason, so the section has to exist to do so.
+        expect(summary.hasDeliveriesWithoutBags).toBe(true);
+        expect(summary.hasReasonColumn).toBe(true);
+        // At least one real bag row, not just headers.
+        expect(summary.bagRows.length).toBeGreaterThan(0);
+      });
+
+      await test.step('ED-TC-010/012: Continue proceeds, and no photo is requested', async () => {
+        await endDay.tapContinue();
+        await driver.pause(4_000);
+        const screen = await endDay.getVisibleScreenText();
+        console.log(`[ED-TC-012] screen after Continue = ${screen}`);
+        // ED-TC-010's last clause: Continue moves on to the next step.
+        expect(await endDay.isReportsScreenVisible()).toBe(true);
+        // ED-TC-012: nothing photo-related anywhere on the way.
+        expect(screen.toLowerCase()).not.toContain('photo');
+        expect(await endDay.isPhotoModalVisible().then((m) => m.takePhoto || m.skipPhoto)).toBe(false);
       });
     }
   );

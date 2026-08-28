@@ -1121,6 +1121,37 @@ export class MarketServiceScreen extends BaseScreen {
    * Save is what actually persists the skip-checkbox change and returns
    * to the checklist.
    */
+  /**
+   * Returns from Money Collection to the service checklist, whatever state the
+   * screen was left in.
+   *
+   * Needed because saveMoneyOperations()/skipMoneyOperations() do NOT reliably
+   * land on the checklist: the bag-code field opens a numeric keypad, so the
+   * first BACK can be spent closing that, and the "Save Changes?" dialog may or
+   * may not appear depending on whether anything is still unsaved. Guessing a
+   * fixed number of BACK presses gets it wrong in one direction or the other -
+   * observed 2026-08-28, where a caller read isCompleteDeliveryEnabled() while
+   * still on Money Collection and correctly got false.
+   *
+   * Loops on the OUTCOME instead: press BACK, answer Save if asked, stop as
+   * soon as the checklist's own Complete Delivery is on screen.
+   */
+  async returnToChecklistFromMoneyOperations(): Promise<boolean> {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (await this.isVisible(this.completeDeliveryButton)) {
+        return true;
+      }
+      const save = await this.driver.$('~Save');
+      if (await save.isDisplayed().catch(() => false)) {
+        await save.click();
+      } else {
+        await this.pressKeyCode(4);
+      }
+      await this.driver.pause(2_000);
+    }
+    return this.isVisible(this.completeDeliveryButton);
+  }
+
   async skipMoneyOperations(): Promise<void> {
     await this.openMoneyOperations();
     await this.setCheckboxState(this.skipMoneyBagCheckbox, true);
