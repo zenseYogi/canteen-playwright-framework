@@ -145,8 +145,16 @@ async function reachCoffeeStop(
     // a time (49 on Charlotte 103), so a plain by-name click can only ever
     // reach the first few.
     const opened = await dashboard.scrollToAndClickLocationByName(name).catch(() => false);
-    if (!opened) return false;
-    if (!(await dashboard.isLobCardVisible('coffee').catch(() => false))) return false;
+    if (!opened) {
+      console.log(`[attempt] ${name}: could not open the stop`);
+      return false;
+    }
+    const hasCoffee = await dashboard.isLobCardVisible('coffee').catch(() => false);
+    if (!hasCoffee) {
+      console.log(`[attempt] ${name}: no coffee LOB card`);
+      return false;
+    }
+    console.log(`[attempt] ${name}: opened, coffee card present`);
 
     // EVERY service station under the card, not just the first. A stop can
     // carry more than one (Atrium Health has two: an unnamed one and "Floor 1
@@ -160,8 +168,23 @@ async function reachCoffeeStop(
       if (position !== 'first' && !(await dashboard.isNthServiceStationVisible('coffee', position).catch(() => false))) {
         break;
       }
-      await dashboard.openNthServiceStation('coffee', position);
-      if (await qualify(coffee).catch(() => false)) return true;
+      try {
+        await dashboard.openNthServiceStation('coffee', position);
+      } catch (error) {
+        console.log(`[attempt] ${name}/${position}: could not open station - ${(error as Error).message.split('\n')[0]}`);
+        break;
+      }
+      // Errors from qualify are LOGGED, not silently swallowed. A bare
+      // .catch(() => false) here turned every navigation fault into the same
+      // "no stop satisfying..." verdict as genuinely absent data, which is
+      // exactly the ambiguity that made this hard to diagnose.
+      let qualified = false;
+      try {
+        qualified = await qualify(coffee);
+      } catch (error) {
+        console.log(`[attempt] ${name}/${position}: qualify threw - ${(error as Error).message.split('\n')[0]}`);
+      }
+      if (qualified) return true;
       // Back to this stop's detail to try the next station. Re-navigated from
       // Home rather than by pressing BACK: BACK out of a service screen can
       // exit into Google Maps, which C-TC-045 leaves in the activity stack.
@@ -4684,16 +4707,27 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
             // The delivery must be genuinely EDITABLE. Asserted by probing an
             // edit rather than by reading a flag - see isDeliveryEditable for
             // why the Delivery tile's green does not answer this.
-            if (!(await c.isDeliveryEditable())) return false;
-            await c.pressKeyCode(4);
-            await driver.pause(1_500);
+            const editable = await c.isDeliveryEditable();
+            if (!editable) {
+              console.log('[qualify] rejected: delivery not editable');
+              return false;
+            }
+            // Discards the probe's throwaway value AND answers the Save
+            // Changes prompt that modifying it raises - without which this
+            // lands on that dialog and every station is rejected.
+            await c.leaveDeliveriesScreen(false);
             // Requiring an editable delivery is affordable only because
             // attempt() now walks EVERY service station: a stop whose first
             // station this suite already signed still has a fresh second one
             // behind it. Before that, this requirement emptied the route.
             // Still offering "Complete Delivery" == the service is not already
             // finished, so this journey has somewhere to go.
-            return c.isVisible('~Complete Delivery');
+            const completeDelivery = await c.isVisible('~Complete Delivery');
+            if (!completeDelivery) {
+              console.log(`[qualify] NOT on the checklist. Screen = ${await c.getVisibleScreenText()}`);
+            }
+            console.log(`[qualify] editable=true completeDelivery=${completeDelivery}`);
+            return completeDelivery;
           },
           []
         );
@@ -4703,7 +4737,22 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       let presaleBaseline = 0;
       await test.step('C-TC-038: a presale order is saved and preserved', async () => {
         await coffee.tapAddPresaleTrigger();
+        // NORMALISE TO ZERO first. Each run of this test saves a presale, and
+        // re-saving the SAME product (the search term is fixed) does not add a
+        // second order - so on the second run the count stays at 1 and an
+        // increment assertion fails against a stop that behaved correctly.
+        // Clearing first makes "saving adds one" a real transition every run,
+        // and stops this test accumulating data debt on the stop. Same
+        // self-cleaning approach as C-TC-027.
+        for (let i = 0; i < 5 && (await coffee.getSavedPresaleCount()) > 0; i++) {
+          await coffee.revealSavedPresaleDelete();
+          await coffee.tapRevealedSavedPresaleDelete();
+          await coffee.confirmDeletePresale();
+          await coffee.waitForDeletePresaleConfirmGone();
+          await driver.pause(1_000);
+        }
         presaleBaseline = await coffee.getSavedPresaleCount();
+        expect(presaleBaseline).toBe(0);
         await coffee.openAddPresalesOrder();
         await coffee.typeAddPresalesProduct('sugar');
         await expect.poll(() => coffee.getPresaleSearchResultCount(), { timeout: 15_000 }).toBeGreaterThan(0);
@@ -4742,8 +4791,9 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
         // Leave and come back. This is the "delivery summary preserves
         // quantity" clause, proven as persistence rather than as a value still
         // sitting in a field nobody navigated away from.
-        await coffee.pressKeyCode(4);
-        await driver.pause(1_500);
+        // SAVED on the way out - leaving a modified Deliveries screen
+        // prompts, and answering "No" would discard the very value under test.
+        await coffee.leaveDeliveriesScreen(true);
         await coffee.openDelivery();
         expect(Number(await coffee.getDeliveredQty())).toBe(finalQty);
         console.log(`[C-TC-038/040] delivered quantity ${finalQty} preserved across navigation`);
@@ -4759,7 +4809,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
         // RECORDS A REAL PAYMENT against this order, same as C-TC-026 does.
         expect(await coffee.isSummaryLineVisible('Payment')).toBe(true);
         await coffee.openOrderPayment();
-        await coffee.selectPaymentType('Cash');
+        await coffee.choosePaymentType('Cash');
         // "1000" lands as 10 - this field fills from the cents end (see
         // C-TC-025). Read back numerically rather than as a string.
         await coffee.typePaymentField('Amount*', '1000');
@@ -4862,14 +4912,25 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
             // The delivery must be genuinely EDITABLE. Asserted by probing an
             // edit rather than by reading a flag - see isDeliveryEditable for
             // why the Delivery tile's green does not answer this.
-            if (!(await c.isDeliveryEditable())) return false;
-            await c.pressKeyCode(4);
-            await driver.pause(1_500);
+            const editable = await c.isDeliveryEditable();
+            if (!editable) {
+              console.log('[qualify] rejected: delivery not editable');
+              return false;
+            }
+            // Discards the probe's throwaway value AND answers the Save
+            // Changes prompt that modifying it raises - without which this
+            // lands on that dialog and every station is rejected.
+            await c.leaveDeliveriesScreen(false);
             // Requiring an editable delivery is affordable only because
             // attempt() now walks EVERY service station: a stop whose first
             // station this suite already signed still has a fresh second one
             // behind it. Before that, this requirement emptied the route.
-            return c.isVisible('~Complete Delivery');
+            const completeDelivery = await c.isVisible('~Complete Delivery');
+            if (!completeDelivery) {
+              console.log(`[qualify] NOT on the checklist. Screen = ${await c.getVisibleScreenText()}`);
+            }
+            console.log(`[qualify] editable=true completeDelivery=${completeDelivery}`);
+            return completeDelivery;
           },
           []
         );

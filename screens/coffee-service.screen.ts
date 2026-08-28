@@ -967,7 +967,68 @@ export class CoffeeServiceScreen extends BaseScreen {
     // May throw the moment the dialog covers the field - that is a RESULT, not
     // an error, so it is swallowed and the dialog checked for below.
     await field.setValue('1').catch(() => undefined);
-    return !(await this.dismissSignedDeliveryEditIfPresent(3_000));
+    const signed = await this.dismissSignedDeliveryEditIfPresent(3_000);
+    // MUST close the keypad this probe opened. Leaving it up made the caller's
+    // single BACK press dismiss the KEYPAD instead of navigating to the
+    // checklist, so the "is Complete Delivery showing?" check that follows ran
+    // against the Deliveries screen and every station was rejected - on a
+    // route whose data was verified good by hand. Same trap
+    // dismissPresaleKeypadIfPresent already documents for the presale form.
+    await this.dismissDeliveryKeypadIfPresent();
+    return !signed;
+  }
+
+  // Raised on LEAVING the Deliveries screen when a value has been modified:
+  // "Save Changes / Do you want to save your changes?" with Cancel / No / Save.
+  // Live-mapped 2026-08-28.
+  //
+  // Easy to miss, and it hid a discovery bug for several runs: a check that
+  // merely TAPS a quantity field never sees it, because only an actual
+  // modification arms it. The editability probe below does modify one, so
+  // every qualifier ran its "is the checklist showing?" test against this
+  // dialog and rejected every station on a route whose data was sound.
+  private readonly saveChangesDialog =
+    '//android.view.View[contains(@content-desc,"Save Changes")]';
+
+  async isSaveChangesPromptVisible(): Promise<boolean> {
+    return this.isVisible(this.saveChangesDialog);
+  }
+
+  /**
+   * Leaves the Deliveries screen, answering the Save Changes prompt if it
+   * appears.
+   *
+   * Takes TWO back presses in the general case - the first closes the numeric
+   * keypad, the second leaves the screen - which is why this exists rather
+   * than callers pressing BACK once and hoping.
+   *
+   * `save` is deliberately explicit: discovery discards its throwaway probe
+   * value, while a test proving a quantity PERSISTS must keep it. Defaulting
+   * either way would silently corrupt one of the two.
+   */
+  async leaveDeliveriesScreen(save: boolean): Promise<void> {
+    await this.dismissDeliveryKeypadIfPresent();
+    await this.pressKeyCode(4);
+    await this.driver.pause(1_500);
+    if (await this.isSaveChangesPromptVisible()) {
+      await this.tap(`//android.widget.Button[@content-desc="${save ? 'Save' : 'No'}"]`);
+      await this.driver
+        .waitUntil(async () => !(await this.isSaveChangesPromptVisible()), { timeout: 20_000, interval: 500 })
+        .catch(() => undefined);
+      await this.driver.pause(1_500);
+    }
+  }
+
+  /**
+   * Closes the numeric keypad if it is up, and only then. A blind BACK press
+   * is unsafe: with no keypad showing, the same press leaves the Deliveries
+   * screen entirely - silently, and the caller then measures the wrong screen.
+   */
+  async dismissDeliveryKeypadIfPresent(): Promise<void> {
+    if (await this.isVisible('//android.widget.Button[@content-desc="7"]')) {
+      await this.pressKeyCode(4);
+      await this.driver.pause(1_000);
+    }
   }
 
   async isDeliveryContinueEnabled(): Promise<boolean> {
@@ -1330,8 +1391,20 @@ export class CoffeeServiceScreen extends BaseScreen {
     await this.waitFor(this.orderPaymentTitle);
   }
 
-  /** C-TC-002 - opens the selector and picks a type in one step. */
+  /**
+   * C-TC-002 - opens the selector and picks a type in one step, and does
+   * NOTHING if that type is already selected.
+   *
+   * The idempotency is not decoration: Cash is the default, so opening the
+   * selector to "choose" it is both pointless and fragile. Note the sibling
+   * selectPaymentType() assumes the selector is ALREADY open - calling it
+   * directly on the Order payment screen waits 15s for a "~Cash" option that
+   * was never rendered, which is exactly how C-TC-038/040 first failed here.
+   */
   async choosePaymentType(type: 'Cash' | 'Check'): Promise<void> {
+    if ((await this.getPaymentType().catch(() => '')) === type) {
+      return;
+    }
     await this.tap(this.paymentTypeField);
     await this.waitFor(`~${type}`);
     await this.selectPaymentType(type);
