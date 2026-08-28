@@ -6,6 +6,7 @@ import { DashboardScreen } from '../../screens/dashboard.screen';
 import { CoffeeServiceScreen } from '../../screens/coffee-service.screen';
 import { HomeScreen } from '../../screens/home.screen';
 import { mobileConfig } from '../../config/mobile.config';
+import type { Position } from '../../utils/position';
 
 // Traceability: this is the same shared/LOB-agnostic Skip-photo component
 // documented in market-service.spec.ts (see BaseScreen's openPhotoTrigger/
@@ -146,8 +147,29 @@ async function reachCoffeeStop(
     const opened = await dashboard.scrollToAndClickLocationByName(name).catch(() => false);
     if (!opened) return false;
     if (!(await dashboard.isLobCardVisible('coffee').catch(() => false))) return false;
-    await dashboard.openFirstServiceStation('coffee');
-    return qualify(coffee).catch(() => false);
+
+    // EVERY service station under the card, not just the first. A stop can
+    // carry more than one (Atrium Health has two: an unnamed one and "Floor 1
+    // Lounge 1217"), and they are worked INDEPENDENTLY - so a stop whose first
+    // station this suite already completed can still have a perfectly fresh
+    // second one behind it. Only ever opening the first made such a stop look
+    // exhausted, and on a route where every first station was signed,
+    // discovery reported "no stop satisfying..." while a workable station sat
+    // one tap away. Live-confirmed 2026-08-28.
+    for (const position of ['first', 'second', 'third', 'fourth'] as Position[]) {
+      if (position !== 'first' && !(await dashboard.isNthServiceStationVisible('coffee', position).catch(() => false))) {
+        break;
+      }
+      await dashboard.openNthServiceStation('coffee', position);
+      if (await qualify(coffee).catch(() => false)) return true;
+      // Back to this stop's detail to try the next station. Re-navigated from
+      // Home rather than by pressing BACK: BACK out of a service screen can
+      // exit into Google Maps, which C-TC-045 leaves in the activity stack.
+      await home.returnToHome();
+      if (!(await dashboard.scrollToAndClickLocationByName(name).catch(() => false))) return false;
+      if (!(await dashboard.isLobCardVisible('coffee').catch(() => false))) return false;
+    }
+    return false;
   };
 
   const cached = qualifyingStopCache.get(label);
@@ -4661,13 +4683,21 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
             if (!(await c.isDeliveredQtyFieldVisible())) return false;
             await c.pressKeyCode(4);
             await driver.pause(1_500);
-            // Deliberately NOT requiring an UNSIGNED delivery. That looked
-            // right and emptied the route: after a few runs of these journeys
-            // every stop is signed, and discovery then fails with "no stop
-            // satisfying..." on a route that is perfectly workable. Editing a
-            // signed delivery is a supported action - the app asks first and
-            // re-signing is part of this journey anyway - so the tests accept
-            // that dialog instead (see setDeliveredQuantity's second argument).
+            // The delivery must be UNSIGNED. Not a preference - a signed one
+            // CANNOT be edited on this build at all: changing a value raises a
+            // confirmation whose "Yes" is unresponsive, so there is no way
+            // forward (see the BUG note on setDeliveredQuantity).
+            //
+            // An earlier version dropped this check because requiring it
+            // emptied the route. The real cause of that was discovery only
+            // ever opening the FIRST service station, so a stop whose first
+            // station was spent looked exhausted while a fresh second one sat
+            // behind it. Now that attempt() walks every station, requiring an
+            // unsigned delivery is affordable again.
+            //
+            // The Delivery tile's green means SIGNED here - not "service
+            // complete", which is the Complete Delivery button below.
+            if (await c.isChecklistTileComplete('Delivery')) return false;
             // Still offering "Complete Delivery" == the service is not already
             // finished, so this journey has somewhere to go.
             return c.isVisible('~Complete Delivery');
@@ -4711,10 +4741,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
         const rowBefore = await coffee.getFirstDeliveryProductRowText();
         console.log(`[C-TC-038/040] delivery row = ${rowBefore}`);
         finalQty = 6;
-        // Accepts the signed-delivery warning if this stop was signed by an
-        // earlier run - discarding that signature is harmless here because
-        // this journey signs again below.
-        await coffee.setDeliveredQuantity(String(finalQty), true);
+        await coffee.setDeliveredQuantity(String(finalQty));
         // Compared numerically - this keypad field clears to "0" rather than
         // empty, so setting 6 lands as the text "06" (see setDeliveredQuantity).
         expect(Number(await coffee.getDeliveredQty())).toBe(finalQty);
@@ -4841,13 +4868,21 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
             if (!(await c.isDeliveredQtyFieldVisible())) return false;
             await c.pressKeyCode(4);
             await driver.pause(1_500);
-            // Deliberately NOT requiring an UNSIGNED delivery. That looked
-            // right and emptied the route: after a few runs of these journeys
-            // every stop is signed, and discovery then fails with "no stop
-            // satisfying..." on a route that is perfectly workable. Editing a
-            // signed delivery is a supported action - the app asks first and
-            // re-signing is part of this journey anyway - so the tests accept
-            // that dialog instead (see setDeliveredQuantity's second argument).
+            // The delivery must be UNSIGNED. Not a preference - a signed one
+            // CANNOT be edited on this build at all: changing a value raises a
+            // confirmation whose "Yes" is unresponsive, so there is no way
+            // forward (see the BUG note on setDeliveredQuantity).
+            //
+            // An earlier version dropped this check because requiring it
+            // emptied the route. The real cause of that was discovery only
+            // ever opening the FIRST service station, so a stop whose first
+            // station was spent looked exhausted while a fresh second one sat
+            // behind it. Now that attempt() walks every station, requiring an
+            // unsigned delivery is affordable again.
+            //
+            // The Delivery tile's green means SIGNED here - not "service
+            // complete", which is the Complete Delivery button below.
+            if (await c.isChecklistTileComplete('Delivery')) return false;
             return c.isVisible('~Complete Delivery');
           },
           []
@@ -4872,9 +4907,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
 
       const overDelivered = () => ordered + 4;
       await test.step('C-TC-039: delivering MORE than ordered is accepted and both are shown', async () => {
-        // Second argument as per C-TC-038/040 - the stop may carry a signature
-        // from an earlier run, and this journey re-signs regardless.
-        await coffee.setDeliveredQuantity(String(overDelivered()), true);
+        await coffee.setDeliveredQuantity(String(overDelivered()));
         expect(Number(await coffee.getDeliveredQty())).toBe(overDelivered());
         // "shown clearly" means BOTH at once - the over-delivered figure must
         // not overwrite or hide what was ordered. Re-read the row rather than

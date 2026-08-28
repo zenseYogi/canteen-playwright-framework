@@ -860,61 +860,52 @@ export class CoffeeServiceScreen extends BaseScreen {
    * lands as "04" - live-verified 2026-08-25. The value is numerically
    * correct; callers should compare with Number(), not string equality.
    */
-  async setDeliveredQuantity(value: string, acceptSignatureWarning = false): Promise<void> {
-    // Written as a RETRY LOOP rather than a linear click-then-type, because on
-    // a signed delivery the warning dialog can be raised more than once: once
-    // by the first touch of the field, and again by the re-focus after it is
-    // accepted. A single accept therefore is not enough - the dialog is back
-    // over the field by the time setValue runs, which fails as "element wasn't
-    // found" against an element that is merely covered. Re-resolving the field
-    // each pass also handles the row being rebuilt when the signature clears.
-    let lastError: unknown;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (acceptSignatureWarning) {
-        // FIRST, before going anywhere near the field. On a signed delivery
-        // the warning is raised by OPENING the Deliveries screen, not by
-        // touching the quantity - it just animates in slowly enough that a
-        // quick read of the product row wins the race while the field lookup
-        // loses it. And the dialog is its OWN WINDOW: while it is up the
-        // screen behind is not in the accessibility tree at all (13 nodes,
-        // dialog only), so resolving the field first can only ever time out.
-        await this.confirmSignedDeliveryEditIfPresent();
-      }
-      const field = await this.driver.$(this.deliveredQtyField);
-      await field.waitForDisplayed({ timeout: 15_000 });
-      await field.click();
-      if (acceptSignatureWarning) {
-        // POLLED, not read once - the dialog animates in, so reading
-        // immediately after the click races it and finds nothing.
-        await this.driver
-          .waitUntil(async () => this.isSignedDeliveryEditWarningVisible(), { timeout: 4_000, interval: 500 })
-          .catch(() => undefined);
-        await this.confirmSignedDeliveryEditIfPresent();
-      }
-      try {
-        const focused = await this.driver.$(this.deliveredQtyField);
-        await focused.setValue(value);
-        return;
-      } catch (error) {
-        lastError = error;
-      }
+  async setDeliveredQuantity(value: string): Promise<void> {
+    const field = await this.driver.$(this.deliveredQtyField);
+    await field.waitForDisplayed({ timeout: 15_000 });
+    await field.click();
+    await field.setValue(value);
+    // A signed delivery raises the edit confirmation HERE - on the value
+    // actually changing, not on opening the screen or focusing the field.
+    // Its Yes button does nothing (see BUG note below), so there is no way
+    // forward: dismiss with Cancel to leave the app usable, and fail with an
+    // explanation rather than letting the caller's next read time out against
+    // a modal and report a missing element.
+    if (await this.dismissSignedDeliveryEditIfPresent(3_000)) {
+      throw new Error(
+        'This delivery is already SIGNED, and a signed delivery cannot be edited on this build - ' +
+          'the confirmation dialog\'s "Yes" is unresponsive (see dismissSignedDeliveryEditIfPresent). ' +
+          'Discovery should have rejected this station; pick one whose Delivery tile is not yet green.'
+      );
     }
-    throw lastError;
   }
 
-  // Raised by touching ANY editable part of a delivery that has already been
-  // signed: "A customer signature has already been captured. Any changes to
-  // this delivery will remove the signature and require the customer to
-  // re-sign." with Cancel / Yes. Live-mapped 2026-08-28.
+  // ---- The signed-delivery edit confirmation, and the bug in it ----
   //
-  // It is a MODAL, and it covers the quantity field - so without handling it a
-  // setValue fails against the scrim and reports "element wasn't found", which
-  // reads like the field is missing when it is plainly there behind the
-  // dialog. That misdiagnosis cost a run.
+  // "A customer signature has already been captured. Any changes to this
+  // delivery will remove the signature and require the customer to re-sign."
+  // with Cancel / Yes. Raised when a value on an already-SIGNED delivery is
+  // actually CHANGED - not on opening the Deliveries screen, and not on
+  // focusing a field. Live-mapped 2026-08-28 on Charlotte 103.
   //
-  // This is C-TC-018's subject. Accepting it CLEARS THE SIGNATURE, so it is
-  // opt-in per call rather than swallowed automatically - a caller that is not
-  // about to re-sign must not silently discard one.
+  // **BUG: "Yes" DOES NOTHING.** Verified on a freshly launched app with a
+  // freshly raised dialog, tapping the button's exact centre by raw adb input
+  // rather than through the driver: the dialog stays up. "Cancel" dismisses it
+  // correctly. So a signed delivery CANNOT BE EDITED on this build at all -
+  // there is no way past the confirmation. That is almost certainly why the
+  // regression sheet records C-TC-018 ("Editing a signed delivery requires
+  // confirmation and clears signature status") as Fail.
+  //
+  // Two knock-on effects worth knowing, because both cost real time here:
+  //  * repeated Yes taps leave the dialog up, and the app then LOOKS wedged -
+  //    it is not, it is just refusing to proceed. Cancel still works.
+  //  * while the dialog is up it is its OWN WINDOW, so the screen behind is
+  //    absent from the accessibility tree entirely (13 nodes, dialog only).
+  //    A field lookup then reports "element wasn't found" about an element
+  //    that is merely covered, which reads like a missing locator.
+  //
+  // Consequently nothing here tries to accept the dialog. Tests must run on an
+  // UNSIGNED delivery, which stop discovery is responsible for finding.
   private readonly signedDeliveryEditWarning =
     '//android.view.View[contains(@content-desc,"customer signature has already been captured")]';
 
@@ -922,17 +913,31 @@ export class CoffeeServiceScreen extends BaseScreen {
     return this.isVisible(this.signedDeliveryEditWarning);
   }
 
-  /** Accepts the signed-delivery edit warning if it is showing. Returns whether it was. */
-  async confirmSignedDeliveryEditIfPresent(): Promise<boolean> {
+  /**
+   * DISMISSES the signed-delivery edit warning with Cancel if it is showing,
+   * leaving any signature intact. Returns whether it was showing.
+   *
+   * Used by stop DISCOVERY, which must be able to recognise an
+   * already-signed delivery and move on to another station without altering
+   * it - accepting with Yes there would silently destroy a signature while
+   * merely looking for somewhere to work.
+   *
+   * Polls first: the dialog animates in, and a qualifier that reads too early
+   * WINS THE RACE and accepts a station that then wedges the moment the test
+   * touches it. That is exactly how discovery kept selecting a spent station
+   * while a fresh one sat behind it.
+   */
+  async dismissSignedDeliveryEditIfPresent(waitMs = 4_000): Promise<boolean> {
+    await this.driver
+      .waitUntil(async () => this.isSignedDeliveryEditWarningVisible(), { timeout: waitMs, interval: 500 })
+      .catch(() => undefined);
     if (!(await this.isSignedDeliveryEditWarningVisible())) {
       return false;
     }
-    await this.tap('//android.widget.Button[@content-desc="Yes"]');
-    await this.driver.waitUntil(async () => !(await this.isSignedDeliveryEditWarningVisible()), {
-      timeout: 20_000,
-      interval: 1_000,
-      timeoutMsg: 'The signed-delivery edit warning did not dismiss'
-    });
+    await this.tap('//android.widget.Button[@content-desc="Cancel"]');
+    await this.driver
+      .waitUntil(async () => !(await this.isSignedDeliveryEditWarningVisible()), { timeout: 20_000, interval: 1_000 })
+      .catch(() => undefined);
     return true;
   }
 
