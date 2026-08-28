@@ -795,4 +795,98 @@ test.describe('End Day - regression suite (ED-TC-xxx)', () => {
     }
   );
 
+
+  // ==== ED-TC-014 / ED-TC-015 / ED-TC-016 (the terminal closure) ====
+  //
+  //   ED-TC-014 Done uploads the reports; a popup shows the success message,
+  //             date, time, and an enabled Close button
+  //   ED-TC-015 the End Day process completes, data is saved, and the driver
+  //             exits the End Day flow
+  //   ED-TC-016 Begin Day reopens centered on today afterwards
+  //
+  // ONE test, because they are three readings of a single irreversible
+  // sequence: Done -> popup -> Close -> Select Day. Splitting them would mean
+  // completing End Day three times.
+  //
+  // SAFE TO RE-RUN, which was not obvious and was checked before writing.
+  // Completing End Day does NOT dead-end the route: Close lands on Select Day,
+  // and picking a day returns to Prep Tasks with the day's stops back at
+  // PENDING - the three resolved on the way through came back. So End Day is
+  // itself a recovery mechanism, and notably one that never touches the
+  // Select-operation modal that has been intermittently broken.
+  //
+  // It resolves whatever activities are outstanding to reach Reports. That is
+  // destructive in the moment and self-healing by the end, per the above.
+  test(
+    'ED-TC-014/015/016: Done uploads and confirms, Close exits the flow, and the day selector returns',
+    { tag: ['@EndDay-ED-TC-014', '@EndDay-ED-TC-015', '@EndDay-ED-TC-016'] },
+    async ({ driver }) => {
+      test.setTimeout(1_800_000);
+      const home = new HomeScreen(driver);
+      const endDay = new EndDayScreen(driver);
+
+      await test.step('Log in and ensure the Market route on the day carrying its data', async () => {
+        await loginAndEnsureRoute(driver, { ...mobileConfig.marketRoute, day: 'YESTERDAY' });
+        await home.returnToHome();
+      });
+
+      await test.step('Reach the Reports step, resolving any outstanding activities', async () => {
+        await endDay.openFromHamburgerMenu();
+        for (let guard = 0; guard < 8 && (await endDay.isFinishServiceGateVisible()); guard++) {
+          await endDay.resolveWithNoService();
+          await driver.pause(2_000);
+        }
+        expect(await endDay.isFinishServiceGateVisible()).toBe(false);
+        if (await endDay.isUnusedKitsScreenVisible()) {
+          await endDay.tapContinue();
+        }
+        await expect.poll(() => endDay.isReportsScreenVisible(), { timeout: 30_000 }).toBe(true);
+        expect(await endDay.isDoneEnabled()).toBe(true);
+      });
+
+      await test.step('ED-TC-014: Done produces a confirmation carrying date and time', async () => {
+        await endDay.tapDone();
+        await expect.poll(() => endDay.isSyncCompletePopupVisible(), { timeout: 60_000 }).toBe(true);
+        const text = await endDay.getSyncCompletePopupText();
+        console.log(`[ED-TC-014] popup = ${text}`);
+        // The case's substance: date, time, and an enabled Close.
+        expect(text).toMatch(/Date:\s*\d{1,2}-\w{3}-\d{4}/);
+        expect(text).toMatch(/Time:\s*\d{1,2}:\d{2}/);
+        expect(await endDay.isCloseEnabled()).toBe(true);
+        // NOT asserted: that the popup says "End Day Successful". It says
+        // "Route Data Sync Complete". Asserting the sheet's wording would fail
+        // on a build behaving correctly, and asserting the app's wording would
+        // bake a discrepancy in as if intended - so it is recorded and left
+        // for QA to rule on.
+        console.log(`[ED-TC-014] NOTE popup title is "Route Data Sync Complete", not "End Day Successful"`);
+      });
+
+      await test.step('ED-TC-015: Close exits the End Day flow', async () => {
+        await endDay.tapClose();
+        await expect.poll(() => endDay.isSelectDayVisible(), { timeout: 60_000 }).toBe(true);
+        // Genuinely out of the flow, not merely past the popup.
+        expect(await endDay.isReportsScreenVisible()).toBe(false);
+        expect(await endDay.isUnusedKitsScreenVisible()).toBe(false);
+      });
+
+      await test.step('ED-TC-016: the day selector returns, offering today', async () => {
+        const options = await endDay.getSelectDayOptions();
+        console.log(`[ED-TC-016] day options = ${JSON.stringify(options)}`);
+        expect(options.length).toBeGreaterThan(0);
+        const today = options.find((o) => o.label.startsWith('TODAY'));
+        expect(today, 'the selector should offer TODAY').toBeTruthy();
+        // The case says today should be "in the middle of the date selector".
+        // It is not BETWEEN the other two: TODAY sits on its own full-width row
+        // ABOVE, with YESTERDAY and TOMORROW side by side beneath it. Logged
+        // rather than asserted either way - "middle" may well mean this
+        // primary/centred position, and that is a QA call, not one to bake in.
+        const others = options.filter((o) => !o.label.startsWith('TODAY'));
+        console.log(
+          `[ED-TC-016] layout: TODAY y=${today?.y}, others y=${others.map((o) => o.y).join(',')} - ` +
+            `TODAY is ${others.every((o) => (today?.y ?? 0) < o.y) ? 'ABOVE' : 'not above'} the other options`
+        );
+      });
+    }
+  );
+
 });

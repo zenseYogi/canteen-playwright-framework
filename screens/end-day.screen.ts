@@ -231,6 +231,65 @@ export class EndDayScreen extends BaseScreen {
   // NB: `doneButton` is inherited from BaseScreen ('~Done') - redeclaring it
   // here shadows the base member and fails the build.
 
+  // ---- What tapping Done actually produces, and where Close lands ----
+  //
+  // Live-mapped 2026-08-28 on Miami 001. Done -> a popup reading
+  //   "Route Data Sync Complete / Date: 28-Aug-2026 / Time: 9:49 PM"
+  // with an enabled Close. NOTE the title: ED-TC-014 calls this an "End Day
+  // Successful" popup, and no such wording appears. The date/time details and
+  // the enabled Close button it describes are all present.
+  //
+  // Close -> the SELECT DAY screen (operation, route, TODAY/YESTERDAY/
+  // TOMORROW), from which picking a day and confirming lands on Prep Tasks.
+  // So End Day does NOT dead-end a route: it completes a cycle back to Start
+  // Day, and the stops resolved during it come back pending.
+  private readonly syncCompletePopup =
+    '//android.view.View[contains(@content-desc,"Route Data Sync Complete")]';
+  private readonly closeButton = '//android.widget.Button[@content-desc="Close"]';
+  private readonly selectDayTitle = '~Select Day';
+
+  /** ED-TC-014 - whether the post-upload confirmation popup is showing. */
+  async isSyncCompletePopupVisible(): Promise<boolean> {
+    return this.isVisible(this.syncCompletePopup);
+  }
+
+  /** ED-TC-014 - the popup's full text, so its Date/Time lines can be asserted. */
+  async getSyncCompletePopupText(): Promise<string> {
+    const el = await this.driver.$(this.syncCompletePopup);
+    if (!(await el.isExisting().catch(() => false))) return '';
+    return ((await el.getAttribute('content-desc')) ?? '').replace(/\n/g, ' | ');
+  }
+
+  async isCloseEnabled(): Promise<boolean> {
+    return this.isEnabled(this.closeButton);
+  }
+
+  async tapClose(): Promise<void> {
+    await this.tapWhenSettled(this.closeButton);
+  }
+
+  async tapDone(): Promise<void> {
+    await this.tapWhenSettled(this.doneButton);
+  }
+
+  /** ED-TC-016 - the Select Day screen End Day exits to. */
+  async isSelectDayVisible(): Promise<boolean> {
+    return this.isVisible(this.selectDayTitle);
+  }
+
+  /** ED-TC-016 - the day options offered, with their positions so the layout can be described. */
+  async getSelectDayOptions(): Promise<{ label: string; x: number; y: number }[]> {
+    const out: { label: string; x: number; y: number }[] = [];
+    for (const el of [...(await this.driver.$$('//android.view.View[@clickable="true" and @content-desc!=""]'))]) {
+      const desc = ((await el.getAttribute('content-desc')) ?? '').replace(/\n/g, ' | ').trim();
+      if (!/(TODAY|YESTERDAY|TOMORROW)/.test(desc)) continue;
+      const loc = await el.getLocation();
+      out.push({ label: desc, x: loc.x, y: loc.y });
+    }
+    return out;
+  }
+
+
   /**
    * ED-TC-013 - the Reports step's header (date + route) and the report
    * categories it lists.
