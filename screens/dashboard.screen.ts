@@ -76,6 +76,130 @@ export class DashboardScreen extends BaseScreen {
     await this.tap(this.nthServiceStationUnder(lob, position));
   }
 
+  private serviceStationByName(lob: Lob, stationName: string): string {
+  return `//android.widget.ImageView[starts-with(@content-desc,"${lob}")]
+          /following-sibling::android.view.View[contains(@content-desc,"${stationName}")]`;
+}
+  // async openServiceStationByName(
+  //   lob: Lob,
+  //   stationName: string
+  // ): Promise<void> {
+  //   await this.clickLob(lob);
+  //   const locator = this.serviceStationByName(lob, stationName);
+  //   const station = await this.driver.$(locator);
+  //   await station.waitForDisplayed({ timeout: 10000 });
+  //   await station.click();
+  // }
+  
+
+
+
+
+
+async openServiceStationByName(
+  lob: Lob,
+  stationName: string
+): Promise<void> {
+  await this.clickLob(lob);
+  const targetLocator = `//android.view.View[contains(@content-desc,"${stationName}")]`;
+  // const stationRows =
+  //   `//android.widget.ImageView[contains(@content-desc,"${stationName}")]`;
+    const stationRows =
+  '//android.widget.ScrollView//android.view.View[@clickable="true"]';
+  let previousLastStation = '';
+  for (let i = 0; i < 15; i++) {
+    const stations = await this.driver.$$(targetLocator);
+    if (await stations.length > 0 && await stations[0].isDisplayed()) {
+      await stations[0].click();
+      return;
+    }
+    const visibleStations = await this.driver.$$(stationRows);
+    if (await visibleStations.length === 0) {
+      break;
+    }
+    const lastStation =
+      visibleStations[await visibleStations.length - 1];
+    const lastStationName =
+      (await lastStation.getAttribute('content-desc')) ?? '';
+
+    // Reached end of list
+    if (lastStationName === previousLastStation) {
+      break;
+    }
+    previousLastStation = lastStationName;
+    await this.swipe(
+      540, 1900,
+      540, 1200
+    );
+    await this.driver.pause(800);
+  }
+  throw new Error(
+    `Service Station "${stationName}" not found`
+  );
+}
+
+
+async waitForServiceStationVisible(
+  lob: Lob,
+  stationName: string,
+  maxScrolls: number = 15
+): Promise<boolean> {
+  await this.clickLob(lob);
+
+  const targetLocator =
+    `//android.view.View[contains(@content-desc,"${stationName}")]`;
+
+  const stationRows =
+    '//android.widget.ScrollView//android.view.View[@clickable="true"]';
+
+  let previousLastStation = '';
+
+  for (let i = 0; i < maxScrolls; i++) {
+    const found = await this.driver.waitUntil(
+      async () => {
+        const stations = await this.driver.$$(targetLocator);
+        return await stations.length > 0 &&
+          await stations[0].isDisplayed();
+      },
+      {
+        timeout: 3000,
+        interval: 500,
+        timeoutMsg: ''
+      }
+    ).then(() => true).catch(() => false);
+
+    if (found) {
+      return true;
+    }
+
+    const visibleStations = await this.driver.$$(stationRows);
+
+    if (await visibleStations.length === 0) {
+      break;
+    }
+
+    const lastStation = visibleStations[await visibleStations.length - 1];
+    const lastStationName =
+      (await lastStation.getAttribute('content-desc')) ?? '';
+
+    if (lastStationName === previousLastStation) {
+      break;
+    }
+
+    previousLastStation = lastStationName;
+
+    await this.swipe(
+      540, 1900,
+      540, 1200
+    );
+
+    await this.driver.pause(1000);
+  }
+
+  return false;
+}
+
+
   async getNthServiceStationName(
     lob: Lob,
     position: Position
@@ -86,7 +210,7 @@ export class DashboardScreen extends BaseScreen {
     const stationName =
       (await station.getAttribute('content-desc')) ?? '';
     // await station.click();
-    return stationName;
+    return stationName.split('\n')[0].trim();
   }
 
   /** Whether a given position's service station row exists under the (already-expanded, or about-to-expand) LOB card - a quick presence check callers can use instead of eating openNthServiceStation's full tap timeout on a LOB with fewer stations than expected. */
@@ -116,11 +240,64 @@ export class DashboardScreen extends BaseScreen {
    * gain/lose LOBs between runs (e.g. FedEx's ad-hoc Coffee delivery),
    * making "the Nth stop" an unreliable way to reach a SPECIFIC account.
    */
+  // async clickLocationByName(name: string): Promise<void> {
+  //   await this.ensurePendingActionTabSelected();
+  //   const row = `//android.view.View[contains(@content-desc,"Pending action")]/following-sibling::android.view.View//*[@clickable="true" and @content-desc="${name}"]`;
+  //   await this.tap(row);
+  // }
+
   async clickLocationByName(name: string): Promise<void> {
-    await this.ensurePendingActionTabSelected();
-    const row = `//android.view.View[contains(@content-desc,"Pending action")]/following-sibling::android.view.View//*[@clickable="true" and @content-desc="${name}"]`;
-    await this.tap(row);
+  await this.ensurePendingActionTabSelected();
+
+  const targetLocator =
+    `//android.widget.ImageView[contains(@content-desc,"${name}")]`;
+
+  const locationRows =
+    '//android.widget.ImageView[@clickable="true"]';
+
+  let previousLastItem = '';
+
+  for (let i = 0; i < 30; i++) {
+    const target = await this.driver.$$(targetLocator);
+
+    if (await target.length > 0 && await target[0].isDisplayed()) {
+      await target[0].click();
+      return;
+    }
+
+    const visibleLocations = await this.driver.$$(locationRows);
+    if (await  visibleLocations.length === 0) {
+      break;
+    }
+
+    const lastItem =
+      visibleLocations[await visibleLocations.length - 1];
+
+    const lastItemName =
+      (await lastItem.getAttribute('content-desc')) ?? '';
+
+    // End of list
+    if (lastItemName === previousLastItem) {
+      break;
+    }
+
+    previousLastItem = lastItemName;
+
+    // Smaller swipe so the last visible item
+    // approximately becomes the first visible item
+    await this.swipe(
+      540, 1900,
+      540, 1200
+    );
+
+    await this.driver.pause(800);
   }
+
+  throw new Error(
+    `Location "${name}" not found in Pending Actions list`
+  );
+}
+
 
   /** Market TC001 "view the list of market stops" - same row locator as clickLocationByName(), without tapping it. */
   async isLocationVisible(name: string): Promise<boolean> {

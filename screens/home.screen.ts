@@ -66,9 +66,37 @@ export class HomeScreen extends BaseScreen {
   }
 
   /** TC007 "view the System Date" - the day/date badge in the navigation bar (e.g. "Yesterday, Thu 23 Jul"). */
+  // async getCurrentDateText(): Promise<string> {
+  //   const el = await this.driver.$(this.currentDateBadge);
+  //   return (await el.getAttribute('content-desc')) ?? '';
+  // }
+
   async getCurrentDateText(): Promise<string> {
+    const todayText = this.formatAppDate(new Date());
+    const exactToday = await this.driver.$(
+      `//android.view.View[@content-desc="${todayText}"]`
+    );
+    if (await exactToday.isExisting()) {
+      const value = await exactToday.getAttribute('content-desc');
+      if (value) {
+        return value;
+      }
+    }
     const el = await this.driver.$(this.currentDateBadge);
-    return (await el.getAttribute('content-desc')) ?? '';
+    if (await el.isExisting()) {
+      return (await el.getAttribute('content-desc')) ?? '';
+    }
+    return '';
+  }
+
+
+
+
+  private formatAppDate(date: Date): string {
+    const month = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(date);
+    const day = date.getDate();
+    const year = date.getFullYear();
+    return `${month} ${day},${year}`;
   }
 
   /** TC012 "view route badge" - e.g. "Route 103". */
@@ -296,10 +324,17 @@ export class HomeScreen extends BaseScreen {
         await this.tap(this.selectADaySheetTodayOption);
       } else if (await this.isVisible(this.backButton)) {
         await this.tap(this.backButton);
-      } else {
+        if (await this.isVisible('~Yes')) {
+          await this.tap('~Yes');
+        }
+      }else if(await this.isVisible('~Scrim')){
+        await this.tap('~Scrim');
+      }
+      else {
         await this.pressKeyCode(4);
       }
       await this.driver.pause(700);
+      // await this.tap('~Yes');
     }
     if (!reachedHamburger) {
       throw new Error(`returnToHome: no screen with the hamburger menu appeared after ${maxBackPresses} BACK presses`);

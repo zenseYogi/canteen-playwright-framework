@@ -1,6 +1,8 @@
 import { BaseScreen } from './base.screen';
 import { positionToIndex, type Position } from '../utils/position';
 import { expect } from '@playwright/test';
+import { PNG } from 'pngjs';
+import { mobileConfig } from '@config/mobile.config';
 
 /**
  * Vending LOB - servicing a delivery location. Ported from vending_keywords.robot,
@@ -17,6 +19,7 @@ export class VendingServiceScreen extends BaseScreen {
   // label only belongs to the trigger tile on the machine's service menu.
   private readonly moneyCollectionTitle = '~Money Collection';
   readonly skipMoneyBagCheckbox = '//android.widget.CheckBox';
+  readonly deleteDelivery = '~section_header_custom_cta';
   // Vending's Money Collection has 3 EditTexts (bag code / Replenishment
   // Bills / Refund amount) - one fewer than Market's 4 (no separate coins
   // field). CORRECTED: all three DO carry their own accessible hint
@@ -28,7 +31,7 @@ export class VendingServiceScreen extends BaseScreen {
   // private readonly billsField = '//android.widget.EditText[2]';
   // private readonly refundField = '//android.widget.EditText[3]';
 
-  private readonly bagCodeField = '(//android.widget.EditText[@hint="Bag code"])';
+  private readonly bagCodeField = '(//android.widget.EditText[contains(@hint,"Bag code")])';
   private readonly billsField = '//android.widget.EditText[@hint="Bills"]';
   private readonly refundField = '//android.widget.EditText[@hint="Amounts"]';
   private readonly disabledBagCodeField = '(//android.view.View[@hint="Bag code"])';
@@ -165,7 +168,19 @@ export class VendingServiceScreen extends BaseScreen {
   protected readonly fillsAndEndingInventoryTile = '//android.view.View[contains(@content-desc,"Fills & Ending Inventory")]';
   async openFillsAndEndingInventory(): Promise<void> {
     await this.tap(this.fillsAndEndingInventoryTile);
+
+    try {
+      const okBtn = await this.driver.$('~OK');
+      if (await okBtn.waitForDisplayed({ timeout: 3000 })) {
+        await okBtn.click();
+      }
+    } catch {
+      // OK popup not displayed, continue
+    }
+
+
     await this.waitFor(this.productFillsTitle);
+
   }
 
   async isProductTitleVisible(): Promise<boolean> {
@@ -195,10 +210,45 @@ export class VendingServiceScreen extends BaseScreen {
     };
   }
 
+
+  async getFirstProductInfoLabels(): Promise<{
+    par: number;
+    cap: number;
+    ordered: number;
+    picked: number;
+  }> {
+    const firstCard = await this.driver.$(
+      '(//android.widget.ScrollView/android.view.View)[1]'
+    );
+
+    await firstCard.waitForDisplayed({ timeout: 10000 });
+
+    const content =
+      (await firstCard.getAttribute('content-desc')) ?? '';
+
+    const readValue = (label: string): number =>
+      Number(
+        new RegExp(`${label}\\s+(\\d+)`).exec(content)?.[1]
+      );
+
+    return {
+      par: readValue('Par'),
+      cap: readValue('Cap'),
+      ordered: readValue('Ordered'),
+      picked: readValue('Picked')
+    };
+  }
+
   async clickMoreInfoArrow(productName: string) {
     const moreInfoArrow = await this.driver.$(
       `//android.view.View[contains(@content-desc,'${productName}')]/android.view.View`
     );
+    await moreInfoArrow.click();
+  }
+
+  async clickFirstMoreInfoArrow(): Promise<void> {
+    const moreInfoArrow = await this.driver.$('//android.widget.ScrollView/android.view.View[1]//android.view.View');
+    await moreInfoArrow.waitForDisplayed({ timeout: 10000 });
     await moreInfoArrow.click();
   }
 
@@ -216,10 +266,116 @@ export class VendingServiceScreen extends BaseScreen {
   // }
 
 
+  protected readonly confirmDeletePopup =
+    '//android.view.View[contains(@content-desc,"Confirm delete")]';
+
+  async isConfirmDeletePopupDisplayed(): Promise<boolean> {
+    const popup = await this.driver.$(this.confirmDeletePopup);
+    return await popup.isDisplayed();
+  }
+
   async getEditableQuantityFields() {
     return await this.driver.$$(
       `//android.widget.EditText[@hint='Delivery' or @hint='End']`
     );
+  }
+
+  async isServiceStationCompleted(stationName: string): Promise<boolean> {
+    const row = await this.driver.$(
+      `//android.view.View[contains(@content-desc,"${stationName}")]`
+    );
+    const location = await row.getLocation();
+    const size = await row.getSize();
+    const base64 = await this.driver.takeScreenshot();
+    const png = PNG.sync.read(Buffer.from(base64, 'base64'));
+    // Scan right-most 100px where tick appears
+    const startX = location.x + size.width - 120;
+    const endX = location.x + size.width - 20;
+    const startY = location.y + 20;
+    const endY = location.y + size.height - 20;
+    for (let y = startY; y < endY; y += 5) {
+      for (let x = startX; x < endX; x += 5) {
+        const idx = (png.width * y + x) << 2;
+        const r = png.data[idx];
+        const g = png.data[idx + 1];
+        const b = png.data[idx + 2];
+        if (g > r + 40 && g > b + 40) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+
+
+  async isServiceStationSkipped(stationName: string): Promise<boolean> {
+    const row = await this.driver.$(
+      `//android.view.View[contains(@content-desc,"${stationName}")]`
+    );
+
+    const location = await row.getLocation();
+    const size = await row.getSize();
+
+    const base64 = await this.driver.takeScreenshot();
+    const png = PNG.sync.read(Buffer.from(base64, 'base64'));
+
+    // Area where skip icon appears
+    const startX = location.x + size.width - 100;
+    const endX = location.x + size.width - 20;
+    const startY = location.y + 20;
+    const endY = location.y + size.height - 20;
+
+    let orangePixelCount = 0;
+
+    for (let y = startY; y < endY; y += 2) {
+      for (let x = startX; x < endX; x += 2) {
+        const idx = (png.width * y + x) << 2;
+
+        const r = png.data[idx];
+        const g = png.data[idx + 1];
+        const b = png.data[idx + 2];
+
+        // Orange icon detection
+        if (
+          r > 180 &&
+          g > 80 &&
+          g < 180 &&
+          b < 100
+        ) {
+          orangePixelCount++;
+        }
+      }
+    }
+
+    return orangePixelCount > 15;
+  }
+
+  async isSkipMoneyBagChecked(): Promise<boolean> {
+    const checkbox = await this.driver.$(
+      '//android.widget.CheckBox[following-sibling::android.view.View[@content-desc="Skip money bag"]]'
+    );
+
+    return (await checkbox.getAttribute('checked')) === 'true';
+  }
+
+  async verifySkipMoneyBagChecked(expected: boolean): Promise<void> {
+    expect(await this.isSkipMoneyBagChecked()).toBe(expected);
+  }
+
+  private readonly deliveryLocationList =
+    '//android.view.View[contains(@content-desc,"Pending action")]/following-sibling::android.view.View//*[@clickable="true" and string-length(@content-desc) > 0]';
+
+
+  async getLocationNameByPosition(position: Position): Promise<string> {
+    // await this.ensurePendingActionTabSelected();
+    await this.waitFor(this.deliveryLocationList);
+    const elements = await this.driver.$$(this.deliveryLocationList);
+    const index = positionToIndex(position, 0);
+    const contentDesc =
+      (await elements[index].getAttribute('content-desc')) ?? '';
+    // If location name is the first line
+    return contentDesc.split('\n')[0].trim();
   }
 
   // async verifyFocusMovedToNextEditableField(currentIndex: number) {
@@ -348,6 +504,27 @@ export class VendingServiceScreen extends BaseScreen {
     return result;
   }
 
+  async isOptionDisplayed(option: string): Promise<boolean> {
+    const selector = `//android.widget.Button[@content-desc="${option}"]`;
+
+    try {
+      const element = await this.driver.$(selector);
+      return await element.isDisplayed();
+    } catch {
+      return false;
+    }
+  }
+
+
+
+  async skipGoogleMapsSigninIfDisplayed(): Promise<void> {
+    const skipLocator = '//android.widget.Button[@text="SKIP"]';
+    const skipButton = await this.driver.$(skipLocator);
+    const isVisible = await skipButton.waitForDisplayed({ timeout: 5000 }).then(() => true).catch(() => false);
+    if (isVisible) {
+      await skipButton.click();
+    }
+  }
 
 
   async getMoneyOperationsValues() {
@@ -414,6 +591,16 @@ export class VendingServiceScreen extends BaseScreen {
     await this.dismissNumericKeypad();
   }
 
+  private readonly leaveOnTruckRadioButton = '~Leave on truck';
+
+  async selectLeaveOnTruck(): Promise<void> {
+    const radioBtn = await this.driver.$(this.leaveOnTruckRadioButton);
+    await radioBtn.waitForDisplayed({ timeout: 10000 });
+    const isChecked = (await radioBtn.getAttribute('checked')) === 'true';
+    if (!isChecked) {
+      await radioBtn.click();
+    }
+  }
 
 
   async isContinueEnabled(): Promise<boolean> {
@@ -450,6 +637,74 @@ export class VendingServiceScreen extends BaseScreen {
       }
       await retkField.setValue(retk);
     }
+  }
+
+
+
+  async enterRemovalReturnValuesForFirstRow(spoiled?: string, retk?: string): Promise<string> {
+    const row = '(//android.widget.ScrollView/android.view.View)[1]';
+    const rowEl = await this.driver.$(row);
+    const contentDesc = (await rowEl.getAttribute('content-desc')) ?? '';
+    // content-desc format:
+    // "1\nDasani Wtr 20oz"
+    const productName = contentDesc.split('\n').slice(1).join(' ').trim();
+    if (spoiled !== undefined) {
+      const spoiledField = await this.driver.$(
+        `${row}//android.widget.EditText[@hint="Spoiled"]`
+      );
+      await spoiledField.click();
+      const existing = (await spoiledField.getText()).trim();
+      if (existing && existing !== '-') {
+        await spoiledField.clearValue();
+      }
+      await spoiledField.setValue(spoiled);
+    }
+    if (retk !== undefined) {
+      const retkField = await this.driver.$(
+        `${row}//android.widget.EditText[@hint="RETK"]`
+      );
+      await retkField.click();
+      const existing = (await retkField.getText()).trim();
+      if (existing && existing !== '-') {
+        await retkField.clearValue();
+      }
+      await retkField.setValue(retk);
+    }
+    return productName;
+  }
+
+
+  async enterFillsAndRemovalsForFirstRow(delivery?: string, spoil?: string): Promise<string> {
+    const row = '(//android.widget.ScrollView/android.view.View)[1]';
+    const rowEl = await this.driver.$(row);
+    const contentDesc = (await rowEl.getAttribute('content-desc')) ?? '';
+    // content-desc format:
+    // "1\nDasani Wtr 20oz"
+    const productName = contentDesc.split('\n').slice(1).join(' ').trim();
+    if (delivery !== undefined) {
+      ////android.widget.EditText[@text="-"]
+      const spoiledField = await this.driver.$(
+        `${row}//android.widget.EditText[1]`
+      );
+      await spoiledField.click();
+      const existing = (await spoiledField.getText()).trim();
+      if (existing && existing !== '-') {
+        await spoiledField.clearValue();
+      }
+      await spoiledField.setValue(delivery);
+    }
+    if (spoil !== undefined) {
+      const retkField = await this.driver.$(
+        `${row}//android.widget.EditText[2]`
+      );
+      await retkField.click();
+      const existing = (await retkField.getText()).trim();
+      if (existing && existing !== '-') {
+        await retkField.clearValue();
+      }
+      await retkField.setValue(spoil);
+    }
+    return productName;
   }
 
 
@@ -523,13 +778,15 @@ export class VendingServiceScreen extends BaseScreen {
   }
 
 
-  async tapSkipReasonDropdown(): Promise<void> {
+  async tapSkipReasonDropdown(): Promise<boolean> {
     const dropdown = await this.driver.$(
       '//android.view.View[contains(@content-desc,"Reason for skipping stop")]'
     );
     await dropdown.waitForDisplayed();
     await dropdown.click();
+    return true;
   }
+
 
 
   async selectSkipReason(reason: string): Promise<void> {
@@ -588,13 +845,121 @@ export class VendingServiceScreen extends BaseScreen {
   }
 
 
-async getMapsDestination(): Promise<string> {
+  async getMapsDestination(): Promise<string> {
   const address = await this.driver.$(
     '//android.widget.EditText[@resource-id="com.google.android.apps.maps:id/search_omnibox_text_box"]/android.widget.TextView'
   );
 
-  return await address.getText();
+  await address.waitForDisplayed({
+    timeout: 30000,
+    timeoutMsg: 'Maps destination address was not displayed'
+  });
+
+  await this.driver.waitUntil(
+    async () => {
+      const text = (await address.getText()).trim();
+      return text.length > 0;
+    }, {
+      timeout: 30000,
+      interval: 1000,
+      timeoutMsg: 'Maps destination address was not loaded'
+    }
+  );
+
+  return (await address.getText()).trim();
 }
+
+  async getParCapacityRowCount(): Promise<number> {
+    const rows = await this.driver.$$('//android.view.View[contains(@content-desc,"Row ")]');
+    return rows.length;
+  }
+
+  async isParCapacityDataDisplayed(): Promise<boolean> {
+    const values = await this.driver.$$(
+      '//android.view.View[contains(@content-desc,"Par") and contains(@content-desc,"Cap")]'
+    );
+    return await values.length > 0;
+  }
+
+
+  async isGridViewDisplayed(): Promise<boolean> {
+    const rows = await this.driver.$$(
+      '//android.view.View[starts-with(@content-desc,"Row ")]/android.widget.HorizontalScrollView'
+    );
+
+    return await rows.length > 0;
+  }
+
+  async isListViewDisplayed(): Promise<boolean> {
+    const row = await this.driver.$(
+      '//android.view.View[@content-desc="Row 1"]'
+    );
+    const horizontalViews = await row.$$('./android.widget.HorizontalScrollView');
+    return await horizontalViews.length === 0;
+  }
+
+  async waitForListViewLayout(): Promise<void> {
+    await this.driver.waitUntil(
+      async () =>
+        await this.isListViewDisplayed(),
+      {
+        timeout: 5000,
+        timeoutMsg: 'Horizontal layout was not displayed',
+      }
+    );
+  }
+
+
+  // async switchParCapacityLayout(): Promise<void> {
+  //   const toggle = await this.driver.$(
+  //     '(//android.widget.ImageView)[1]'
+  //   );
+
+  //   await toggle.waitForDisplayed();
+  //   await toggle.click();
+  // }
+
+  private async tapLayoutToggle(position: 'left' | 'right'): Promise<void> {
+    const toggle = await this.driver.$('(//android.widget.ImageView)[1]');
+
+    await toggle.waitForDisplayed();
+
+    const location = await toggle.getLocation();
+    const size = await toggle.getSize();
+
+    const factor = position === 'left' ? 0.25 : 0.75;
+
+    const x = Math.floor(location.x + size.width * factor);
+    const y = Math.floor(location.y + size.height * 0.5);
+
+    await this.driver
+      .action('pointer', { parameters: { pointerType: 'touch' } })
+      .move({ x, y })
+      .down()
+      .pause(100)
+      .up()
+      .perform();
+  }
+
+  async switchParCapacityLayoutToLeft(): Promise<void> {
+    await this.tapLayoutToggle('left');
+  }
+
+  async switchParCapacityLayoutToRight(): Promise<void> {
+    await this.tapLayoutToggle('right');
+  }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -925,7 +1290,7 @@ async getMapsDestination(): Promise<string> {
   /** Opens Money Operations without filling/submitting - lets callers assert field presence first. */
   async openMoneyOperations(): Promise<void> {
     await this.tap(this.moneyOperations);
-    await this.waitFor(this.moneyCollectionTitle);
+    // await this.waitFor(this.moneyCollectionTitle);
   }
 
   /**
@@ -991,6 +1356,15 @@ async getMapsDestination(): Promise<string> {
     await this.openPhotoTrigger(this.afterPhotosTile);
   }
 
+  async isMeterEnabled(): Promise<boolean> {
+    const el = await this.driver.$('//android.view.View[contains(@content-desc,"Meter")]');
+    return (await el.getAttribute('clickable').catch(() => 'false')) === 'true';
+  }
+
+  async isDexEnabled(): Promise<boolean> {
+    const el = await this.driver.$('//android.view.View[contains(@content-desc,"Dex")]');
+    return (await el.getAttribute('clickable').catch(() => 'false')) === 'true';
+  }
 
   async isMachineDisplayed(machineId: string): Promise<boolean> {
     const el = await this.driver.$(
@@ -1019,16 +1393,15 @@ async getMapsDestination(): Promise<string> {
     // return !(await el.isClickable());
   }
 
+  readonly removalsReturns = '//android.view.View[contains(@content-desc,"Removals & Returns")]';
   async isRemovalsAndReturnsDisabled(): Promise<boolean> {
-    const el = await this.driver.$(
-      '//android.view.View[@content-desc="Removals & Returns"]'
-    );
+    const el = await this.driver.$(this.removalsReturns);
     return (await el.getAttribute('clickable')) === 'false';
   }
 
-  async isDexEnabled(): Promise<boolean> {
+  async isKitReturnsEnabled(): Promise<boolean> {
     const el = await this.driver.$(
-      '//android.view.View[contains(@content-desc,"Dex")]'
+      '//android.view.View[contains(@content-desc,"Kit Returns")]'
     );
     return (await el.isDisplayed()) && (await el.isEnabled());
   }
@@ -1072,9 +1445,7 @@ async getMapsDestination(): Promise<string> {
   }
 
   async isRemovalsAndReturnsEnabled(): Promise<boolean> {
-    const el = await this.driver.$(
-      '//android.view.View[@content-desc="Removals & Returns"]'
-    );
+    const el = await this.driver.$(this.removalsReturns);
     return (await el.isDisplayed()) && (await el.getAttribute('clickable')) === 'true';
   }
 
@@ -1179,7 +1550,9 @@ async getMapsDestination(): Promise<string> {
 
     await this.tap(this.fills);
     await this.waitFor(this.productFillsTitle);
-    await this.fillAllProductDeliveryQuantities();
+    // await this.fillAllProductDeliveryQuantities();
+    await this.fillAllProductEndQuantities();
+
   }
 
   async tapBackArrow(): Promise<void> {
@@ -1198,9 +1571,9 @@ async getMapsDestination(): Promise<string> {
   // 40+ products), not just a handful.
   // async fillAllProductDeliveryQuantities(quantity = '5', maxRounds = 60): Promise<void> {
   //   for (let round = 0; round < maxRounds; round++) {
-  //     const fields = [...(await this.driver.$$('//android.widget.EditText'))];
+  //     const fields = [...(await this.driver.$$('//android.widget.EditText[2]'))];
   //     let filledAny = false;
-  //     for (let i = 0; i < fields.length; i += 2) {
+  //     for (let i = 0; i < fields.length; i += 1) {
   //       const text = await fields[i].getText().catch(() => '');
   //       if (!text) {
   //         // CORRECTED (live-verified): field.setValue() writes the
@@ -1244,8 +1617,435 @@ async getMapsDestination(): Promise<string> {
   //   }
   // }
 
-  async fillAllProductDeliveryQuantities(
-    quantity = '5',
+  // async fillAllProductDeliveryQuantities(
+  //   quantity = '5',
+  //   maxScrolls = 20
+  // ): Promise<void> {
+  //   const processedRows = new Set<string>();
+  //   let stalledScrolls = 0;
+
+  //   for (let scroll = 0; scroll < maxScrolls && stalledScrolls < 2; scroll++) {
+  //     const fields = [...(await this.driver.$$('//android.widget.EditText'))];
+  //     const processedBefore = processedRows.size;
+  //     for (let i = 0; i < fields.length; i += 2) {
+  //       const field = fields[i];
+  //       const location = await field.getLocation();
+  //       const key = `${location.x}-${location.y}`;
+  //       if (processedRows.has(key)) {
+  //         continue;
+  //       }
+  //       processedRows.add(key);
+  //       const text = (await field.getText().catch(() => '')).trim();
+  //       await field.click();
+  //       await field.clearValue();
+  //       for (const digit of quantity) {
+  //         await (await this.driver.$(`~${digit}`)).click();
+  //       }
+  //       await this.dismissNumericKeypad();
+  //     }
+
+  //     stalledScrolls =
+  //       processedRows.size === processedBefore
+  //         ? stalledScrolls + 1
+  //         : 0;
+
+  //     if (stalledScrolls < 2) {
+  //       await this.scrollDown({
+  //         left: 100,
+  //         top: 800,
+  //         width: 800,
+  //         height: 1200,
+  //         percent: 1.0
+  //       });
+  //     }
+  //   }
+  // }
+
+
+  // async fillAllProductDeliveryQuantities(quantity = '6', maxScrolls = 50 ): Promise<void> {
+  //   const processedRows = new Set<string>();
+  //   let stalledScrolls = 0;
+  //   for (let scroll = 0; scroll < maxScrolls && stalledScrolls < 2; scroll++) {
+  //     const fields = [...(await this.driver.$$('//android.widget.EditText'))];
+  //     const processedBefore = processedRows.size;
+  //     for (let i = 0; i < fields.length; i += 2) {
+  //       const field = fields[i];
+  //       const location = await field.getLocation();
+  //       const key = `${location.x}-${location.y}`;
+  //       if (processedRows.has(key)) {
+  //         continue;
+  //       }
+  //       processedRows.add(key);
+  //       const text = (await field.getText().catch(() => '')).trim();
+  //       await field.click();
+  //       await field.clearValue();
+  //       for (const digit of quantity) {
+  //         await (await this.driver.$(`~${digit}`)).click();
+  //       }
+  //     }
+  //     stalledScrolls =
+  //       processedRows.size === processedBefore
+  //         ? stalledScrolls + 1
+  //         : 0;
+  //     if (stalledScrolls < 2) {
+  //       await this.scrollDown({
+  //         left: 100,
+  //         top: 800,
+  //         width: 800,
+  //         height: 1200,
+  //         percent: 1.0
+  //       });
+  //     }
+  //   }
+  //   await this.dismissNumericKeypad();
+  // }
+
+  //  private readonly qtyKeypadConfirm = '(//android.widget.Button)[last()]';
+  //   async fillAllProductEndQuantities(
+  //   quantity = '6',
+  //   maxScrolls = 50
+  // ): Promise<void> {
+  //   const processedRows = new Set<string>();
+  //   let stalledScrolls = 0;
+
+  //   for (
+  //     let scroll = 0;
+  //     scroll < maxScrolls && stalledScrolls < 2;
+  //     scroll++
+  //   ) {
+  //     const fields = await this.driver.$$('//android.widget.EditText[2]');
+  //     const processedBefore = processedRows.size;
+  //     for (const field of fields) {
+  //       const location = await field.getLocation();
+  //       const key = `${location.x}-${location.y}`;
+
+  //       if (processedRows.has(key)) {
+  //         continue;
+  //       }
+
+  //       processedRows.add(key);
+
+  //       await field.click();
+  //       await field.clearValue();
+
+  //       for (const digit of quantity) {
+  //         await (await this.driver.$(`~${digit}`)).click();
+  //       }
+  //       await this.tap(this.qtyKeypadConfirm);
+  //     }
+  //     stalledScrolls =
+  //       processedRows.size === processedBefore
+  //         ? stalledScrolls + 1
+  //         : 0;
+
+  //     if (stalledScrolls < 2) {
+  //       await this.scrollDown({
+  //         left: 100,
+  //         top: 800,
+  //         width: 800,
+  //         height: 1200,
+  //         percent: 1.0
+  //       });
+  //     }
+  //   }
+  //   await this.dismissNumericKeypad();
+  // }
+
+
+  private readonly qtyKeypadConfirm = '(//android.widget.Button)[last()]';
+  async fillAllProductEndQuantities(quantity = '6', maxScrolls = 50): Promise<void> {
+    let consecutiveNoChanges = 0;
+    for (
+      let scroll = 0;
+      scroll < maxScrolls && consecutiveNoChanges < 3;
+      scroll++
+    ) {
+      let updatedThisPass = 0;
+      const endFields = await this.driver.$$('//android.widget.EditText[@hint="End"]'
+      );
+      for (const field of endFields) {
+        if (!(await field.isDisplayed())) {
+          continue;
+        }
+        const currentValue = (await field.getText()).trim();
+        if (currentValue === quantity) {
+          continue;
+        }
+        await field.click();
+        try {
+          await field.clearValue();
+        } catch { }
+        for (const digit of quantity) {
+          await (await this.driver.$(`~${digit}`)).click();
+        }
+        await this.tap(this.qtyKeypadConfirm);
+        updatedThisPass++;
+        await this.driver.pause(300);
+      }
+      if (updatedThisPass === 0) {
+        consecutiveNoChanges++;
+      } else {
+        consecutiveNoChanges = 0;
+      }
+      await this.scrollDown({
+        left: 100,
+        top: 1200,
+        width: 800,
+        height: 600,
+        percent: 0.7 // overlap scroll
+      });
+      await this.driver.pause(500);
+    }
+    await this.dismissNumericKeypad();
+  }
+
+
+ private readonly endQtyFields = '//android.widget.EditText[@hint="End"]';
+
+async verifyAllProductEndQuantities(
+  expectedQuantity = '6',
+  maxScrolls = 50
+): Promise<void> {
+  const verifiedFields = new Set<string>();
+  let consecutiveNoChanges = 0;
+
+  for (
+    let scroll = 0;
+    scroll < maxScrolls && consecutiveNoChanges < 3;
+    scroll++
+  ) {
+    let newlyVerified = 0;
+
+    const endFields = await this.driver.$$(this.endQtyFields);
+
+    const productCards = await this.driver.$$(
+      '//android.view.View[contains(@content-desc,"More info")]'
+    );
+
+    for (let index = 0; index < await endFields.length; index++) {
+      const field = endFields[index];
+
+      if (!(await field.isDisplayed())) {
+        continue;
+      }
+
+      const location = await field.getLocation();
+      const uniqueKey = `${location.x}-${location.y}`;
+
+      if (verifiedFields.has(uniqueKey)) {
+        continue;
+      }
+
+      const actualValue = (await field.getText()).trim();
+
+      const productName =
+        (
+          (await productCards[index]?.getAttribute('content-desc')) ?? ''
+        ).split('\n')[1]?.trim() ?? 'Unknown Product';
+
+      expect(
+        actualValue,
+        `${productName} End quantity mismatch`
+      ).toBe(expectedQuantity);
+
+      verifiedFields.add(uniqueKey);
+      newlyVerified++;
+    }
+
+    if (newlyVerified === 0) {
+      consecutiveNoChanges++;
+    } else {
+      consecutiveNoChanges = 0;
+    }
+
+    await this.scrollDown({
+      left: 100,
+      top: 1200,
+      width: 800,
+      height: 600,
+      percent: 0.7
+    });
+
+    await this.driver.pause(500);
+  }
+
+  expect(
+    verifiedFields.size,
+    'No End quantity fields were verified'
+  ).toBeGreaterThan(0);
+}
+
+
+
+
+
+
+
+
+
+  protected readonly headerRouteBadge =
+    '//android.view.View[starts-with(@content-desc,"Route")]';
+
+  protected readonly headerDateBadge =
+    `${this.headerRouteBadge}/preceding-sibling::android.view.View[1]`;
+
+  async verifyDateRouteHeader(): Promise<void> {
+    const expectedRoute = mobileConfig.vendingRoute.routeLabel;
+    const expectedDate = this.getExpectedHeaderDate(
+      mobileConfig.vendingRoute.day
+    );
+    const routeEl = await this.driver.$(this.headerRouteBadge);
+    const dateEl = await this.driver.$(this.headerDateBadge);
+    const actualRoute = (await routeEl.getAttribute('content-desc'))?.trim();
+    const actualDate = (await dateEl.getAttribute('content-desc'))?.trim();
+    expect(actualRoute).toBe(expectedRoute);
+    expect(actualDate).toBe(expectedDate);
+  }
+
+
+  async verifyMachinePogHeader(): Promise<void> {
+    const element = await this.driver.$(
+      '//android.view.View[starts-with(@content-desc,"Machine ") and contains(@content-desc," POG")]'
+    );
+    const header = await element.getAttribute('content-desc');
+    expect(header).toMatch(/^Machine \d+ POG$/);
+  }
+
+  private getExpectedHeaderDate(
+    day: 'TODAY' | 'YESTERDAY' | 'TOMORROW'
+  ): string {
+    const date = new Date();
+
+    switch (day) {
+      case 'YESTERDAY':
+        date.setDate(date.getDate() - 1);
+        break;
+
+      case 'TOMORROW':
+        date.setDate(date.getDate() + 1);
+        break;
+
+      case 'TODAY':
+      default:
+        break;
+    }
+
+    return date.toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    });
+  }
+
+
+  protected readonly meterHeader =
+    '//android.view.View[@content-desc="Meters"]';
+
+  protected readonly unitMeterReadingField =
+    '//android.widget.EditText[contains(@hint,"Unit meter reading")]';
+
+  protected readonly meterValidationError = (message: string) =>
+    `//android.view.View[contains(@content-desc,"${message}")]`;
+
+
+  async tapMetersHeader(): Promise<void> {
+    const header = await this.driver.$(this.meterHeader);
+    await header.waitForDisplayed({
+      timeout: 5000,
+    });
+    await header.click();
+  }
+
+  async openMeters(): Promise<void> {
+    await this.tap('//android.view.View[contains(@content-desc,"Meter")]');
+    if (await this.isVisible('~OK')) {
+      await this.tap('~OK')
+    }
+    await this.waitFor(this.meterHeader);
+  }
+
+  async isMetersHeaderDisplayed(): Promise<boolean> {
+    const elements = await this.driver.$$(this.meterHeader);
+    return await elements.length > 0;
+  }
+
+
+  async enterUnitMeterReading(value: string | number): Promise<void> {
+    const field = await this.driver.$(this.unitMeterReadingField);
+    await field.waitForDisplayed({ timeout: 10000 });
+
+    const location = await field.getLocation();
+    const size = await field.getSize();
+    await this.tapAt(
+      Math.floor(location.x + size.width * 0.82),
+      Math.floor(location.y + size.height * 0.5)
+    );
+
+    await field.clearValue();
+    await field.setValue(value.toString());
+  }
+
+
+  async verifyMeterReadingErrorMessage(
+    expectedMessage: string
+  ): Promise<void> {
+    const error = await this.driver.$(
+      this.meterValidationError(expectedMessage)
+    );
+    await error.waitForDisplayed({
+      timeout: 10000,
+    });
+    expect(await error.isDisplayed()).toBe(true);
+  }
+
+
+  readonly pendingActionTab = '//android.view.View[contains(@content-desc,"Pending action")]';
+
+  async scrollUpUntilVisible(
+    locator: string,
+    maxScrolls: number = 15
+  ): Promise<void> {
+    let previousFirstItem = '';
+
+    const itemLocator =
+      '//android.widget.ScrollView//android.widget.ImageView[@clickable="true"]';
+
+    for (let i = 0; i < maxScrolls; i++) {
+      const target = await this.driver.$$(locator);
+      if (await target.length > 0 && await target[0].isDisplayed()) {
+        return;
+      }
+      const visibleItems = await this.driver.$$(itemLocator);
+      if (await visibleItems.length === 0) {
+        break;
+      }
+      const firstItem = visibleItems[0];
+      const firstItemName =
+        (await firstItem.getAttribute('content-desc')) ?? '';
+
+      // Reached top of list
+      if (firstItemName === previousFirstItem) {
+        break;
+      }
+      previousFirstItem = firstItemName;
+
+      // Scroll UP
+      await this.swipe(
+        540, 900,
+        540, 1900
+      );
+      await this.driver.pause(800);
+    }
+    throw new Error(`Element not found: ${locator}`);
+  }
+
+
+
+
+
+  async fillAllProductQuantities(
+    deliveryQty = '3',
+    endQty = '6',
     maxScrolls = 20
   ): Promise<void> {
     const processedRows = new Set<string>();
@@ -1253,22 +2053,40 @@ async getMapsDestination(): Promise<string> {
 
     for (let scroll = 0; scroll < maxScrolls && stalledScrolls < 2; scroll++) {
       const fields = [...(await this.driver.$$('//android.widget.EditText'))];
+
       const processedBefore = processedRows.size;
+
       for (let i = 0; i < fields.length; i += 2) {
-        const field = fields[i];
-        const location = await field.getLocation();
+        const deliveryField = fields[i];
+        const endField = fields[i + 1];
+
+        const location = await deliveryField.getLocation();
         const key = `${location.x}-${location.y}`;
+
         if (processedRows.has(key)) {
           continue;
         }
         processedRows.add(key);
-        const text = (await field.getText().catch(() => '')).trim();
-        await field.click();
-        await field.clearValue();
-        for (const digit of quantity) {
-          await (await this.driver.$(`~${digit}`)).click();
+
+        // // Fill Delivery
+        // await deliveryField.click();
+        // await deliveryField.clearValue();
+
+        // for (const digit of deliveryQty) {
+        //   await (await this.driver.$(`~${digit}`)).click();
+        // }
+        // await this.dismissNumericKeypad();
+
+        // Fill End
+        if (endField) {
+          await endField.click();
+          await endField.clearValue();
+
+          for (const digit of endQty) {
+            await (await this.driver.$(`~${digit}`)).click();
+          }
+          await this.dismissNumericKeypad();
         }
-        await this.dismissNumericKeypad();
       }
 
       stalledScrolls =
@@ -1288,6 +2106,43 @@ async getMapsDestination(): Promise<string> {
     }
   }
 
+
+  protected readonly vendingStationsHeader =
+    '//android.widget.ImageView[contains(@content-desc,"Service stations")]';
+
+  protected readonly firstVendingStationCard =
+    '//android.view.View[contains(@content-desc," - ")]';
+
+  async clickVendingStationsIfCollapsed(): Promise<void> {
+    const header = await this.driver.$(this.vendingStationsHeader);
+    await header.waitForDisplayed({ timeout: 10000 });
+    await header.click();
+  }
+
+  async tapFullButton(): Promise<void> {
+    const fullButton = await this.driver.$(
+      '//android.widget.Button[contains(@content-desc,"FULL")]'
+    );
+
+    await fullButton.waitForDisplayed({ timeout: 10000 });
+    await fullButton.click();
+  }
+
+
+  async enterFirstEndValue(value: string): Promise<void> {
+    const endField = await this.driver.$('(//android.widget.EditText)[2]');
+
+    await endField.waitForDisplayed({ timeout: 5000 });
+    await endField.click();
+
+    await endField.clearValue();
+
+    for (const digit of value) {
+      await (await this.driver.$(`~${digit}`)).click();
+    }
+
+    await this.dismissNumericKeypad();
+  }
 
   /**
    * Removals & Returns has no products to remove on a fresh machine - its
@@ -1471,6 +2326,22 @@ async getMapsDestination(): Promise<string> {
     }
   }
 
+  async getSpoiledQuantity(): Promise<string> {
+    return (
+      (await (await this.driver.$(this.removalsSpoiledField))
+        .getText()
+        .catch(() => '')) || ''
+    ).trim();
+  }
+
+  async getTruckReturnsQuantity(): Promise<string> {
+    return (
+      (await (await this.driver.$(this.removalsTruckReturnsField))
+        .getText()
+        .catch(() => '')) || ''
+    ).trim();
+  }
+
 
   async isRemovalsSaveEnabled(): Promise<boolean> {
     return this.isEnabled(this.removalsSaveButton);
@@ -1602,33 +2473,85 @@ async getMapsDestination(): Promise<string> {
   }
 
   /** Excel TC216/TC217 (Vending "delivery - Sort") - every visible row's own name, in on-screen order, for asserting sort-order changes and Clear sort order's reset back to the default (Par-position) order. */
+  // async getFillProductNamesInOrder(): Promise<string[]> {
+  //   const names = new Set<string>();
+  //   let stalledScrolls = 0;
+  //   let totalScroll = 0;
+
+  //   for (let scroll = 0; scroll < 20 && stalledScrolls < 2; scroll++) {
+  //     const visibleRows = await this.driver.$$(this.fillProductRow);
+  //     const namesBeforeRead = names.size;
+
+  //     for (const row of visibleRows) {
+  //       const desc = (await row.getAttribute('content-desc')) ?? '';
+  //       const name = desc.split('\n')[1] ?? '';
+  //       if (name) {
+  //         names.add(name);
+  //       }
+  //     }
+  //     stalledScrolls = names.size === namesBeforeRead ? stalledScrolls + 1 : 0;
+  //     if (stalledScrolls < 2) {
+  //       await this.scrollDown({ left: 100, top: 800, width: 800, height: 1200, percent: 1.0 });
+  //     }
+  //     totalScroll += 1;
+  //   }
+  //   stalledScrolls = 0;
+  //   for (totalScroll > 0; totalScroll--;) {
+  //     await this.scrollUp({ left: 100, top: 800, width: 800, height: 1200, percent: 1.0 });
+  //   }
+  //   return [...names];
+  // }
+
+
   async getFillProductNamesInOrder(): Promise<string[]> {
-    const names = new Set<string>();
+    const names: string[] = [];
+    const seen = new Set<string>();
+
     let stalledScrolls = 0;
     let totalScroll = 0;
 
     for (let scroll = 0; scroll < 20 && stalledScrolls < 2; scroll++) {
       const visibleRows = await this.driver.$$(this.fillProductRow);
-      const namesBeforeRead = names.size;
+
+      const countBefore = seen.size;
 
       for (const row of visibleRows) {
         const desc = (await row.getAttribute('content-desc')) ?? '';
-        const name = desc.split('\n')[1] ?? '';
-        if (name) {
-          names.add(name);
+        const name = desc.split('\n')[1]?.trim();
+
+        if (name && !seen.has(name)) {
+          seen.add(name);
+          names.push(name);
         }
       }
-      stalledScrolls = names.size === namesBeforeRead ? stalledScrolls + 1 : 0;
+
+      stalledScrolls =
+        seen.size === countBefore ? stalledScrolls + 1 : 0;
+
       if (stalledScrolls < 2) {
-        await this.scrollDown({ left: 100, top: 800, width: 800, height: 1200, percent: 1.0 });
+        await this.scrollDown({
+          left: 100,
+          top: 800,
+          width: 800,
+          height: 1200,
+          percent: 0.7 // overlap scroll
+        });
       }
-      totalScroll += 1;
+
+      totalScroll++;
     }
-    stalledScrolls = 0;
-    for (totalScroll > 0; totalScroll--;) {
-      await this.scrollUp({ left: 100, top: 800, width: 800, height: 1200, percent: 1.0 });
+
+    for (; totalScroll > 0; totalScroll--) {
+      await this.scrollUp({
+        left: 100,
+        top: 800,
+        width: 800,
+        height: 1200,
+        percent: 0.7
+      });
     }
-    return [...names];
+
+    return names;
   }
 
   /** Excel TC170 - the Delivery field's own accessible label, live-verified as the hint attribute rather than a separate text element. */

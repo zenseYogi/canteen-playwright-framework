@@ -20,7 +20,7 @@ export class RouteSetupScreen extends BaseScreen {
   private readonly settingsMenuItem = '~Settings, Collapsed';
   private readonly settingsExpandedMarker = '~Settings, Expanded';
   private readonly routeSetupMenuItem = '~Route setup';
-  private readonly screenTitle = '~Route Setup';
+  private readonly screenTitle = '~Route setup';
   private readonly operationField = '(//android.view.View[@clickable="true"])[1]';
   private readonly routeField = '(//android.view.View[@clickable="true"])[2]';
   private readonly modalSearchField = '//android.widget.EditText';
@@ -31,12 +31,26 @@ export class RouteSetupScreen extends BaseScreen {
   }
 
   /** Hamburger menu > Settings (expands the collapsed section) > Route setup. */
-  async openFromHamburgerMenu(): Promise<void> {
+  // async openFromHamburgerMenu(): Promise<void> {
+  //   await this.tap(this.hamburgerIcon);
+  //   await this.tap(this.settingsMenuItem);
+  //   await this.tap(this.routeSetupMenuItem);
+  //   await this.waitFor(this.screenTitle);
+  // }
+
+  /** Hamburger menu > Settings > Route setup */
+async openFromHamburgerMenu(): Promise<void> {
+  const routeSetupVisible = await this.isVisible(this.routeSetupMenuItem);
+  if (!routeSetupVisible) {
     await this.tap(this.hamburgerIcon);
-    await this.tap(this.settingsMenuItem);
-    await this.tap(this.routeSetupMenuItem);
-    await this.waitFor(this.screenTitle);
+    const settingsExpanded = await this.isVisible(this.settingsExpandedMarker);
+    if (!settingsExpanded) {
+      await this.tap(this.settingsMenuItem);
+    }
   }
+  await this.tap(this.routeSetupMenuItem);
+  await this.waitFor(this.screenTitle);
+}
 
   /**
    * Excel TC009 - opens the hamburger menu and expands Settings (without
@@ -130,14 +144,35 @@ export class RouteSetupScreen extends BaseScreen {
    * to appear. Sync took 60-90s in live testing - default timeout reflects
    * that rather than BaseScreen's normal 15s element timeout.
    */
-  async waitForSyncAndDaySheet(timeoutMs = 120_000): Promise<void> {
-    const el = await this.driver.$('~Select a day');
+  async waitForSyncAndDaySheet(timeoutMs = 360_000): Promise<void> {
+    const el = await this.driver.$('~Select Day');
     await el.waitForDisplayed({ timeout: timeoutMs });
   }
 
   async selectDay(day: DaySelection): Promise<void> {
     await this.tap(this.daySelector(day));
   }
+
+  async confirmRoute(timeoutMs = 120_000): Promise<void> {
+    const el = await this.driver.$('~Confirm');
+    await el.waitForDisplayed({ timeout: timeoutMs });
+    await el.click();
+    await this.verifyStartDayRouteDisplayed();
+  }
+
+
+
+  async verifyStartDayRouteDisplayed(): Promise<void> {
+  const element = await this.driver.$(
+    `//android.view.View[contains(@content-desc,"Start day")]`
+  );
+  await element.waitForDisplayed({
+    timeout: 360_000,
+    timeoutMsg: `Start day header for route was not displayed`
+  });
+  const text =
+    (await element.getAttribute('content-desc')) ?? '';
+}
 
   /**
    * TC030 "view 'Select a day'" / TC035 "verify date-label mapping" -
@@ -180,5 +215,6 @@ export class RouteSetupScreen extends BaseScreen {
     await this.confirmChangeRoute();
     await this.waitForSyncAndDaySheet();
     await this.selectDay(params.day);
+    await this.confirmRoute();
   }
 }

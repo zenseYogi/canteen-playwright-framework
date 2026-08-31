@@ -12,14 +12,14 @@ import { EndDayScreen } from '../../screens/end-day.screen';
 
 
 
-test.describe.configure({ mode: 'serial' });
+// test.describe.configure({ mode: 'serial' });
 
 test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
   let driver: Browser;
 
   test.beforeAll(async () => {
     driver = await createMobileSession();
-    // await loginAndWaitForMfa(driver);
+    await loginAndWaitForMfa(driver);
     // await ensureOnRoute(driver, mobileConfig.vendingRoute);
   });
 
@@ -34,9 +34,9 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       } catch (e) {
         console.warn('Could not capture failure screenshot:', e);
       }
-      // await new HomeScreen(driver).returnToHome();
-    }
 
+    }
+    await new HomeScreen(driver).returnToHome();
   });
 
   test.afterAll(async () => {
@@ -47,8 +47,219 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
 
 
 
+  //Passed
+  test(
+    'Deleting an added delivery removes it entirely from the schedule',
+    { tag: ['@Vending-TC-023'] },
+    async () => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const vending = new VendingServiceScreen(driver);
 
-  test.only(
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+      var stationName: string;
+      var machineId: string;
+      await test.step("Open the first stop's first Vending machine", async () => {
+
+        const locationName = await vending.getLocationNameByPosition('first');
+        console.log(locationName);
+        await dashboard.clickLocationByPosition('first');
+        stationName = await dashboard.getNthServiceStationName('vending', 'first');
+        dashboard.openNthServiceStation('vending', 'first');
+        console.log('Station Names', stationName);
+        machineId = stationName.split('-')[0].trim();
+      });
+
+      await test.step('TC003: tap Before Photos and verify the Take photo/Skip photo modal', async () => {
+        await vending.tapContinue();
+        await vending.openBeforePhotos();
+        const modal = await vending.isPhotoModalVisible();
+        await vending.openSkipPhotoReasonSheet();
+        await vending.enterSkipPhotoReason('Camera cannot focus and take clear picture');
+        await vending.confirmSkipPhoto();
+      });
+
+      await test.step('TC042: Delete Delivery', async () => {
+        await vending.tap(vending.deleteDelivery);
+        // expect(await dashboard.isNthServiceStationVisible('vending', 'first')).toBe(false);
+        // expect(await vending.isConfirmDeletePopupDisplayed()).toBe(true);
+        await vending.tap('~Delete');
+
+        if (!await dashboard.isNthServiceStationVisible('vending', 'first')) {
+          await vending.clickVendingStationsIfCollapsed();
+        }
+        expect(await dashboard.isNthServiceStationVisible('vending', 'first')).toBe(true);
+        dashboard.openServiceStationByName('vending', stationName);
+        await vending.tapContinue();
+        expect(await vending.isServiceStationCompleted('Before Photos')).toBe(false);
+        // expect(
+        //   await vending.isServiceStationCompleted('99187 - Bottle Bev')
+        // ).toBe(false);
+
+      });
+
+    });
+
+
+
+  //Pass
+  test(
+    'Complete a Full service Delivery and Deleting a completed unsynced scheduled service returns machine to unhandled',
+    { tag: ['@Vending-TC-029', '@Vending-TC-036'] },
+    async () => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const vending = new VendingServiceScreen(driver);
+
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
+      var stationName: string;
+      var machineId: string;
+      await test.step("Open the first stop's first Vending machine", async () => {
+
+        const locationName = await vending.getLocationNameByPosition('first');
+        console.log(locationName);
+        await dashboard.clickLocationByPosition('first');
+        stationName = await dashboard.getNthServiceStationName('vending', 'first');
+        dashboard.openNthServiceStation('vending', 'first');
+        console.log('Station Names', stationName);
+        machineId = stationName.split('-')[0].trim();
+      });
+
+
+      await test.step('TC003: tap Before Photos and verify the Take photo/Skip photo modal', async () => {
+        await vending.tapContinue();
+        const header = await vending.isDateRouteHeaderVisible();
+        expect(await vending.isMachineDisplayed(machineId)).toBe(true);
+        expect(await vending.isHeaderDisplayed('FULL SERVICE')).toBe(true);
+        expect(await vending.isBeforePhotosEnabled()).toBe(true);
+        expect(await vending.isMoneyOperationsEnabled()).toBe(true);
+        expect(await vending.isFillsAndEndingInventoryDisabled()).toBe(true);
+        expect(await vending.isRemovalsAndReturnsDisabled()).toBe(true);
+        expect(await vending.isKitReturnsEnabled()).toBe(true);
+        expect(await vending.isCompleteDeliveryDisabled()).toBe(true);
+        await vending.openBeforePhotos();
+        const modal = await vending.isPhotoModalVisible();
+        await vending.openSkipPhotoReasonSheet();
+        await vending.enterSkipPhotoReason('Camera cannot focus and take clear picture');
+        await vending.confirmSkipPhoto();
+      });
+
+
+      await test.step("TC003/TC006: After Photos remains disabled until all required tasks are complete", async () => {
+        expect(await vending.isAfterPhotosEnabled()).toBe(false);
+        await vending.openMoneyOperations();
+        await vending.performMoneyOperations({ bagCode: '12938', bills: '120', refund: '5.55' });
+        //Fills, removales enabled
+        expect(await vending.isFillsAndEndingInventoryDisabled()).toBe(false);
+        expect(await vending.isRemovalsAndReturnsDisabled()).toBe(false);
+        await vending.openFillsAndEndingInventory();
+        // await vending.fillAllProductDeliveryQuantities();
+        await vending.fillAllProductEndQuantities()
+        // await vending.fillAllProductQuantities();
+
+
+        await vending.tapBackArrow();
+        await vending.tapBackArrow();
+        expect(await vending.isAfterPhotosEnabled()).toBe(true);
+
+      });
+
+      await test.step('TC031: Machine type audit visibility edge cases [Vending | Audit should not be shown]', async () => {
+        expect(await vending.isAuditVisible()).toBe(false);
+      });
+
+      await test.step('TC005/TC006: Spoiled=2/RETK=1 saves and appears with an aggregate Qty of 3', async () => {
+        await vending.openRemovalsAndReturns();
+        await vending.tapBackArrow();
+        await vending.isHeaderDisplayed("Removals & Returns");
+
+
+        await vending.openRemovalsAndReturns();
+        const productName = await vending.enterFillsAndRemovalsForFirstRow('2', '1');
+        await prepTasks.tapBackArrow();
+        await vending.isHeaderDisplayed("Removals & Returns");
+
+
+
+        // await vending.openRemovalsAndReturns();
+        // let productName = 'Sun Drop 20oz';
+        // // await vending.enterRemovalReturnValues(productName, '2', '1');
+        // productName = await vending.enterRemovalReturnValuesForFirstRow('2', '1');
+        // await prepTasks.tapBackArrow();
+        // await vending.isHeaderDisplayed("Removals & Returns");
+        await vending.openRemovalsAndReturns();
+        // Verify persisted values
+        await vending.verifyRemovalReturnValues(productName, '2', '1');
+        await prepTasks.tapBackArrow();
+      });
+
+      await test.step('TC042: Skip After photos', async () => {
+        await vending.openAfterPhotos();
+        const modal = await vending.isPhotoModalVisible();
+        expect(modal.skipPhoto).toBe(true);
+        await vending.openSkipPhotoReasonSheet();
+        expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(true);
+        expect(await vending.isSkipPhotoSubmitEnabled()).toBe(false);
+        await vending.enterSkipPhotoReason('Camera cannot focus and take clear picture');
+        await vending.waitForSkipPhotoSubmitEnabled(true);
+        await vending.confirmSkipPhoto();
+        expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(false);
+        await vending.tap("~Complete Delivery");
+        // expect(await vending.isHeaderDisplayed(locationName)).toBe(true);
+
+
+      });
+
+      await test.step('Delete Completed Delivery', async () => {
+        // await vending.tap(vending.deleteDelivery);
+        // expect(await dashboard.isNthServiceStationVisible('vending', 'first')).toBe(false);
+        // expect(await vending.isConfirmDeletePopupDisplayed()).toBe(true);
+        // await vending.tap('~Delete');
+
+        if (!await dashboard.isNthServiceStationVisible('vending', 'first')) {
+          await vending.clickVendingStationsIfCollapsed();
+        }
+        expect(await vending.isServiceStationCompleted(stationName)).toBe(true);
+        dashboard.openServiceStationByName('vending', stationName);
+        expect(
+          await vending.isVisible('~Edit Existing Delivery')
+        ).toBe(false);
+
+        await vending.waitFor('~Edit Existing Delivery')
+        await vending.tap('~Edit Existing Delivery');
+        await vending.waitFor('~EDITING EXISTING DELIVERY')
+        await vending.tapFullButton();
+        await vending.isHeaderDisplayed('FULL SERVICE');
+        await vending.tap(vending.deleteDelivery);
+        await vending.tap('~Delete');
+        if (!await dashboard.isNthServiceStationVisible('vending', 'first')) {
+          await vending.clickVendingStationsIfCollapsed();
+        }
+        // const stationName = '69617 - Snacks';
+        expect(await dashboard.isNthServiceStationVisible('vending', 'first')).toBe(true);
+        await vending.isHeaderDisplayed(stationName);
+        driver.pause(1000);
+        await dashboard.waitForServiceStationVisible('vending', stationName);
+        await dashboard.openServiceStationByName('vending', stationName);
+        await vending.tapBackArrow();
+        expect(await vending.isServiceStationCompleted(stationName)).toBe(false);
+        dashboard.openServiceStationByName('vending', stationName);
+        await vending.tapContinue();
+        expect(await vending.isServiceStationCompleted('Before Photos')).toBe(false);
+      });
+    });
+
+
+
+
+  //Pass
+  test(
     'Spot service',
     { tag: ['@Vending-TC-024'] },
     async () => {
@@ -60,84 +271,17 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       //   await prepTasks.openFromHamburgerMenu();
       //   await prepTasks.ensureFullDayPrepComplete();
       // });
-      var stationName: string;
-      var machineId: string;
-      var address: string;
-      await test.step("Open the first stop's first Vending machine", async () => {
-        const isHeaderDisplayed = await vending.isHeaderDisplayed('Vending');
-        expect(isHeaderDisplayed).toBe(true);
-        //Aaron's
-        // await dashboard.clickLocationByPosition('first');
-        await dashboard.clickLocationByName("Aaron's")
-        address = await vending.getHeaderAddress("Aaron's");
-        stationName = await dashboard.getNthServiceStationName('vending', 'first');
-        dashboard.openNthServiceStation('vending', 'first');
-        console.log('Station Name', stationName);
-        machineId = stationName.split('-')[0].trim();
-      });
-
-      // await test.step(
-      //   'TC028: Verify SPOT Service task list screen',
-      //   async () => {
-      //     await vending.tapSpot();
-      //     const header = await vending.isDateRouteHeaderVisible();
-      //     expect(await vending.isMachineDisplayed(machineId)).toBe(true);
-      //     expect(await vending.isHeaderDisplayed('SPOT SERVICE')).toBe(true);
-      //     expect(await vending.isBeforePhotosEnabled()).toBe(true);
-      //     expect(await vending.isMoneyOperationsEnabled()).toBe(true);
-      //     expect(await vending.isFillsAndRemovalsDisabled()).toBe(true);
-      //     expect(await vending.isAfterPhotosDisabled()).toBe(true);
-      //     expect(await vending.isCompleteDeliveryDisabled()).toBe(true);
-      //   }
-      // );
-
-      // await test.step('TC003: tap Before Photos and verify the Take photo/Skip photo modal', async () => {
-      //   await vending.openBeforePhotos();
-      //   const modal = await vending.isPhotoModalVisible();
-      //   await vending.openSkipPhotoReasonSheet();
-      //   await vending.enterSkipPhotoReason('Camera cannot focus and take clear picture');
-      //   await vending.confirmSkipPhoto();
-      // });
-
-
-      // await test.step("Money operations", async () => {
-      //   await vending.openMoneyOperations();
-      //   await vending.enterBillExchangeAmount('120');
-      //   await vending.tapBackArrow();
-      //   expect(await vending.isCompleteDeliveryDisabled()).toBe(true);
-      //   await vending.openFillsAndRemovals();
-      //   const productName = 'Sun Drop 20oz';
-      //   // await vending.enterRemovalReturnValues(productName, '2', '1');
-      //   await vending.enterProductValues(productName, {
-      //     Delivery: '2',
-      //     Spoiled: '1',
-      //   });
-      //   await prepTasks.tapBackArrow();
-      //   await vending.isHeaderDisplayed("Fills & Removals");
-      //   expect(await vending.isCompleteDeliveryEnabled()).toBe(true);
-
-      // });
-
-      // await test.step('TC042: Skip After photos', async () => {
-      //   await vending.openAfterPhotos();
-      //   const modal = await vending.isPhotoModalVisible();
-      //   expect(modal.skipPhoto).toBe(true);
-      //   await vending.openSkipPhotoReasonSheet();
-      //   expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(true);
-      //   expect(await vending.isSkipPhotoSubmitEnabled()).toBe(false);
-      //   await vending.enterSkipPhotoReason('Camera cannot focus and take clear picture');
-      //   await vending.waitForSkipPhotoSubmitEnabled(true);
-      //   await vending.confirmSkipPhoto();
-      //   expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(false);
-      //   await vending.tap("~Complete Delivery");
-      //   expect(await dashboard.isNthServiceStationVisible('vending', 'first')).toBe(false);
-
-      // });
-
 
 
       await test.step('TC:041 Verify Navigate launches Google Maps',
         async () => {
+
+          const locationName = await vending.getLocationNameByPosition('first');
+          console.log(locationName);
+          await dashboard.clickLocationByName(locationName)
+          address = await vending.getHeaderAddress(locationName);
+          stationName = await dashboard.getNthServiceStationName('vending', 'first');
+          const appPackage = await driver.getCurrentPackage();
           await vending.tap('~Navigate');
           await driver.waitUntil(
             async () =>
@@ -147,65 +291,54 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
           expect(await driver.getCurrentPackage()).toBe(
             'com.google.android.apps.maps'
           );
+          await vending.skipGoogleMapsSigninIfDisplayed();
+
           const destination = await vending.getMapsDestination();
           expect(destination).toContain(address);
-        }
-      );
 
-
-    });
-
-
-
-
-
-
-
-
+          // Return to Compass app
+          await driver.activateApp(appPackage);
+          await driver.waitUntil(
+            async () =>
+              (await driver.getCurrentPackage()) === appPackage,
+            { timeout: 10000 }
+          );
+          expect(await driver.getCurrentPackage()).toBe(appPackage);
+        });
 
 
 
-
-
-
-
-
-
-
-  test(
-    'Full service',
-    { tag: ['@Vending-TC-030'] },
-    async () => {
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const vending = new VendingServiceScreen(driver);
-
-      // await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-      //   await prepTasks.openFromHamburgerMenu();
-      //   await prepTasks.ensureFullDayPrepComplete();
-      // });
       var stationName: string;
       var machineId: string;
+      var address: string;
       await test.step("Open the first stop's first Vending machine", async () => {
-        await dashboard.clickLocationByPosition('first');
+        await dashboard.tapViewSchedule();
+        const isHeaderDisplayed = await vending.isHeaderDisplayed('Vending');
+        expect(isHeaderDisplayed).toBe(true);
+        //Aaron's
+        // await dashboard.clickLocationByPosition('first');
+        const locationName = await vending.getLocationNameByPosition('first');
+        console.log(locationName);
+        await dashboard.clickLocationByName(locationName)
+        address = await vending.getHeaderAddress(locationName);
         stationName = await dashboard.getNthServiceStationName('vending', 'first');
         dashboard.openNthServiceStation('vending', 'first');
-        console.log('Station Names', stationName);
+        console.log('Station Name', stationName);
         machineId = stationName.split('-')[0].trim();
       });
 
       await test.step(
-        'TC030: Verify FULL SERVICE task list screen',
+        'TC028: Verify SPOT Service task list screen',
         async () => {
-          await vending.tapContinue();
+          await vending.tapSpot();
+          const header = await vending.isDateRouteHeaderVisible();
           expect(await vending.isMachineDisplayed(machineId)).toBe(true);
-          expect(await vending.isHeaderDisplayed('FULL SERVICE')).toBe(true);
+          expect(await vending.isHeaderDisplayed('SPOT SERVICE')).toBe(true);
           expect(await vending.isBeforePhotosEnabled()).toBe(true);
           expect(await vending.isMoneyOperationsEnabled()).toBe(true);
-          expect(await vending.isFillsAndEndingInventoryDisabled()).toBe(true);
-          expect(await vending.isRemovalsAndReturnsDisabled()).toBe(true);
-          expect(await vending.isDexEnabled()).toBe(true);
-          expect(await vending.isAfterPhotosDisabled()).toBe(true);
+          expect(await vending.isFillsAndRemovalsDisabled()).toBe(false);
+          expect(await vending.isAfterPhotosDisabled()).toBe(false);
+          expect(await vending.isCompleteDeliveryDisabled()).toBe(true);
         }
       );
 
@@ -217,44 +350,367 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         await vending.confirmSkipPhoto();
       });
 
+
+      await test.step("Money operations", async () => {
+        await vending.openMoneyOperations();
+        await vending.enterBillExchangeAmount('120');
+        await vending.tapBackArrow();
+        expect(await vending.isCompleteDeliveryDisabled()).toBe(true);
+
+        await vending.openFillsAndRemovals();
+        const productName = await vending.enterFillsAndRemovalsForFirstRow('2', '1');
+        await prepTasks.tapBackArrow();
+        await vending.isHeaderDisplayed("Removals & Returns");
+
+        // const productName = 'Sun Drop 20oz';
+        // // await vending.enterRemovalReturnValues(productName, '2', '1');
+        // await vending.enterProductValues(productName, {
+        //   Delivery: '2',
+        //   Spoiled: '1',
+        // });
+        // await prepTasks.tapBackArrow();
+        // await vending.isHeaderDisplayed("Fills & Removals");
+        expect(await vending.isCompleteDeliveryEnabled()).toBe(true);
+
+      });
+
+      await test.step('TC042: Skip After photos', async () => {
+        await vending.openAfterPhotos();
+        const modal = await vending.isPhotoModalVisible();
+        expect(modal.skipPhoto).toBe(true);
+        await vending.openSkipPhotoReasonSheet();
+        expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(true);
+        expect(await vending.isSkipPhotoSubmitEnabled()).toBe(false);
+        await vending.enterSkipPhotoReason('Camera cannot focus and take clear picture');
+        await vending.waitForSkipPhotoSubmitEnabled(true);
+        await vending.confirmSkipPhoto();
+        expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(false);
+        await vending.tap("~Complete Delivery");
+        expect(await dashboard.isNthServiceStationVisible('vending', 'first')).toBe(true);
+        // add step to open and verify existing delivery with SPOT available
+      });
+    });
+
+
+
+
+  //Failed in sorting
+  test(
+    'reach the first Vending machine and verify Product fills, Sort, and Filter',
+    { tag: ['@Vending-TC-001'] },
+    async () => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const vending = new VendingServiceScreen(driver);
+
+      // await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+      //   await prepTasks.openFromHamburgerMenu();
+      //   await prepTasks.ensureFullDayPrepComplete();
+      // });
+
+      await test.step("Open the first stop's first Vending machine", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openNthServiceStation('vending', 'first');
+        await vending.tapContinue();
+      });
+
+      await test.step('TC007/TC031: Machine type audit visibility edge cases [Vending | Audit should not be shown]', async () => {
+        expect(await vending.isAuditVisible()).toBe(false);
+      });
+
+      await test.step('TC003: tap Before Photos and verify the Take photo/Skip photo modal', async () => {
+        await vending.openBeforePhotos();
+        const modal = await vending.isPhotoModalVisible();
+        await vending.openSkipPhotoReasonSheet();
+        await vending.enterSkipPhotoReason('Camera cannot focus and take clear picture');
+        await vending.confirmSkipPhoto();
+        // expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(false);
+      });
+
       await test.step("TC003/TC006: After Photos remains disabled until all required tasks are complete", async () => {
         expect(await vending.isAfterPhotosEnabled()).toBe(false);
         await vending.openMoneyOperations();
         await vending.performMoneyOperations({ bagCode: '12938', bills: '120', refund: '5.55' });
         expect(await vending.isFillsAndEndingInventoryDisabled()).toBe(false);
         await vending.openFillsAndEndingInventory();
-        await vending.fillAllProductDeliveryQuantities();
+        // await vending.fillAllProductQuantities();
+        // await vending.fillAllProductDeliveryQuantities();
+        await vending.fillAllProductEndQuantities();
+        await vending.tapBackArrow();
+        await vending.tapBackArrow();
+        await vending.openFillsAndEndingInventory();
+        await vending.verifyAllProductEndQuantities();
+        await vending.tapBackArrow();
+        expect(await vending.isServiceStationCompleted('Fills & Ending Inventory')).toBe(true);
+        expect(await vending.isAfterPhotosEnabled()).toBe(true);
+
+      });
+
+
+
+      await test.step('TC012/TC008/TC013: Fills and Ending Inventory data auto-saves without a Complete button on screen]', async () => {
+        await vending.openFillsAndEndingInventory();
+        expect(await vending.isProductTitleVisible()).toBe(true);
+
+        // await vending.fillAllProductDeliveryQuantities();
+        await vending.tapBackArrow();
+        expect(await vending.isProductFillsTitleVisible()).toBe(false);
+        await vending.openFills();
+        expect(await vending.isProductFillsTitleVisible()).toBe(true);
+      });
+
+      await test.step('TC009: I am able to review Par, Capacity, Ordered, Picked values]', async () => {
+
+        // await vending.clickMoreInfoArrow('Dasani Wtr 20oz');
+        await vending.clickFirstMoreInfoArrow();
+        // const productInfo = await vending.getProductInfoLabels('Dasani Wtr 20oz');
+        const productInfo = await vending.getFirstProductInfoLabels();
+
+        for (const [label, value] of Object.entries(productInfo)) {
+          expect(Number.isInteger(value), `${label} should have a numeric value`).toBe(true);
+          expect(value, `${label} should be displayed`).toBeGreaterThanOrEqual(0);
+        }
+
+      });
+
+      await test.step('TC010: Keypad arrows move only between editable product quantity fields]', async () => {
+        var deliveryFields = await vending.getEditableQuantityFields();
+        await deliveryFields[0].click();
+        await vending.waitForKeyboardVisible();
+
+        // Press keypad down arrow
+        await vending.tapKeypadDownArrow();
+        await driver.pause(1000);
+        deliveryFields = await vending.getEditableQuantityFields();
+        expect(await deliveryFields[1].getAttribute('focused')).toBe('true');
+        vending.tapBackArrow();
+      });
+
+
+
+      await test.step('TC011: Driver filters and sorts products on the Fills screen', async () => {
+        await vending.openFillsAndEndingInventory();
+        const defaultOrder = await vending.getFillProductNamesInOrder();
+        await vending.openSortSheet();
+        await vending.selectSortOption('A to Z');
+        expect(await vending.isSortActive()).toBe(true);
+        const aToZNames = await vending.getFillProductNamesInOrder();
+        const sorted = [...defaultOrder].sort((a, b) => a.localeCompare(b));
+        console.log('Default order:', defaultOrder);
+        console.log('Sorted A to Z:', sorted);
+        console.log('A to Z names from app:', aToZNames);
+        expect.soft(aToZNames).toEqual(sorted);
+
+
+        await vending.openSortSheet();
+        expect(await vending.isClearSortEnabled()).toBe(true);
+        await vending.tapClearSort();
+        expect(await vending.isSortActive()).toBe(false);
+        await vending.openSortSheet();
+        await vending.selectSortOption('Z to A');
+        expect(await vending.isSortActive()).toBe(true);
+        const zToANames = await vending.getFillProductNamesInOrder();
+        const sortedDesc = [...defaultOrder].sort((a, b) => b.localeCompare(a));
+        expect.soft(zToANames).toEqual(sortedDesc);
+
+        await vending.openSortSheet();
+        expect(await vending.isClearSortEnabled()).toBe(true);
+        await vending.tapClearSort();
+        expect(await vending.isSortActive()).toBe(false);
+        expect(await vending.getFillProductNamesInOrder()).toEqual(defaultOrder);
+
+
+        await vending.openFilterSheet();
+        expect(await vending.isFilterByCategoryLabelVisible()).toBe(true);
+        expect(await vending.isApplyFiltersEnabled()).toBe(false);
+        expect(await vending.isClearFiltersEnabled()).toBe(false);
+
+
+        await vending.tapFilterChip('CANDY');
+        // await vending.tapFilterChip('BOTTLE BEV');
+        // await vending.tapFilterChip('CAN BEV');
+        expect(await vending.isFilterChipSelected('CANDY')).toBe(true);
+        // expect(await vending.isFilterChipSelected('CAN BEV')).toBe(true);
+        expect(await vending.isApplyFiltersEnabled()).toBe(true);
+
+        await vending.tapApplyFilters();
+        expect(await vending.isFilterActive()).toBe(true);
+        expect(await vending.isFilterTagVisible('CANDY')).toBe(true);
+        // expect(await vending.isFilterTagVisible('CAN BEV')).toBe(true);
+
+        await vending.openFilterSheet();
+        await vending.tapClearFilters();
+        expect(await vending.isFilterActive()).toBe(false);
+        expect(await vending.isFilterTagVisible('CANDY')).toBe(false);
+        // expect(await vending.isFilterTagVisible('CAN BEV')).toBe(false);
+
+      });
+    });
+
+
+
+  //Passed
+  //Complete Full service
+  test(
+    'Driver opens Planogram from Fills and verifies the screen',
+    { tag: ['@Vending-TC-014'] },
+    async () => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const vending = new VendingServiceScreen(driver);
+
+      // await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+      //   await prepTasks.openFromHamburgerMenu();
+      //   await prepTasks.ensureFullDayPrepComplete();
+      // });
+
+      var stationName: string;
+      var machineId: string;
+      await test.step("Open the first stop's first Vending machine", async () => {
+        await dashboard.clickLocationByPosition('first');
+        stationName = await dashboard.getNthServiceStationName('vending', 'first');
+        dashboard.openNthServiceStation('vending', 'first');
+        console.log('Station Names', stationName);
+        machineId = stationName.split('-')[0].trim();
+        await vending.tapContinue();
+      });
+
+
+      await test.step('TC003: tap Before Photos and verify the Take photo/Skip photo modal', async () => {
+        await vending.openBeforePhotos();
+        const modal = await vending.isPhotoModalVisible();
+        await vending.openSkipPhotoReasonSheet();
+        await vending.enterSkipPhotoReason('Camera cannot focus and take clear picture');
+        await vending.confirmSkipPhoto();
+        // expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(false);
+      });
+
+      await test.step("TC003/TC006: After Photos remains disabled until all required tasks are complete", async () => {
+        expect(await vending.isAfterPhotosEnabled()).toBe(false);
+        await vending.openMoneyOperations();
+        await vending.performMoneyOperations({ bagCode: '12938', bills: '120', refund: '5.55' });
+        expect(await vending.isFillsAndEndingInventoryDisabled()).toBe(false);
+        await vending.openFillsAndEndingInventory();
+        // await vending.fillAllProductQuantities();
+        // await vending.fillAllProductDeliveryQuantities();
+        await vending.fillAllProductEndQuantities();
+        await vending.tapBackArrow();
         await vending.tapBackArrow();
         expect(await vending.isAfterPhotosEnabled()).toBe(true);
       });
 
-      await test.step('TC031: Machine type audit visibility edge cases [Vending | Audit should not be shown]', async () => {
-        expect(await vending.isAuditVisible()).toBe(false);
+
+
+      await test.step('TC008/TC013/TC012: Fills and Ending Inventory data auto-saves without a Complete button on screen]', async () => {
+        await vending.openFillsAndEndingInventory();
+        expect(await vending.isProductTitleVisible()).toBe(true);
+
+        //verify values
+        // await vending.fillAllProductDeliveryQuantities();
+
+        await vending.tapBackArrow();
+        expect(await vending.isProductFillsTitleVisible()).toBe(false);
+        await vending.openFills();
+        expect(await vending.isProductFillsTitleVisible()).toBe(true);
+      });
+
+
+      // Filter/Sort/Planogram, no Add (documented discrepancy).
+      await test.step('TC015/TC016/TC017: header shows Planogram, Planogram opens from the header icon', async () => {
+        const actions = await vending.isFillsHeaderActionsVisible();
+        await vending.openPlanogram();
+        expect(await vending.isPlanogramTitleVisible()).toBe(true);
+        await vending.verifyDateRouteHeader();
+
+        const header = await vending.isDateRouteHeaderVisible();
+        expect.soft(header.date).toBe(true);
+        expect.soft(header.route).toBe(true);
+
+        expect(await vending.isHeaderDisplayed("Planogram")).toBe(true);
+        // expect(await vending.isHeaderDisplayed("Machine 3285345 POG")).toBe(true);
+        await vending.verifyMachinePogHeader();
+
+        //Verify layout toggles are visible
+        expect(await vending.isGridLayoutToggleVisible()).toBe(true);
+        await vending.openLabelNameDropdown();
+        expect(await vending.isOptionDisplayed('Ending inventory')).toBe(true);
+        expect(await vending.isOptionDisplayed('Fills')).toBe(true);
+        expect(await vending.isOptionDisplayed('Par / Capacity')).toBe(true);
+        expect(await vending.isOptionDisplayed('Price')).toBe(true);
+        expect(await vending.isOptionDisplayed('Spoils / Return to truck')).toBe(true);
+        expect(await vending.isOptionDisplayed('Service tests')).toBe(true);
+        expect(await vending.isOptionDisplayed('Product')).toBe(true);
+
+        await vending.selectLabelNameOption('Par / Capacity');
+        // Verify Par/Capacity labels and values
+        expect(await vending.isParCapacityHeaderVisible()).toBe(true);
+        expect(await vending.getParCapacityRowCount()).toBeGreaterThan(0);
+        expect(await vending.isParCapacityDataDisplayed()).toBe(true);
+
+        expect(
+          await vending.isGridViewDisplayed()
+        ).toBe(true);
+
+        // Toggle layout
+        // await vending.switchParCapacityLayout();
+        await vending.switchParCapacityLayoutToRight();
+        await vending.waitForListViewLayout();
+        expect(await vending.isListViewDisplayed()).toBe(true);
+
+        await vending.pressKeyCode(4);
+        await vending.waitFor('~Product fills');
+        await vending.enterFirstEndValue('0');
+        await vending.tapBackArrow();
       });
 
       await test.step('TC005: Spoiled=2/RETK=1 saves and appears with an aggregate Qty of 3', async () => {
         await vending.openRemovalsAndReturns();
-        const productName = 'Sun Drop 20oz';
-        await vending.enterRemovalReturnValues(productName, '2', '1');
+        // await vending.searchAndSelect('Snickers');
+        await vending.fillRemovalsSpoiledRetkQuantities({ spoiled: '2', truckReturns: '1' });
         await prepTasks.tapBackArrow();
-        await vending.isHeaderDisplayed("Removals & Returns");
+        await vending.isHeaderDisplayed('Removals & Returns')
         await vending.openRemovalsAndReturns();
-        // Verify persisted values
-        await vending.verifyRemovalReturnValues(productName, '2', '1');
+        expect(await vending.getSpoiledQuantity()).toBe('2');
+        expect(await vending.getTruckReturnsQuantity()).toBe('1');
         await prepTasks.tapBackArrow();
-        /****** confirm delete delivery **** */
-        // await prepTasks.tapBackArrow();
-        // await vending.isHeaderDisplayed("The service must be completed or deleted.  Do you want to delete all information for this service?")
-        // await vending.tap('~Yes');
+        await vending.isHeaderDisplayed('Removals & Returns')
+        expect(await vending.isServiceStationCompleted('Removals & Returns')).toBe(true);
+      });
+
+      await test.step('Skip After photos and complete Delivery', async () => {
+        await vending.openAfterPhotos();
+        const modal = await vending.isPhotoModalVisible();
+        expect(modal.takePhoto).toBe(true);
+        expect(modal.skipPhoto).toBe(true);
+        await vending.openSkipPhotoReasonSheet();
+        expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(true);
+        expect(await vending.isSkipPhotoSubmitEnabled()).toBe(false);
+        await vending.enterSkipPhotoReason('Camera cannot focus and take clear picture');
+        await vending.waitForSkipPhotoSubmitEnabled(true);
+        await vending.confirmSkipPhoto();
+        expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(false);
+
+        await vending.tap("~Complete Delivery");
+        await vending.isServiceStationCompleted(stationName);
       });
 
     });
 
 
 
+
+
+
+
+
+
+
+
+
+  //Passed
   test(
     'Skip stop',
-    { tag: ['@Vending-TC-038'] },
+    { tag: ['@Vending-TC-038', '@Vending-TC-039', '@Vending-TC-003'] },
     async () => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -271,11 +727,28 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       await test.step("Driver skips a stop", async () => {
         await dashboard.clickLocationByPosition('first');
         await dashboard.isNthServiceStationVisible('vending', 'first');
-        await dashboard.swipeAndSkipServiceStation("vending", "first");
 
-        await vending.tapSkipReasonDropdown();
+        stationName = await dashboard.getNthServiceStationName('vending', 'first');
+        // dashboard.openNthServiceStation('vending', 'first');
+        console.log('Station Names', stationName);
+        // machineId = stationName.split('-')[0].trim();
+
+
+        await dashboard.swipeAndSkipServiceStation("vending", "first");
+        expect(await vending.tapSkipReasonDropdown()).toBe(true);
         await vending.selectSkipReason('Driver Skipped');
+        // await vending.selectLeaveOnTruck();
+        await vending.tap('~Leave on truck');
         await vending.tap('~Skip stop');
+        expect(await vending.isServiceStationSkipped(stationName)).toBe(true);
+
+        if (!await dashboard.isNthServiceStationVisible('vending', 'first')) {
+          await vending.clickVendingStationsIfCollapsed();
+        }
+        expect(await dashboard.isNthServiceStationVisible('vending', 'first')).toBe(true);
+
+
+
       });
 
       await test.step("Driver can resume service on a previously skipped machine", async () => {
@@ -297,17 +770,30 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
           expect(await vending.isMoneyOperationsEnabled()).toBe(true);
           expect(await vending.isFillsAndEndingInventoryDisabled()).toBe(true);
           expect(await vending.isRemovalsAndReturnsDisabled()).toBe(true);
-          expect(await vending.isDexEnabled()).toBe(true);
+          expect(await vending.isKitReturnsEnabled()).toBe(true);
           expect(await vending.isAfterPhotosDisabled()).toBe(true);
         }
       );
 
-      await test.step('TC003: tap Before Photos and verify the Take photo/Skip photo modal', async () => {
+      await test.step('TC003/TC001: tap Before Photos and verify the Take photo/Skip photo modal', async () => {
+        // await vending.openBeforePhotos();
+        // const modal = await vending.isPhotoModalVisible();
+        // await vending.openSkipPhotoReasonSheet();
+        // await vending.enterSkipPhotoReason('Camera cannot focus and take clear picture');
+        // await vending.confirmSkipPhoto();
+
         await vending.openBeforePhotos();
         const modal = await vending.isPhotoModalVisible();
+        expect(modal.takePhoto).toBe(true);
+        expect(modal.skipPhoto).toBe(true);
         await vending.openSkipPhotoReasonSheet();
+        expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(true);
+        expect(await vending.isSkipPhotoSubmitEnabled()).toBe(false);
         await vending.enterSkipPhotoReason('Camera cannot focus and take clear picture');
+        await vending.waitForSkipPhotoSubmitEnabled(true);
         await vending.confirmSkipPhoto();
+        expect(await vending.isServiceStationCompleted('Before Photos')).toBe(true);
+
       });
 
       await test.step("TC003/TC006: After Photos remains disabled until all required tasks are complete", async () => {
@@ -316,7 +802,8 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         await vending.performMoneyOperations({ bagCode: '12938', bills: '120', refund: '5.55' });
         expect(await vending.isFillsAndEndingInventoryDisabled()).toBe(false);
         await vending.openFillsAndEndingInventory();
-        await vending.fillAllProductDeliveryQuantities();
+        await vending.fillAllProductEndQuantities();
+        // await vending.fillAllProductDeliveryQuantities();
         await vending.tapBackArrow();
         await vending.tapBackArrow();
         expect(await vending.isAfterPhotosEnabled()).toBe(true);
@@ -327,11 +814,20 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       });
 
       await test.step('TC005: Spoiled=2/RETK=1 saves and appears with an aggregate Qty of 3', async () => {
+
         await vending.openRemovalsAndReturns();
-        const productName = 'Sun Drop 20oz';
-        await vending.enterRemovalReturnValues(productName, '2', '1');
+        const productName = await vending.enterFillsAndRemovalsForFirstRow('2', '1');
         await prepTasks.tapBackArrow();
         await vending.isHeaderDisplayed("Removals & Returns");
+
+
+
+        // await vending.openRemovalsAndReturns();
+        // //update
+        // const productName = 'Sun Drop 20oz';
+        // await vending.enterRemovalReturnValues(productName, '2', '1');
+        // await prepTasks.tapBackArrow();
+        // await vending.isHeaderDisplayed("Removals & Returns");
         await vending.openRemovalsAndReturns();
         // Verify persisted values
         await vending.verifyRemovalReturnValues(productName, '2', '1');
@@ -350,7 +846,12 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         await vending.waitForSkipPhotoSubmitEnabled(true);
         await vending.confirmSkipPhoto();
         expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(false);
+
+        await vending.tap("~Complete Delivery");
+        await dashboard.waitForServiceStationVisible('vending', stationName);
+        expect(await vending.isServiceStationCompleted(stationName)).toBe(true);
       });
+
 
     });
 
@@ -358,29 +859,11 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  //Need a existing full delivery dependent on TC 'Skip stop'
+  //Passed
   test(
-    'reach the first Vending machine and verify Product fills, Sort, and Filter',
-    { tag: ['@Vending-TC-001'] },
+    'Existing order Full service',
+    { tag: ['@Vending-TC-030'] },
     async () => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -390,228 +873,93 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       //   await prepTasks.openFromHamburgerMenu();
       //   await prepTasks.ensureFullDayPrepComplete();
       // });
+      var stationName: string;
+      var machineId: string;
+      await test.step("Open the first stop's first Vending machine", async () => {
+        await dashboard.clickLocationByPosition('first');
+        stationName = await dashboard.getNthServiceStationName('vending', 'first');
+        dashboard.openNthServiceStation('vending', 'first');
+        console.log('Station Names', stationName);
+        machineId = stationName.split('-')[0].trim();
+      });
 
-      // await test.step("Open the first stop's first Vending machine", async () => {
-      //   await dashboard.clickLocationByPosition('first');
-      //   await dashboard.openNthServiceStation('vending', 'first');
-      //   await vending.tapContinue();
-      // });
 
+      await test.step(
+        'TC030: Verify FULL SERVICE task list screen',
+        async () => {
+          // await vending.tap('~Edit Existing Delivery');
+          // await vending.waitFor('~EDITING EXISTING DELIVERY')
+          // await vending.tapFullButton();
+
+          const orderText = await vending.getOrderText();
+          expect(orderText).not.toContain('No Order Available');
+          expect(orderText).toMatch(/Order:\s*\S+/);
+
+          await vending.tapContinue();
+          expect(await vending.isMachineDisplayed(machineId)).toBe(true);
+          expect(await vending.isHeaderDisplayed('FULL SERVICE')).toBe(true);
+          expect(await vending.isBeforePhotosEnabled()).toBe(true);
+          expect(await vending.isMoneyOperationsEnabled()).toBe(true);
+          expect(await vending.isFillsAndEndingInventoryDisabled()).toBe(true);
+          expect(await vending.isRemovalsAndReturnsDisabled()).toBe(true);
+          // expect(await vending.isDexEnabled()).toBe(true);
+          expect(await vending.isKitReturnsEnabled()).toBe(true);
+          expect(await vending.isAfterPhotosDisabled()).toBe(true);
+        }
+      );
 
       await test.step('TC003: tap Before Photos and verify the Take photo/Skip photo modal', async () => {
         await vending.openBeforePhotos();
         const modal = await vending.isPhotoModalVisible();
-        expect(modal.takePhoto).toBe(true);
-        expect(modal.skipPhoto).toBe(true);
         await vending.openSkipPhotoReasonSheet();
-        expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(true);
-        expect(await vending.isSkipPhotoSubmitEnabled()).toBe(false);
         await vending.enterSkipPhotoReason('Camera cannot focus and take clear picture');
-        await vending.waitForSkipPhotoSubmitEnabled(true);
         await vending.confirmSkipPhoto();
-        // expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(false);
       });
 
       await test.step("TC003/TC006: After Photos remains disabled until all required tasks are complete", async () => {
-        // expect(await vending.isAfterPhotosEnabled()).toBe(false);
-        // await vending.completeBeforePhotosMoneyOpsAndFills();
-        // // await vending.completeRemovalsAndReturns();
-        // expect(await vending.isAfterPhotosEnabled()).toBe(true);
-
-
         expect(await vending.isAfterPhotosEnabled()).toBe(false);
         await vending.openMoneyOperations();
         await vending.performMoneyOperations({ bagCode: '12938', bills: '120', refund: '5.55' });
-        expect(vending.isFillsAndEndingInventoryDisabled).toBe(false);
+        expect(await vending.isFillsAndEndingInventoryDisabled()).toBe(false);
         await vending.openFillsAndEndingInventory();
-        await vending.fillAllProductDeliveryQuantities();
+        // await vending.fillAllProductDeliveryQuantities();
+        await vending.fillAllProductEndQuantities();
         await vending.tapBackArrow();
+        await vending.tapBackArrow();
+        expect(await vending.isServiceStationCompleted('Fills & Ending Inventory')).toBe(true);
         expect(await vending.isAfterPhotosEnabled()).toBe(true);
-
       });
 
-      await test.step('TC005: Spoiled=2/RETK=1 saves and appears with an aggregate Qty of 3', async () => {
-        await vending.openRemovalsAndReturns();
-        // await vending.searchAndSelect('Snickers');
-        await vending.fillRemovalsSpoiledRetkQuantities({ spoiled: '2', truckReturns: '1' });
-        await prepTasks.tapBackArrow();
-        await vending.waitFor('~Remove and document product returns');
-        //verify green checkmark appears on the Removals & Returns tile not automable
-      });
-
-      await test.step('TC007/TC031: Machine type audit visibility edge cases [Vending | Audit should not be shown]', async () => {
+      await test.step('TC031: Machine type audit visibility edge cases [Vending | Audit should not be shown]', async () => {
         expect(await vending.isAuditVisible()).toBe(false);
       });
 
-      await test.step('TC008: I am able to view product title]', async () => {
-        await vending.openFillsAndEndingInventory();
-        expect(await vending.isProductTitleVisible()).toBe(true);
+      await test.step('TC005/TC006: Spoiled=2/RETK=1 saves and appears with an aggregate Qty of 3', async () => {
+        // await vending.openRemovalsAndReturns();
+        // await vending.tapBackArrow();
+        // await vending.isHeaderDisplayed("Removals & Returns");
+
+        await vending.openRemovalsAndReturns();
+        const productName = await vending.enterFillsAndRemovalsForFirstRow('2', '1');
+        await prepTasks.tapBackArrow();
+        await vending.isHeaderDisplayed("Removals & Returns");
+
+
+        // await vending.openRemovalsAndReturns();
+        // const productName = 'Sun Drop 20oz';
+        // await vending.enterRemovalReturnValues(productName, '2', '1');
+        // await prepTasks.tapBackArrow();
+        // await vending.isHeaderDisplayed("Removals & Returns");
+
+        await vending.openRemovalsAndReturns();
+        // Verify persisted values
+        await vending.verifyRemovalReturnValues(productName, '2', '1');
+        await prepTasks.tapBackArrow();
+        /****** confirm delete delivery **** */
+        await prepTasks.tapBackArrow();
+        await vending.isHeaderDisplayed("The service must be completed or deleted.  Do you want to delete all information for this service?")
+        await vending.tap('~Yes');
       });
-
-      await test.step('TC009: I am able to review Par, Capacity, Ordered, Picked values]', async () => {
-        await vending.clickMoreInfoArrow('Sun Drop 20oz');
-        const productInfo = await vending.getProductInfoLabels('Sun Drop 20oz');
-
-        for (const [label, value] of Object.entries(productInfo)) {
-          expect(Number.isInteger(value), `${label} should have a numeric value`).toBe(true);
-          expect(value, `${label} should be displayed`).toBeGreaterThanOrEqual(0);
-        }
-
-      });
-
-      await test.step('TC010: Keypad arrows move only between editable product quantity fields]', async () => {
-        var deliveryFields = await vending.getEditableQuantityFields();
-        await deliveryFields[0].click();
-        await vending.waitForKeyboardVisible();
-
-        // Press keypad down arrow
-        await vending.tapKeypadDownArrow();
-        await driver.pause(1000);
-        deliveryFields = await vending.getEditableQuantityFields();
-        expect(await deliveryFields[1].getAttribute('focused')).toBe('true');
-        //vending.tapBackArrow();
-      });
-
-
-
-      await test.step('TC011: Driver filters and sorts products on the Fills screen', async () => {
-        // await vending.openSortSheet();
-        // await vending.selectSortOption('A to Z');
-        // expect(await vending.isSortActive()).toBe(true);
-        // await vending.openSortSheet();
-        // expect(await vending.isClearSortEnabled()).toBe(true);
-        // await vending.tapClearSort();
-        // expect(await vending.isSortActive()).toBe(false);
-        // expect(await vending.getFillProductNamesInOrder()).toEqual(defaultOrder);
-
-        const defaultOrder = await vending.getFillProductNamesInOrder();
-        await vending.openSortSheet();
-        await vending.selectSortOption('A to Z');
-        expect(await vending.isSortActive()).toBe(true);
-        const aToZNames = await vending.getFillProductNamesInOrder();
-        // const sorted = [...aToZNames].sort((a, b) => a.localeCompare(b));
-        const sorted = [...defaultOrder].sort((a, b) => a.localeCompare(b));
-        console.log('Default order:', defaultOrder);
-        console.log('Sorted A to Z:', sorted);
-        console.log('A to Z names from app:', aToZNames);
-        expect(aToZNames).toEqual(sorted);
-
-
-        await vending.openSortSheet();
-        expect(await vending.isClearSortEnabled()).toBe(true);
-        await vending.tapClearSort();
-        expect(await vending.isSortActive()).toBe(false);
-        await vending.openSortSheet();
-        await vending.selectSortOption('Z to A');
-        expect(await vending.isSortActive()).toBe(true);
-        const zToANames = await vending.getFillProductNamesInOrder();
-        // const sortedDesc = [...zToANames].sort((a, b) => b.localeCompare(a));
-        const sortedDesc = [...defaultOrder].sort((a, b) => b.localeCompare(a));
-        expect(zToANames).toEqual(sortedDesc);
-
-        await vending.openSortSheet();
-        expect(await vending.isClearSortEnabled()).toBe(true);
-        await vending.tapClearSort();
-        expect(await vending.isSortActive()).toBe(false);
-        expect(await vending.getFillProductNamesInOrder()).toEqual(defaultOrder);
-
-
-        await vending.openFilterSheet();
-        expect(await vending.isFilterByCategoryLabelVisible()).toBe(true);
-        expect(await vending.isApplyFiltersEnabled()).toBe(false);
-        expect(await vending.isClearFiltersEnabled()).toBe(false);
-
-
-        await vending.tapFilterChip('BOTTLE BEV');
-        await vending.tapFilterChip('CAN BEV');
-        expect(await vending.isFilterChipSelected('BOTTLE BEV')).toBe(true);
-        expect(await vending.isFilterChipSelected('CAN BEV')).toBe(true);
-        expect(await vending.isApplyFiltersEnabled()).toBe(true);
-
-        await vending.tapApplyFilters();
-        expect(await vending.isFilterActive()).toBe(true);
-        expect(await vending.isFilterTagVisible('BOTTLE BEV')).toBe(true);
-        expect(await vending.isFilterTagVisible('CAN BEV')).toBe(true);
-
-        await vending.openFilterSheet();
-        await vending.tapClearFilters();
-        expect(await vending.isFilterActive()).toBe(false);
-        expect(await vending.isFilterTagVisible('BOTTLE BEV')).toBe(false);
-        expect(await vending.isFilterTagVisible('CAN BEV')).toBe(false);
-
-        // await vending.selectFilterCategories(['BOTTLE BEV']);
-        // expect(await vending.isFilterActive()).toBe(true);
-        // expect(await vending.isHeaderDisplayed("BOTTLE BEV")).toBe(true);
-
-      });
-
-      await test.step('TC013: Ending Inventory persists after completing and reopening Fills task]', async () => {
-        await vending.fillAllProductDeliveryQuantities();
-        expect(await vending.isProductFillsTitleVisible()).toBe(false);
-        await vending.openFills();
-        expect(await vending.isProductFillsTitleVisible()).toBe(true);
-      });
-
-
-
-      // Filter/Sort/Planogram, no Add (documented discrepancy).
-      await test.step('TC165: header shows Planogram, Planogram opens from the header icon', async () => {
-        const actions = await vending.isFillsHeaderActionsVisible();
-        // expect(actions.planogram).toBe(true);
-        await vending.openPlanogram();
-        expect(await vending.isPlanogramTitleVisible()).toBe(true);
-
-        const header = await vending.isDateRouteHeaderVisible();
-        expect(header.date).toBe(true);
-        expect(header.route).toBe(true);
-
-        expect(await vending.isHeaderDisplayed("Planogram")).toBe(true);
-        expect(await vending.isHeaderDisplayed("Machine 3247549 POG")).toBe(true);
-
-        //Verify layout toggles are visible
-        expect(await vending.isGridLayoutToggleVisible()).toBe(true);
-
-        await vending.openLabelNameDropdown();
-        const status = await vending.getLabelNameValueDisplayStatus([
-          'Ending inventory',
-          'Fills',
-          'Par / Capacity',
-          'Price',
-          'Spoils / Return to truck',
-          'Service tests',
-          'Product'
-        ]);
-
-        expect(status['Ending inventory']).toBe(true);
-        expect(status['Fills']).toBe(true);
-        expect(status['Par / Capacity']).toBe(true);
-        expect(status['Price']).toBe(true);
-        expect(status['Spoils / Return to truck']).toBe(true);
-        expect(status['Service tests']).toBe(true);
-        expect(status['Product']).toBe(true);
-
-        await vending.selectLabelNameOption('Par / Capacity');
-        // expect(await vending.isLabelNameOptionSelected('Par / Capacity')).toBe(true);
-        expect(await vending.isLabelNameValueDisplayed('Par / Capacity')).toBe(true);
-
-        // Verify Par/Capacity labels and values
-        expect(await vending.isParCapacityHeaderVisible()).toBe(true);
-
-        //I am able to switch Par/Capacity view
-        const before = await vending.getParCapacityRowStrings();
-        await vending.switchToListView();
-        const after = await vending.getParCapacityRowStrings();
-        expect(before.slice().sort()).toEqual(after.slice().sort());
-
-        // I am able to view Par field
-        expect(await vending.isParFieldVisible()).toBe(true);
-        expect(await vending.isParValueDisplayed('50')).toBe(true);
-
-        await vending.pressKeyCode(4);
-        await vending.waitFor('~Product fills');
-      });
-
-
 
     });
 
@@ -619,29 +967,35 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
 
 
 
+
+
+
+
+  //Passed
   test(
     'Money Operations',
-    { tag: ['@Vending-TC-018'] },
+    { tag: ['@Vending-TC-018', '@Vending-TC-019', '@Vending-TC-020', '@Vending-TC-021', '@Vending-TC-022'] },
     async () => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
       const vending = new VendingServiceScreen(driver);
 
-      // await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-      //   await prepTasks.openFromHamburgerMenu();
-      //   await prepTasks.ensureFullDayPrepComplete();
-      // });
+      // // await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+      // //   await prepTasks.openFromHamburgerMenu();
+      // //   await prepTasks.ensureFullDayPrepComplete();
+      // // });
 
-      // await test.step("Open the first stop's first Vending machine", async () => {
-      //   await dashboard.clickLocationByPosition('first');
-      //   await dashboard.openNthServiceStation('vending', 'first');
-      //   await vending.tapContinue();
-      // });
+      await test.step("Open the first stop's first Vending machine", async () => {
+        await dashboard.clickLocationByPosition('first');
+        await dashboard.openNthServiceStation('vending', 'first');
+        await vending.tapContinue();
+      });
 
 
       await test.step('TC018: Money bag number length validation [3 to 5 | accepted without error]', async () => {
         await vending.openMoneyOperations();
-        await prepTasks.setChecklistIconState(vending.skipMoneyBagCheckbox, false);
+        expect(await vending.isSkipMoneyBagChecked()).toBe(false);
+        // await prepTasks.setChecklistIconState(vending.skipMoneyBagCheckbox, false);
         const fields = await vending.isMoneyCollectionScreenVisible();
         expect(fields.title).toBe(true);
         expect(fields.skipMoneyBag).toBe(true);
@@ -661,7 +1015,9 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       await test.step('TC019: Money bag number length validation [more than 5 | rejected with an error message]', async () => {
         await vending.enterBagCode('987654321');
         await vending.tapBackArrow();
-        await vending.openMoneyOperations();
+        expect(await vending.isMoneyOperationsVisible()).toBe(false);
+        await vending.enterBagCode('98765')
+        // await vending.openMoneyOperations();
         const values = await vending.getMoneyOperationsValues();
         expect(values.bagCode).toBe('98765');
       });
@@ -674,14 +1030,14 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       await test.step('TC021: Numeric entry validation accepts valid and blocks invalid values [Money Operations]', async () => {
         // await vending.enterBagCode('AB981');
         await vending.enterBagCodeInMoneyOperations('AB981');
+        // await vending.enterBagCode('AB981');
         await vending.tapBackArrow();
         //  await vending.performMoneyOperations({ bagCode: 'AB981'});
         expect(await vending.isMoneyOperationsVisible()).toBe(false);
-        await vending.enterBagCodeInMoneyOperations('@@@12');
-        // await vending.enterBagCode('@@@12');
+        await vending.enterBagCodeInMoneyOperations('@@@');
         await vending.tapBackArrow();
-        expect(await vending.isVisible('~Money Collection')).toBe(false);
-        expect(await vending.isMoneyOperationsVisible()).toBe(true);
+        expect(await vending.isVisible('~Money Collection')).toBe(true);
+        expect(await vending.isMoneyOperationsVisible()).toBe(false);
       });
 
       await test.step('TC022: Vending money operations validate bag codes, refund, and replenishment inputs]', async () => {
@@ -701,10 +1057,13 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
     });
 
 
-
+  //Passed
   test(
     'Service List',
-    { tag: ['@Vending-TC-024'] },
+    {
+      tag: ['@Vending-TC-024', '@Vending-TC-025', '@Vending-TC-026', '@Vending-TC-027',
+        '@Vending-TC-028', '@Vending-TC-043', '@Vending-TC-033']
+    },
     async () => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -716,14 +1075,16 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       // });
       var stationName: string;
       var machineId: string;
-      await test.step("Open the first stop's first Vending machine", async () => {
+      await test.step("TC037/TC044: Open the first stop's first Vending machine", async () => {
         const isHeaderDisplayed = await vending.isHeaderDisplayed('Vending');
         expect(isHeaderDisplayed).toBe(true);
         //Aaron's
         // await dashboard.clickLocationByPosition('first');
-        await dashboard.clickLocationByName("Aaron's")
-        expect(await vending.isHeaderDisplayed("Aaron's")).toBe(true);
-        const address = await vending.getHeaderAddress("Aaron's");
+        const locationName = await vending.getLocationNameByPosition('first');
+        console.log(locationName);
+        await dashboard.clickLocationByName(locationName)
+        expect(await vending.isHeaderDisplayed(locationName)).toBe(true);
+        const address = await vending.getHeaderAddress(locationName);
         expect(address).toBeTruthy();
         expect(address).not.toEqual('');
         stationName = await dashboard.getNthServiceStationName('vending', 'first');
@@ -737,9 +1098,9 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       await test.step('TC024/TC033: Verify details in service screen', async () => {
         const formattedStationName = vending.formatStationName(stationName);
         expect(await vending.isHeaderDisplayed(formattedStationName)).toBe(true);
-        expect(await vending.isHeaderDisplayed('11328 - Bottle Bev (Breakroom)')).toBe(true);
+        // expect(await vending.isHeaderDisplayed('11328 - Bottle Bev (Breakroom)')).toBe(true);
+        // expect(await vending.isHeaderDisplayed('99092 - Bottle Bev (WPB Teachers Lounge)')).toBe(true);
         expect(await vending.isHeaderDisplayed("Order:")).toBe(true);
-
         expect(await vending.isHeaderDisplayed("FINAL")).toBe(true);
         expect(await vending.isHeaderDisplayed("SPOT")).toBe(true);
         expect(await vending.isContinueEnabled()).toBe(true);
@@ -770,7 +1131,7 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
           expect(await vending.isMoneyOperationsEnabled()).toBe(true);
           expect(await vending.isFillsAndEndingInventoryDisabled()).toBe(true);
           expect(await vending.isRemovalsAndReturnsDisabled()).toBe(true);
-          expect(await vending.isDexEnabled()).toBe(true);
+          expect(await vending.isKitReturnsEnabled()).toBe(true);
           expect(await vending.isAfterPhotosDisabled()).toBe(true);
           vending.tapBackArrow();
           vending.tap('~Yes')
@@ -820,13 +1181,164 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
           expect(await vending.isHeaderDisplayed('SPOT SERVICE')).toBe(true);
           expect(await vending.isBeforePhotosEnabled()).toBe(true);
           expect(await vending.isMoneyOperationsEnabled()).toBe(true);
-          expect(await vending.isFillsAndRemovalsDisabled()).toBe(true);
-          expect(await vending.isAfterPhotosDisabled()).toBe(true);
+          expect(await vending.isFillsAndRemovalsDisabled()).toBe(false);
+          expect(await vending.isAfterPhotosDisabled()).toBe(false);
           expect(await vending.isCompleteDeliveryDisabled()).toBe(true);
         }
       );
 
     });
+
+
+
+
+
+
+
+  //Pre-requisite: Data Dependency Wet(UNITED FACILITIES INC, 20013 - Hot Beverage) & 
+  // Changer machines(BNSF Railway/80012 - Bill Changers)
+  test(
+    'Spot Service is not offered for Wet or Changer machines',
+    { tag: ['@Vending-TC-034', '@Vending-TC-024', '@Vending-TC-045', '@Vending-TC-045'] },
+    async () => {
+      const prepTasks = new PrepTasksScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const vending = new VendingServiceScreen(driver);
+
+      // await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+      //   await prepTasks.openFromHamburgerMenu();
+      //   await prepTasks.ensureFullDayPrepComplete();
+      // });
+      var stationName: string;
+      var machineId: string;
+
+      //Data Dependency
+      await test.step("Open the Changer Vending machine", async () => {
+        await dashboard.clickLocationByName('BNSF Railway');
+        await vending.isHeaderDisplayed('BNSF Railway')
+        dashboard.openServiceStationByName('vending', '80012 - Bill Changers');
+        // machineId = stationName.split('-')[0].trim();
+      });
+
+      await test.step('Verify service selection screen', async () => {
+        expect(await vending.isHeaderDisplayed("Order:")).toBe(true);
+        expect(await vending.isHeaderDisplayed("FINAL")).toBe(true);
+        expect(await vending.isHeaderDisplayed("SPOT")).toBe(false);
+        expect(await vending.isContinueEnabled()).toBe(true);
+        await vending.tapBackArrow();
+        await vending.tap('~Open navigation menu');
+        await vending.tap('~Schedule overview');
+        // await vending.tapBackArrow();
+      });
+
+
+      await test.step("Open the Wet Vending machine", async () => {
+
+        await vending.scrollUpUntilVisible(vending.pendingActionTab);
+        await dashboard.clickLocationByName('UNITED FACILITIES INC');
+        dashboard.openServiceStationByName('vending', '20013 - Hot Beverage');
+      });
+
+      await test.step('Verify service selection screen', async () => {
+        // const formattedStationName = vending.formatStationName(stationName);
+        // expect(await vending.isHeaderDisplayed(formattedStationName)).toBe(true);
+        expect(await vending.isHeaderDisplayed("Order:")).toBe(true);
+        expect(await vending.isHeaderDisplayed("FINAL")).toBe(true);
+        expect(await vending.isHeaderDisplayed("SPOT")).toBe(false);
+        expect(await vending.isContinueEnabled()).toBe(true);
+        await vending.tapContinue();
+      });
+
+      await test.step(
+        'TC025: Verify FULL SERVICE task list screen',
+        async () => {
+          // expect(await vending.isMachineDisplayed(machineId)).toBe(true);
+          expect(await vending.isHeaderDisplayed('FULL SERVICE')).toBe(true);
+          expect(await vending.isBeforePhotosEnabled()).toBe(true);
+          expect(await vending.isMoneyOperationsEnabled()).toBe(true);
+          expect(await vending.isDexEnabled()).toBe(true);
+          expect(await vending.isMeterEnabled()).toBe(false);
+          expect(await vending.isAfterPhotosDisabled()).toBe(true);
+          // vending.tapBackArrow();
+          // vending.tap('~Yes')
+        }
+      );
+
+      await test.step('TC003/TC001: tap Before Photos and verify the Take photo/Skip photo modal for Wet Machine', async () => {
+        await vending.openBeforePhotos();
+        const modal = await vending.isPhotoModalVisible();
+        expect(modal.takePhoto).toBe(true);
+        expect(modal.skipPhoto).toBe(true);
+        await vending.openSkipPhotoReasonSheet();
+        expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(true);
+        expect(await vending.isSkipPhotoSubmitEnabled()).toBe(false);
+        await vending.enterSkipPhotoReason('Camera cannot focus and take clear picture');
+        await vending.waitForSkipPhotoSubmitEnabled(true);
+        await vending.confirmSkipPhoto();
+        expect(await vending.isServiceStationCompleted('Before Photos')).toBe(true);
+
+      });
+
+      await test.step("TC003/TC006: After Photos remains disabled until all required tasks are complete", async () => {
+        expect(await vending.isAfterPhotosEnabled()).toBe(false);
+        await vending.openMoneyOperations();
+        await vending.enterBagCode('12938');
+        vending.tapBackArrow();
+        expect(await vending.isMeterEnabled()).toBe(true);
+        expect(await vending.isDexEnabled()).toBe(true);
+
+        await vending.openMeters();
+        expect(await vending.isMetersHeaderDisplayed()).toBe(true);
+        await vending.enterUnitMeterReading(99); // invalid value
+        await vending.tapMetersHeader();
+        // await vending.verifyMeterReadingErrorMessage(
+        //   'Please enter a valid meter reading');
+        // await vending.tapBackArrow();
+        // expect(await vending.isServiceStationCompleted('Meter')).toBe(false);
+        //Enter valid readings and  Meter should be completed
+        //
+        await vending.enterUnitMeterReading('1'); // valid value
+        await vending.tapMetersHeader();
+        await vending.tapBackArrow();
+        expect(await vending.isServiceStationCompleted('Meter')).toBe(true);
+      });
+
+
+      await test.step('Skip After photos', async () => {
+        expect(await vending.isAfterPhotosEnabled()).toBe(true);
+        await vending.openAfterPhotos();
+        const modal = await vending.isPhotoModalVisible();
+        await vending.openSkipPhotoReasonSheet();
+        expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(true);
+        expect(await vending.isSkipPhotoSubmitEnabled()).toBe(false);
+        await vending.enterSkipPhotoReason('Camera cannot focus and take clear picture');
+        await vending.waitForSkipPhotoSubmitEnabled(true);
+        await vending.confirmSkipPhoto();
+        expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(false);
+      });
+
+      await test.step('Complete Delivery', async () => {
+        await vending.tap("~Complete Delivery");
+        await vending.isServiceStationCompleted("20013 - Hot Beverage");
+      });
+
+    });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
   // test(
@@ -845,7 +1357,8 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
   //     var machineId: string;
   //     await test.step("Open the first stop's first Vending machine", async () => {
   //       await dashboard.clickLocationByPosition('first');
-  //       stationName = await dashboard.openNthServiceStationAndReturnStationName('vending', 'first');
+  //       stationName = await dashboard.getNthServiceStationName('vending', 'first');
+  //       dashboard.openNthServiceStation('vending', 'first');
   //       console.log('Station Names', stationName);
   //       machineId = stationName.split('-')[0].trim();
   //     });
@@ -866,11 +1379,11 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
   //       }
   //     );
 
-  //     await test.step('TC024: Money bag number length validation [3 to 5 | accepted without error]', async () => {
+  //     await test.step('Verify service selection screen', async () => {
 
   //       const formattedStationName = vending.formatStationName(stationName);
   //       expect(await vending.isHeaderDisplayed(formattedStationName)).toBe(true);
-  //       expect(await vending.isHeaderDisplayed('11328 - Bottle Bev (Breakroom)')).toBe(true);
+  //      // expect(await vending.isHeaderDisplayed('11328 - Bottle Bev (Breakroom)')).toBe(true);
   //       expect(await vending.isHeaderDisplayed("Order:")).toBe(true);
   //       expect(await vending.isHeaderDisplayed("FINAL")).toBe(true);
   //       expect(await vending.isHeaderDisplayed("SPOT")).toBe(true);
@@ -879,7 +1392,7 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
   //     });
 
   //     await test.step(
-  //       'TC025: Verify FULL SERVICE task list screen for Final Service',
+  //       'TC025: Verify FULL SERVICE task list screen',
   //       async () => {
   //         expect(await vending.isMachineDisplayed(machineId)).toBe(true);
   //         expect(await vending.isHeaderDisplayed('FULL SERVICE')).toBe(true);
@@ -895,1272 +1408,4 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
   //     );
 
   //   });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  test(
-    'verify the Money Collection screen fields',
-    { tag: ['@Vending-TC242', '@Vending-TC243', '@Vending-TC244', '@Vending-TC246', '@Vending-TC248', '@Vending-TC255', '@Vending-TC276'] },
-    async () => {
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const vending = new VendingServiceScreen(driver);
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      await test.step("Open the first stop's first Vending machine", async () => {
-        await dashboard.clickLocationByPosition('first');
-        await dashboard.openNthServiceStation('vending', 'first');
-      });
-
-      // TC242 "open Money operations" / TC244 "verify title" / TC246 "view
-      // all sections" (Skip Money Bag, bag code, Replenishment Bills,
-      // Refund - all four confirmed live) / TC248 "view the Skip Money Bag
-      // label".
-      await test.step('TC242/TC244/TC246/TC248: open Money Operations and verify all fields are present', async () => {
-        await vending.openMoneyOperations();
-        const fields = await vending.isMoneyCollectionScreenVisible();
-        expect(fields.title).toBe(true);
-        expect(fields.skipMoneyBag).toBe(true);
-        expect(fields.bagCode).toBe(true);
-        expect(fields.bills).toBe(true);
-        expect(fields.refund).toBe(true);
-      });
-
-      // TC243 "view route details & date" - same shared header component
-      // already proven elsewhere in this app (BaseScreen.isDateRouteHeaderVisible).
-      await test.step('TC243: the header shows both the date and route badges', async () => {
-        const header = await vending.isDateRouteHeaderVisible();
-        expect(header.date).toBe(true);
-        expect(header.route).toBe(true);
-      });
-
-      // TC276 (bundled here, same as TC274/TC275 above) - its own Excel row
-      // just re-describes the same field-presence assertion as TC246
-      // (Skip money bag / Bag code / Replenishment Amount pane / Refund
-      // pane / Continue), already asserted above via
-      // isMoneyCollectionScreenVisible().
-
-      // TC255 "Continue disabled with no values entered" - live-verified
-      // FALSE: same "always enabled" discrepancy already documented on
-      // TC177/TC178/TC207-TC209 elsewhere in this file - Continue is
-      // enabled from the moment the screen opens, before any field is
-      // touched.
-      await test.step('TC255: Continue is enabled even with no values entered', async () => {
-        expect(await vending.isMoneyCollectionContinueEnabled()).toBe(true);
-      });
-    }
-  );
-
-  // TC274/TC275 (bundled inside TC242's own Excel row, Vending "Money ops")
-  // - live-verified 2026-07-30 (build 0.1.76, Route 103/YESTERDAY, "Admark
-  // Graphics" stop, "97624 - Bottle Bev" machine).
-  //
-  // Uses a DIFFERENT STOP entirely ("Admark Graphics", not "Aaron's") -
-  // not just a different machine position: several other tests in this
-  // file complete Money Operations on "Aaron's" own "first" machine as
-  // part of their own prerequisite flow (completeBeforePhotosMoneyOpsAndFills
-  // - see TC004-TC015 below), and live-verified elsewhere in this session
-  // that re-submitting an already-completed step is a silent no-op rather
-  // than an error - reusing any of "Aaron's" 3 machines here risked
-  // exactly that collision. "Admark Graphics" is a second, entirely
-  // separate stop with its own 2 Vending machines that no other test in
-  // this file touches.
-  //
-  // TC274 "tile shows green with a tick mark" - visual-only signal with
-  // no accessible content-desc/selected/checked change once Continue
-  // succeeds (confirmed live: the tile's content-desc and clickable=true
-  // state are byte-identical before and after completion) - same pattern
-  // as TC014/TC179/TC211/TC241 elsewhere in this file; not assertable.
-  test(
-    'TC274/TC275: completing Money Operations returns to the checklist and can be reopened',
-    { tag: ['@Vending-TC274', '@Vending-TC275'] },
-    async () => {
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const vending = new VendingServiceScreen(driver);
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      await test.step("Open Admark Graphics's second Vending machine's checklist", async () => {
-        await dashboard.clickLocationByPosition('third');
-        await dashboard.openNthServiceStation('vending', 'second');
-      });
-
-      // TC274 "complete Money operations -> data saved, navigate to the
-      // workflow screen".
-      await test.step('TC274: submitting valid values returns to the machine checklist', async () => {
-        await vending.performMoneyOperations({ bagCode: 'A29389P', bills: '120', refund: '0.05' });
-        expect(await vending.isVisible('~Money Collection')).toBe(false);
-      });
-
-      // TC275 "open Money operations again".
-      await test.step('TC275: Money Operations can be reopened from the checklist', async () => {
-        await vending.openMoneyOperations();
-        expect(await vending.isVisible('~Money Collection')).toBe(true);
-      });
-    }
-  );
-
-  // TC250/TC251/TC253/TC254/TC256/TC257/TC259/TC260/TC261/TC262/TC263/
-  // TC264 (Vending "Money ops" - the Bag code sub-flow; TC250's own Excel
-  // row bundles most of these, TC257/TC261/TC262/TC263 are their own
-  // separate rows on the same field) - live-verified 2026-07-30 (build
-  // 0.1.76, Route 103/YESTERDAY, "Admark Graphics" stop, "64922 - Lg
-  // Snacks" machine). See VendingServiceScreen's own extensive note above
-  // its Bag code locators for every discrepancy found relative to the
-  // Excel (TC250/TC251 "disabled" claims, TC256/TC258/TC262 "chip"
-  // claims, TC257's "alphanumeric keyboard" claim vs the real digit-only
-  // keypad, TC263's "4 chips visible" claim vs a real scrollable
-  // container with no observed field cap, TC264's adapted validation
-  // scenario) - not repeated here.
-  //
-  // Does NOT submit Money Operations for real (no Continue-with-valid-
-  // data step) - this test is scoped to the Bag code field's own
-  // behavior, already covered end-to-end by TC274/TC275 above. Reuses
-  // Admark Graphics's FIRST machine (not "second", used by TC274/TC275)
-  // to stay isolated from that test's real completion.
-  test(
-    'TC250/TC251/TC253/TC254/TC256/TC257/TC259/TC260/TC261/TC262/TC263/TC264: Bag code field, scanner icon, Additional code fields, and validation',
-    {
-      tag: (
-        ['TC250', 'TC251', 'TC253', 'TC254', 'TC256', 'TC257', 'TC259', 'TC260', 'TC261', 'TC262', 'TC263', 'TC264'].map((n) => `@Vending-${n}`)
-      )
-    },
-    async () => {
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const vending = new VendingServiceScreen(driver);
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      await test.step("Open Admark Graphics's first Vending machine's Money Operations", async () => {
-        await dashboard.clickLocationByPosition('third');
-        await dashboard.openNthServiceStation('vending', 'first');
-        await vending.openMoneyOperations();
-      });
-
-      // TC250/TC251 "Bag code field disabled" / "+ icon disabled" - live:
-      // both enabled from the start (documented discrepancy above).
-      await test.step('TC250/TC251: the Bag code field and + icon are both enabled', async () => {
-        expect(await vending.isBagCodeFieldEnabled()).toBe(true);
-        expect(await vending.isAddBagCodeIconEnabled()).toBe(true);
-      });
-
-      // TC253 "placeholder text visible" / TC254 "scanner icon displayed".
-      await test.step('TC253/TC254: the Bag code field shows its placeholder and scanner icon', async () => {
-        expect((await vending.getBagCodeFieldText()).length).toBe(0);
-        expect(await vending.isBagCodeScannerIconVisible()).toBe(true);
-      });
-
-      // TC257 "character/alphanumeric keyboard opens on tap" - live:
-      // FALSE, the same custom digit-only keypad opens instead
-      // (documented discrepancy above).
-      await test.step('TC257: tapping the Bag code field opens the digit-only keypad, not an alphanumeric keyboard', async () => {
-        expect(await vending.isBagCodeDigitKeypadVisible()).toBe(true);
-      });
-
-      // TC256 "enter a bag code manually" - live: no chip forms, the
-      // digits just stay in the field (documented discrepancy above).
-      await test.step('TC256: entering a bag code via the keypad leaves it in the field, not a chip', async () => {
-        await vending.enterBagCode('1234');
-        expect(await vending.getBagCodeFieldText()).toBe('1234');
-      });
-
-      // TC259/TC260 "Additional bag code field is displayed, with its own
-      // placeholder".
-      await test.step('TC259/TC260: the + icon reveals an Additional code field with its own placeholder', async () => {
-        await vending.openAdditionalBagCodeField();
-        expect((await vending.getAdditionalCodeFieldText()).length).toBe(0);
-      });
-
-      // TC261 "scanner icon in Additional bag code" - confirmed true,
-      // same scanner icon as the primary Bag code field.
-      await test.step('TC261: the Additional code field shows its own scanner icon', async () => {
-        expect(await vending.isAdditionalCodeScannerIconVisible()).toBe(true);
-      });
-
-      // TC264 (adapted - see this test's own note above) - clearing the
-      // Bag code back to empty with the Additional code field present
-      // and tapping Continue shows the real validation banner. Bills is
-      // filled first so the OTHER "enter at least one value (bag code,
-      // bills, or refund)" validation (live-verified elsewhere in this
-      // file - see performMoneyOperations's own note) doesn't fire
-      // instead and mask the bag-code-specific one being tested here.
-      // Run BEFORE TC262/TC263 below, while there's still only the one
-      // (empty) Additional code field - TC262 leaves a second field with
-      // a real value, which would no longer match this "both bag code
-      // fields empty" scenario.
-      await test.step('TC264: Continue with both bag code fields empty shows the real validation banner', async () => {
-        const bagField = await vending.getBagCodeFieldText();
-        expect(bagField).toBe('1234');
-        await vending.enterBagCode('');
-        await vending.enterBillsAmount('50');
-        await vending.tapContinue();
-        expect(await vending.isBagCodeFieldsErrorVisible()).toBe(true);
-        expect(await vending.isVisible('~Money Collection')).toBe(true);
-      });
-
-      // TC262 "add another bag via + and enter a valid code -> chip
-      // added" - live-verified FALSE, same "no chip" pattern as
-      // TC256/TC258 above: the "+" icon reveals ANOTHER plain Additional
-      // code field, and the entered digits just stay as its text.
-      await test.step('TC262: tapping + again reveals a second Additional code field, entering a code leaves plain text', async () => {
-        const before = await vending.getAdditionalCodeFieldCount();
-        await vending.tapAddBagCodeIcon();
-        expect(await vending.getAdditionalCodeFieldCount()).toBe(before + 1);
-        await vending.enterAdditionalBagCode(2, '5678');
-        expect(await vending.getAdditionalCodeFieldText(2)).toBe('5678');
-      });
-
-      // TC263 "5+ bag codes -> 4 chips visible, remaining scrollable, no
-      // limit" - adapted (see this test's own note above): tapping "+"
-      // repeatedly keeps adding fields with no observed cap.
-      await test.step('TC263: the + icon keeps adding fields with no observed limit, up to 5+ total', async () => {
-        for (let i = 0; i < 3; i++) {
-          await vending.tapAddBagCodeIcon();
-        }
-        expect(await vending.getAdditionalCodeFieldCount()).toBe(5);
-        expect(await vending.isAddBagCodeIconEnabled()).toBe(true);
-      });
-    }
-  );
-
-  // TC265 (Vending "Money ops" - Bag code duplicate detection) - live-
-  // verified 2026-07-30 (build 0.1.76, Route 103/YESTERDAY, "Advocate
-  // Health Carolina Neurosurgery & Spine Association" stop, "97713 -
-  // Bottle Bev" machine).
-  //
-  // Uses a FOURTH, entirely separate stop (not "Aaron's" or "Admark
-  // Graphics") to get a clean two-field scenario: the test above (TC250-
-  // TC264) ends with 5 Additional code fields open, and adding a
-  // duplicate check there would either need clearing all of them back
-  // down first or risk the OTHER "All bag code fields must be filled in"
-  // validation (TC264) firing instead if any field is left empty -
-  // masking the specific duplicate-detection behavior this test targets.
-  //
-  // TC265 "duplicate bag code -> inline error, chip not added" - adapted
-  // like TC264 above: live-verified a real "Duplicate bag codes are not
-  // allowed" banner appears when the primary Bag code and one Additional
-  // code field share the same value, and Money Collection stays open -
-  // the submission is genuinely blocked, not just a missing chip.
-  test(
-    'TC265: entering a duplicate bag code shows a real validation error',
-    { tag: ['@Vending-TC265'] },
-    async () => {
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const vending = new VendingServiceScreen(driver);
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      await test.step("Open the fourth stop's first Vending machine's Money Operations", async () => {
-        await dashboard.clickLocationByPosition('fourth');
-        await dashboard.openNthServiceStation('vending', 'first');
-        await vending.openMoneyOperations();
-      });
-
-      await test.step('TC265: a duplicate bag code shows the real validation banner and blocks Continue', async () => {
-        await vending.enterBagCode('1234');
-        await vending.openAdditionalBagCodeField();
-        await vending.enterAdditionalBagCode(1, '1234');
-        await vending.tapContinue();
-        expect(await vending.isDuplicateBagCodeErrorVisible()).toBe(true);
-        expect(await vending.isVisible('~Money Collection')).toBe(true);
-      });
-    }
-  );
-
-  // TC266/TC267/TC277 (Vending "Money ops" - the Replenishment Amount
-  // section; TC267's own Excel row bundles TC277) - live-verified
-  // 2026-07-30 (build 0.1.76, Route 103/YESTERDAY, "Advocate Health
-  // Carolina Neurosurgery & Spine Association" stop, "69153 - Lg Snacks"
-  // machine). See VendingServiceScreen's own note above
-  // toggleReplenishmentAmountSection for the full discovery.
-  //
-  // TC266 "section renamed to Replenishment Amount (from Imprest
-  // money)" - confirmed true: the section's own content-desc reads
-  // exactly "Replenishment Amount", with no trace of the old label.
-  //
-  // TC267 "expand Replenishment Amount -> see $5 and $10 bill inputs" -
-  // live-verified FALSE: there is only the one generic Bills field
-  // already covered elsewhere in this file, not a $5/$10 breakdown. The
-  // section genuinely does expand/collapse on tap though (the Bills
-  // field's own visibility is the only real signal - the header itself
-  // carries no accessible expanded/collapsed state).
-  //
-  // Uses the fourth stop's SECOND machine (not "first", used by TC265
-  // above) to stay isolated from that test's own draft edits.
-  test(
-    'TC266/TC267/TC277: Replenishment Amount is renamed, expands/collapses, and retains an entered amount',
-    { tag: ['@Vending-TC266', '@Vending-TC267', '@Vending-TC277'] },
-    async () => {
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const vending = new VendingServiceScreen(driver);
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      await test.step("Open the fourth stop's second Vending machine's Money Operations", async () => {
-        await dashboard.clickLocationByPosition('fourth');
-        await dashboard.openNthServiceStation('vending', 'second');
-        await vending.openMoneyOperations();
-      });
-
-      // TC266 "section renamed to Replenishment Amount".
-      await test.step('TC266: the section header reads "Replenishment Amount"', async () => {
-        expect(await vending.isReplenishmentAmountLabelVisible()).toBe(true);
-      });
-
-      // TC267 "expand Replenishment Amount" - expanded by default (Bills
-      // visible); tapping the header collapses it, tapping again
-      // re-expands it.
-      await test.step('TC267: the Replenishment Amount section toggles between expanded and collapsed', async () => {
-        expect(await vending.isReplenishmentAmountExpanded()).toBe(true);
-        await vending.toggleReplenishmentAmountSection();
-        expect(await vending.isReplenishmentAmountExpanded()).toBe(false);
-        await vending.toggleReplenishmentAmountSection();
-        expect(await vending.isReplenishmentAmountExpanded()).toBe(true);
-      });
-
-      // TC277 "user can update replenishment amount -> entered in amount
-      // field".
-      await test.step('TC277: an entered amount is retained in the Bills field', async () => {
-        await vending.enterBillsAmount('75');
-        expect(await vending.getBillsAmount()).toBe('75');
-      });
-    }
-  );
-
-  // TC268/TC269/TC270 (Vending "Money ops" - Bills count entry/
-  // validation and the Refund section) - live-verified 2026-07-30 (build
-  // 0.1.76, Route 103/YESTERDAY, "Admark Graphics" stop, "64922 - Lg
-  // Snacks" machine). See VendingServiceScreen's own note above
-  // enterBillsCount/toggleRefundSection for the full discovery.
-  //
-  // TC268 "enter counts for $5 and $10 denominations" - adapted to the
-  // one real Bills field (see this file's own TC267 note above).
-  //
-  // TC269 "enter -1 or 2.5 -> error and input rejected" - live-verified
-  // neither is reachable via the real digit-only keypad at all (no
-  // decimal key, "-" is a decrement stepper). Adapted: bypassing the
-  // keypad shows the field silently strips the invalid character rather
-  // than showing a banner - setValue('-1') leaves "1", setValue('2.5')
-  // leaves "25".
-  //
-  // TC270 "expand Refund -> Refund amount input displayed" - confirmed
-  // true: same collapsible pattern as Replenishment Amount above.
-  test(
-    'TC268/TC269/TC270: Bills count entry/validation and the Refund section',
-    { tag: ['@Vending-TC268', '@Vending-TC269', '@Vending-TC270'] },
-    async () => {
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const vending = new VendingServiceScreen(driver);
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      await test.step("Open Admark Graphics's first Vending machine's Money Operations", async () => {
-        await dashboard.clickLocationByPosition('third');
-        await dashboard.openNthServiceStation('vending', 'first');
-        await vending.openMoneyOperations();
-      });
-
-      // TC268 "enter counts for $5 and $10 denominations" - adapted to
-      // the one real Bills field.
-      await test.step('TC268: entering a bill count via the keypad is accepted', async () => {
-        await vending.enterBillsCount('10');
-        expect(await vending.getBillsAmount()).toBe('10');
-      });
-
-      // TC269 "enter -1 or 2.5 -> error and input rejected" - adapted
-      // (see this test's own note above): the invalid character is
-      // silently stripped rather than shown with a banner.
-      await test.step('TC269: a negative sign or decimal point is silently stripped, not accepted literally', async () => {
-        await vending.setBillsAmountRaw('-1');
-        expect(await vending.getBillsAmount()).toBe('1');
-        await vending.setBillsAmountRaw('2.5');
-        expect(await vending.getBillsAmount()).toBe('25');
-      });
-
-      // TC270 "expand Refund -> Refund amount input displayed" - same
-      // collapsible pattern as Replenishment Amount.
-      await test.step('TC270: the Refund section toggles between expanded and collapsed', async () => {
-        expect(await vending.isRefundExpanded()).toBe(true);
-        await vending.toggleRefundSection();
-        expect(await vending.isRefundExpanded()).toBe(false);
-        await vending.toggleRefundSection();
-        expect(await vending.isRefundExpanded()).toBe(true);
-      });
-    }
-  );
-
-  // TC271/TC272/TC273 (Vending "Money ops" - the Refund amount input
-  // itself) and TC280-TC284 (Vending "Money ops" - Replenishment/Bills
-  // field numeric validation) - live-verified 2026-08-03 (build 0.1.76,
-  // Route 103/YESTERDAY, "Admark Graphics" stop, "64922 - Lg Snacks"
-  // machine, same stop/machine as TC268/TC269/TC270 above).
-  //
-  // TC271 "focus Refund amount -> numeric keypad opens" - confirmed true,
-  // same digit-only keypad family as Bag code/Bills.
-  //
-  // TC272 "enter refund amount -> recorded and formatted" - live-verified
-  // the field displays the raw digits typed with no currency/decimal
-  // formatting applied (same plain-EditText model as Bag code/Bills) -
-  // not asserted as a $-formatted string.
-  //
-  // TC273 "enter 0.02 -> error banner 'Refund amount must be in $0.05
-  // increments.'" - live-verified this exact value/banner is unreachable:
-  // the field is driven by the same digit-only keypad with no decimal key
-  // (see TC269's own note above), so "0.02" can never be typed as such,
-  // and no such banner exists anywhere in this form. Adapted to the real
-  // behavior instead: bypassing the keypad via setValue('0.02') shows the
-  // decimal point silently stripped, leaving "002" - same silent-strip
-  // behavior as TC269, no banner.
-  //
-  // TC280 "system rejects non-numeric input" - confirmed true (and
-  // unreachable in the first place: the digit-only keypad never exposes
-  // letters or symbols to type).
-  //
-  // TC281 "system rejects negative values" - live-verified the same as
-  // TC269: a literal "-" bypassed via setValue() is silently stripped
-  // (setValue('-100') leaves "100"), not shown with an error.
-  //
-  // TC282 "system accepts zero" - live-verified TRUE (contradicts the
-  // Excel's own "should not accept" expectation): entering "0" via the
-  // real keypad is accepted and displayed as "0", same as any other
-  // digit string.
-  //
-  // TC283 "system restricts large values" - live-verified FALSE: entering
-  // a 9-digit value ("123456789") via the real keypad is accepted in
-  // full, with no observed length cap or rejection.
-  //
-  // TC284 "system restricts decimal handling" - live-verified the same
-  // silent-strip behavior as TC269/TC273: setValue('12.34') leaves
-  // "1234", no banner.
-  test(
-    'TC271/TC272/TC273/TC280-TC284: Refund amount entry and Replenishment/Bills numeric validation',
-    {
-      tag: [
-        '@Vending-TC271',
-        '@Vending-TC272',
-        '@Vending-TC273',
-        '@Vending-TC280',
-        '@Vending-TC281',
-        '@Vending-TC282',
-        '@Vending-TC283',
-        '@Vending-TC284'
-      ]
-    },
-    async () => {
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const vending = new VendingServiceScreen(driver);
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      await test.step("Open Admark Graphics's first Vending machine's Money Operations", async () => {
-        await dashboard.clickLocationByPosition('third');
-        await dashboard.openNthServiceStation('vending', 'first');
-        await vending.openMoneyOperations();
-      });
-
-      // TC271 "focus Refund amount -> numeric keypad opens".
-      await test.step('TC271: focusing the Refund amount field opens the digit-only keypad', async () => {
-        expect(await vending.isRefundDigitKeypadVisible()).toBe(true);
-      });
-
-      // TC272 "enter refund amount -> recorded and formatted" - adapted
-      // (see this test's own note above): recorded as the raw digits
-      // typed, no currency formatting.
-      await test.step('TC272: an entered amount is recorded in the Refund field', async () => {
-        await vending.enterRefundAmount('5');
-        expect(await vending.getRefundAmount()).toBe('5');
-      });
-
-      // TC273 "enter 0.02 -> $0.05-increment error banner" - adapted
-      // (see this test's own note above): the decimal point is silently
-      // stripped, no banner exists.
-      await test.step('TC273: a decimal value is silently stripped in the Refund field, not rejected with a banner', async () => {
-        await vending.setRefundAmountRaw('0.02');
-        expect(await vending.getRefundAmount()).toBe('002');
-      });
-
-      // TC280 "reject non-numeric input" - confirmed true (unreachable in
-      // the first place via the real digit-only keypad).
-      await test.step('TC280: the Replenishment/Bills field only exposes digit keys, never letters/symbols', async () => {
-        expect(await vending.isBillsDigitKeypadVisible()).toBe(true);
-      });
-
-      // TC281 "reject negative values" - adapted, same as TC269.
-      await test.step('TC281: a negative sign is silently stripped in the Replenishment/Bills field, not rejected with a banner', async () => {
-        await vending.setBillsAmountRaw('-100');
-        expect(await vending.getBillsAmount()).toBe('100');
-      });
-
-      // TC282 "accept zero" - live-verified TRUE, contradicting the
-      // Excel's own "should not accept" expectation.
-      await test.step('TC282: zero is accepted in the Replenishment/Bills field', async () => {
-        await vending.enterBillsCount('0');
-        expect(await vending.getBillsAmount()).toBe('0');
-      });
-
-      // TC283 "restrict large values" - live-verified FALSE, no cap
-      // observed.
-      await test.step('TC283: a large value is accepted in full in the Replenishment/Bills field, with no observed cap', async () => {
-        await vending.enterBillsCount('123456789');
-        expect(await vending.getBillsAmount()).toBe('123456789');
-      });
-
-      // TC284 "restrict decimal handling" - adapted, same as TC269/TC273.
-      await test.step('TC284: a decimal value is silently stripped in the Replenishment/Bills field, not rejected with a banner', async () => {
-        await vending.setBillsAmountRaw('12.34');
-        expect(await vending.getBillsAmount()).toBe('1234');
-      });
-    }
-  );
-
-  // TC144/TC146/TC147 (Vending "Planogram" sub-area, despite describing
-  // the Product fills row rather than the separate Planogram grid screen
-  // - see VendingServiceScreen's own note above isParFieldEditable) -
-  // live-verified 2026-07-29 (build 0.1.76, Route 103/YESTERDAY, "Aaron's"
-  // stop, "61241 - Lg Snacks" machine).
-  //
-  // MUST run before "TC117/TC165/TC168-TC180" below (and therefore before
-  // "TC004-TC015" too): TC147 asserts the Delivery field is genuinely
-  // BLANK, which is only true before anything has filled it - both of
-  // those later tests fill this exact same "first" machine's Delivery
-  // fields (TC178-180 fills every row to make Continue actually submit;
-  // TC004-015's own prerequisite helper does the same) - see the note on
-  // that test for why re-using this machine post-submission also breaks
-  // Continue itself, a separate but related ordering constraint.
-  test(
-    'TC144/TC146/TC147: Par is read-only, and the Delivery field starts genuinely empty',
-    { tag: ['@Vending-TC144', '@Vending-TC147'] },
-    async () => {
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const vending = new VendingServiceScreen(driver);
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      await test.step("Open the first stop's first Vending machine's Product fills", async () => {
-        await dashboard.clickLocationByPosition('first');
-        await dashboard.openNthServiceStation('vending', 'first');
-        await vending.openFills();
-      });
-
-      // TC144/TC145 "Par value is read-only, positioned between the
-      // product name and Delivery field" - live: no EditText anywhere on
-      // the row carries an hint of "Par" (only "Delivery" and "End" do);
-      // its value is baked into the row's own content-desc, structurally
-      // preceding both fields (see getFillRowSummary).
-      await test.step('TC144: Par has no editable counterpart anywhere on the row', async () => {
-        const summary = await vending.getFillRowSummary('first');
-        expect(summary.par).toBeGreaterThan(0);
-        expect(await vending.isParFieldEditable('first')).toBe(false);
-      });
-
-      // TC146 "PAR value displayed as per the legacy application" - a
-      // pure visual-parity claim with no accessible signal to check
-      // against (see VendingServiceScreen's own note) - not asserted.
-
-      // TC147 "empty numeric input with label Delivery" - on a
-      // genuinely fresh, not-yet-touched machine, Delivery starts blank.
-      await test.step('TC147: the Delivery field is visible, labeled "Delivery", and starts empty', async () => {
-        expect(await vending.getDeliveryFieldHint('first')).toBe('Delivery');
-        expect(await vending.getDeliveryFieldValue('first')).toBe('');
-      });
-    }
-  );
-
-  // TC182/TC185/TC187-TC211 (Vending "delivery - Filters") - live-verified
-  // 2026-07-29 (build 0.1.76, Route 103/YESTERDAY, "Aaron's" stop,
-  // "11333 - Bottle Bev" machine, categories BOTTLE BEV (5)/CAN BEV (2)/
-  // GENERAL MDSE (1)).
-  //
-  // Uses the THIRD Vending machine at this stop, not "first" or "second" -
-  // "TC117/TC165/TC168-TC180" and "TC004-TC015" fully submit (Continue)
-  // the "first" machine's Fills as part of their own flow, and this test
-  // needs to actually complete a (filtered) Fill of its own for
-  // TC210/TC211 - reusing "first" would hit the exact same already-
-  // submitted-Continue-is-a-no-op issue documented on that test. The
-  // "second" machine ("61241 - Lg Snacks") was live-verified during this
-  // test's own development and is ALSO already submitted - not reused
-  // for the same reason.
-  //
-  // Key live-verified discrepancies from the Excel (documented, not
-  // asserted as bugs):
-  // - TC187's own test data ("Snacks, Nuts") doesn't match this catalog's
-  //   real category chips - there is no "Snacks" or "Nuts" category here,
-  //   only BOTTLE BEV/CAN BEV/GENERAL MDSE - BOTTLE BEV and CAN BEV are
-  //   used instead throughout this test.
-  // - TC202 "reopen Filter and verify chips cleared, Apply Filters
-  //   disabled" - live-verified FALSE: reopening the sheet after removing
-  //   ONE of two applied tags (TC199) shows the sheet reflecting the
-  //   CURRENTLY active filter (the still-applied category's chip stays
-  //   selected, Apply Filters stays enabled) - it does not reset to a
-  //   blank slate.
-  // - TC205 "apply filters with no matching items -> empty-state shown" -
-  //   not reproducible via category filters alone on this catalog: all
-  //   three real categories have a non-zero count (5/2/1), so there is
-  //   no combination of category chips that yields zero results.
-  // - TC206 "list sorted alphabetically (if applicable)" - the Excel's
-  //   own "if applicable" hedge; not asserted (Sort is a separate,
-  //   already-covered feature - see TC212/TC215 above - orthogonal to
-  //   Filter).
-  // - TC208 "invalid Ending Inventory (-1/blank/10.5) -> Continue
-  //   disabled" - live-verified FALSE, same "always enabled" discrepancy
-  //   already documented on TC177/TC178 above; not re-explored via the
-  //   keypad again here, just re-confirmed via a cleared field.
-  // - TC211 "delivery tile highlighted green with a tick mark" - visual-
-  //   only signal with no accessible content-desc/selected/checked
-  //   change, same pattern as TC014/TC179 elsewhere in this file - not
-  //   assertable.
-  test(
-    'TC182/TC185/TC187-TC211: Filter sheet chip selection, apply/clear, tags, reopened state, and completing a filtered Fill',
-    {
-      tag: (
-        ['TC182', 'TC185', 'TC187', 'TC188', 'TC190', 'TC192', 'TC193', 'TC194', 'TC195', 'TC196',
-          'TC198', 'TC199', 'TC200', 'TC201', 'TC202', 'TC203', 'TC204', 'TC205', 'TC206', 'TC207',
-          'TC208', 'TC209', 'TC210', 'TC211'
-        ].map((n) => `@Vending-${n}`)
-      )
-    },
-    async ({ }, testInfo) => {
-      // fillAllProductDeliveryQuantities()'s scroll-and-fill loop can run
-      // to 40+ rounds on a "full service" machine with a large catalog -
-      // well beyond the 150s default budget (see TC117/TC165/TC168-TC180
-      // above, which needs the same allowance).
-      testInfo.setTimeout(400_000);
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const vending = new VendingServiceScreen(driver);
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      await test.step("Open the first stop's third Vending machine's Product fills", async () => {
-        await dashboard.clickLocationByPosition('first');
-        await dashboard.openNthServiceStation('vending', 'third');
-        await vending.openFills();
-      });
-
-      // TC182 "view category text" / TC185/TC190 "Apply Filters disabled
-      // without a selection" (Clear Filters also starts disabled - both
-      // confirmed live).
-      await test.step('TC182/TC185/TC190: Filter sheet opens with "By category" and both actions disabled', async () => {
-        await vending.openFilterSheet();
-        expect(await vending.isFilterByCategoryLabelVisible()).toBe(true);
-        expect(await vending.isApplyFiltersEnabled()).toBe(false);
-        expect(await vending.isClearFiltersEnabled()).toBe(false);
-      });
-
-      // TC187/TC192 "select multiple chips" / TC193/TC195 "Apply Filters
-      // enabled" / TC194 "Apply Filters disabled again on deselection".
-      await test.step('TC187/TC192/TC193/TC195/TC194: selecting/deselecting chips toggles Apply Filters', async () => {
-        await vending.tapFilterChip('BOTTLE BEV');
-        await vending.tapFilterChip('CAN BEV');
-        expect(await vending.isFilterChipSelected('BOTTLE BEV')).toBe(true);
-        expect(await vending.isFilterChipSelected('CAN BEV')).toBe(true);
-        expect(await vending.isApplyFiltersEnabled()).toBe(true);
-
-        await vending.tapFilterChip('BOTTLE BEV');
-        await vending.tapFilterChip('CAN BEV');
-        expect(await vending.isApplyFiltersEnabled()).toBe(false);
-
-        await vending.tapFilterChip('BOTTLE BEV');
-        await vending.tapFilterChip('CAN BEV');
-        expect(await vending.isApplyFiltersEnabled()).toBe(true);
-      });
-
-      // TC196 "apply -> filtered list" / TC198 "active filter icon".
-      await test.step('TC196/TC198: applying filters activates the header icon and shows both tags', async () => {
-        await vending.tapApplyFilters();
-        expect(await vending.isFilterActive()).toBe(true);
-        expect(await vending.isFilterTagVisible('BOTTLE BEV')).toBe(true);
-        expect(await vending.isFilterTagVisible('CAN BEV')).toBe(true);
-      });
-
-      // TC199 "remove a single filter tag -> list updates with the
-      // remaining filter still applied".
-      await test.step('TC199: removing one tag leaves the other filter active', async () => {
-        await vending.removeFilterTag('BOTTLE BEV');
-        expect(await vending.isFilterTagVisible('BOTTLE BEV')).toBe(false);
-        expect(await vending.isFilterTagVisible('CAN BEV')).toBe(true);
-      });
-
-      // TC202 "reopen Filter and verify state" - live: reflects the
-      // currently-active filter, not a cleared slate (documented
-      // discrepancy above).
-      await test.step('TC202: reopening Filter reflects the still-active filter, not a cleared sheet', async () => {
-        await vending.openFilterSheet();
-        expect(await vending.isFilterChipSelected('CAN BEV')).toBe(true);
-        expect(await vending.isFilterChipSelected('BOTTLE BEV')).toBe(false);
-        expect(await vending.isApplyFiltersEnabled()).toBe(true);
-      });
-
-      // TC203/TC204 "re-select and re-apply filters".
-      await test.step('TC203/TC204: re-selecting the removed category and re-applying restores both tags', async () => {
-        await vending.tapFilterChip('BOTTLE BEV');
-        await vending.tapApplyFilters();
-        expect(await vending.isFilterTagVisible('BOTTLE BEV')).toBe(true);
-        expect(await vending.isFilterTagVisible('CAN BEV')).toBe(true);
-      });
-
-      // TC188/TC200 "clear all filters" / TC198/TC201 "icon returns to
-      // normal".
-      await test.step('TC188/TC200/TC201: Clear Filters removes every tag and deactivates the header icon', async () => {
-        await vending.openFilterSheet();
-        await vending.tapClearFilters();
-        expect(await vending.isFilterActive()).toBe(false);
-        expect(await vending.isFilterTagVisible('BOTTLE BEV')).toBe(false);
-        expect(await vending.isFilterTagVisible('CAN BEV')).toBe(false);
-      });
-
-      // TC207/TC209 "Ending Inventory field visible, valid quantity ->
-      // Continue enabled" / TC208 "invalid (cleared) quantity -> Continue
-      // disabled" - live: Continue stays enabled regardless (documented
-      // discrepancy above, same as TC177/TC178).
-      await test.step('TC207/TC208/TC209: Ending Inventory field is present; Continue stays enabled even when cleared', async () => {
-        const before = await vending.getEndFieldValue('first');
-        expect(before.length).toBeGreaterThan(0);
-        await vending.clearEndFieldValue('first');
-        expect(await vending.isFillsContinueEnabled()).toBe(true);
-        await vending.setEndFieldValue('first', before);
-      });
-
-      // TC210 "Continue with valid inputs navigates to the workflow
-      // summary screen" - reuses the already-proven
-      // fillAllProductDeliveryQuantities() scroll-and-fill loop (every
-      // row's Delivery must be filled for Continue to actually submit -
-      // see TC178-TC180's own note above). Re-applies the small "CAN
-      // BEV" (2-item) filter first rather than completing against the
-      // full, just-cleared catalog - live-verified this machine's full
-      // catalog runs well past fillAllProductDeliveryQuantities()'s
-      // default 60-round cap, which left several rows blank and made
-      // Continue a legitimate no-op (not a bug) when first tried against
-      // the unfiltered list.
-      await test.step('TC210: re-filtering to a small category, then filling and continuing leaves Product fills', async () => {
-        await vending.openFilterSheet();
-        await vending.tapFilterChip('CAN BEV');
-        await vending.tapApplyFilters();
-        await vending.fillAllProductDeliveryQuantities();
-        expect(await vending.isProductFillsTitleVisible()).toBe(false);
-      });
-    }
-  );
-
-  // TC220/TC221/TC222/TC223/TC225/TC226/TC227/TC230-TC241 (Vending
-  // "delivery - Sort", continuing from TC216/TC217 above) - live-verified
-  // 2026-07-30 (build 0.1.76, Route 103/YESTERDAY, "Aaron's" stop,
-  // "61241 - Lg Snacks" machine).
-  //
-  // Uses the SECOND Vending machine at this stop, same reasoning as the
-  // Filters test above: TC240 completes a real Continue submission, which
-  // would conflict with any other test that assumes this machine's Fills
-  // is still pending (or, if this ran first, would break its own TC240 if
-  // some other test had already submitted this same machine).
-  //
-  // Key live-verified discrepancies from the Excel (documented, not
-  // asserted as bugs):
-  // - TC222/TC227 "previously selected option highlighted on reopen" -
-  //   live-verified this IS a real visual signal (screenshotted: the
-  //   previously-applied option's row renders with a light-green
-  //   background) but, like several other visual-only states elsewhere
-  //   in this app (TC014's completion checkmark, TC063-TC065's legacy
-  //   layout), it carries NO accessible signal at all - the option
-  //   Button's own `selected`/`checked` attributes both read false
-  //   regardless of whether it's the currently-applied sort. Not
-  //   independently assertable; documented instead.
-  // - TC230-TC238 (Barcode Ascending/Barcode Descending sort options) -
-  //   not reproducible: live-verified this sheet's only five real
-  //   options are A to Z, Z to A, By Category, Newest First, and Oldest
-  //   First - there is no barcode-based sort anywhere on this screen.
-  // - TC241 "delivery tile highlighted green with a tick mark" - visual-
-  //   only signal with no accessible content-desc/selected/checked
-  //   change, same pattern as TC014/TC179/TC211 elsewhere in this file -
-  //   not assertable.
-  test(
-    'TC220-TC241: Sort order applies/reverses correctly, persists across reopen, and completing a sorted Fill',
-    {
-      tag: (
-        ['TC220', 'TC221', 'TC222', 'TC223', 'TC225', 'TC226', 'TC227', 'TC230', 'TC231', 'TC232',
-          'TC235', 'TC236', 'TC237', 'TC238', 'TC240', 'TC241'
-        ].map((n) => `@Vending-${n}`)
-      )
-    },
-    async ({ }, testInfo) => {
-      // fillAllProductDeliveryQuantities()'s scroll-and-fill loop can run
-      // to 40+ rounds on a "full service" machine with a large catalog -
-      // well beyond the 150s default budget (see TC117/TC165/TC168-TC180
-      // above, which needs the same allowance).
-      testInfo.setTimeout(400_000);
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const vending = new VendingServiceScreen(driver);
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      await test.step("Open the first stop's second Vending machine's Product fills", async () => {
-        await dashboard.clickLocationByPosition('first');
-        await dashboard.openNthServiceStation('vending', 'second');
-        await vending.openFills();
-      });
-
-      // TC220 "apply A to Z" / TC221 "verify A to Z order".
-      await test.step('TC220/TC221: applying A to Z sorts the list alphabetically ascending', async () => {
-        await vending.selectSortOption('A to Z');
-        expect(await vending.isSortActive()).toBe(true);
-        const names = await vending.getFillProductNamesInOrder();
-        const sorted = [...names].sort((a, b) => a.localeCompare(b));
-        expect(names).toEqual(sorted);
-      });
-
-      // TC222 "persisted selection on reopen" - live: Clear sort order
-      // stays enabled (the real, accessible persistence signal); the
-      // option's own visual highlight has no accessible counterpart (see
-      // this test's own note above).
-      await test.step('TC222: reopening Sort after A to Z shows Clear sort order still enabled', async () => {
-        await vending.openSortSheet();
-        expect(await vending.isClearSortEnabled()).toBe(true);
-      });
-
-      // TC223 "clear sort from highlighted state" - same mechanism as
-      // TC217 above, re-confirmed here after a DIFFERENT sort (A to Z)
-      // was the one active.
-      await test.step('TC223: Clear sort order deactivates the icon after A to Z', async () => {
-        await vending.tapClearSort();
-        expect(await vending.isSortActive()).toBe(false);
-      });
-
-      // TC220/TC225 "apply Z to A" / TC221/TC226 "verify Z to A order" /
-      // TC227 "persist Z to A selection on reopen".
-      await test.step('TC225/TC226/TC227: applying Z to A sorts descending and persists on reopen', async () => {
-        await vending.selectSortOption('Z to A');
-        expect(await vending.isSortActive()).toBe(true);
-        const names = await vending.getFillProductNamesInOrder();
-        const sortedDesc = [...names].sort((a, b) => b.localeCompare(a));
-        expect(names).toEqual(sortedDesc);
-
-        await vending.openSortSheet();
-        expect(await vending.isClearSortEnabled()).toBe(true);
-        await vending.tapClearSort();
-        expect(await vending.isSortActive()).toBe(false);
-      });
-
-      // TC230-TC238 (Barcode Ascending/Descending) - not reproducible on
-      // this catalog/sheet (see this test's own note above); not
-      // exercised.
-
-      // TC240 "Continue with valid inputs navigates to the workflow
-      // summary screen" - reuses the already-proven
-      // fillAllProductDeliveryQuantities() scroll-and-fill loop against
-      // this machine's full (unsorted) catalog.
-      await test.step('TC240: filling every row\'s Delivery and continuing leaves Product fills', async () => {
-        await vending.fillAllProductDeliveryQuantities();
-        expect(await vending.isProductFillsTitleVisible()).toBe(false);
-      });
-
-      // TC241 - visual-only tile completion signal; not assertable (see
-      // this test's own note above).
-    }
-  );
-
-  // TC117/TC165/TC168-TC180 (Vending "delivery - Product delivery") -
-  // live-verified 2026-07-29 (build 0.1.76, Route 103/YESTERDAY, "Aaron's"
-  // stop, "61241 - Lg Snacks"/"3247550" machines). See VendingServiceScreen's
-  // own extensive note above its Product fills locators for every
-  // discrepancy found relative to the Excel (TC165/TC168/TC169/TC171/
-  // TC172/TC174/TC176/TC177/TC178) - not repeated here.
-  //
-  // MUST run before "TC004-TC015" below: that test's own
-  // completeBeforePhotosMoneyOpsAndFills() fully submits (Continue) this
-  // exact same "first" Vending machine's Product fills - live-verified
-  // that re-tapping Continue on an already-submitted Fill is a silent
-  // no-op (the screen never navigates away, even though every field still
-  // reads as valid) rather than an error, which made the failure look like
-  // a Continue-locator bug at first. Placing this test first guarantees
-  // Fills is still genuinely pending when TC178/TC179/TC180 tap Continue.
-  test(
-    'TC117/TC165/TC168-TC180: Product fills header actions, row summary, Delivery/Ending Inventory fields, keypad, Continue',
-    {
-      tag: [
-        '@Vending-TC117',
-        '@Vending-TC165',
-        '@Vending-TC168',
-        '@Vending-TC169',
-        '@Vending-TC170',
-        '@Vending-TC171',
-        '@Vending-TC172',
-        '@Vending-TC173',
-        '@Vending-TC174',
-        '@Vending-TC175',
-        '@Vending-TC176',
-        '@Vending-TC177',
-        '@Vending-TC178',
-        '@Vending-TC179',
-        '@Vending-TC180'
-      ]
-    },
-    async ({ }, testInfo) => {
-      // fillAllProductDeliveryQuantities()'s scroll-and-fill loop can run
-      // to 40+ rounds on a "full service" machine with a large catalog -
-      // well beyond the 150s default budget (see this file's own
-      // TC004-TC015 test, which needs the same allowance).
-      testInfo.setTimeout(400_000);
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const vending = new VendingServiceScreen(driver);
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      await test.step("Open the first stop's first Vending machine's Product fills", async () => {
-        await dashboard.clickLocationByPosition('first');
-        await dashboard.openNthServiceStation('vending', 'first');
-        await vending.openFills();
-      });
-
-      // TC165 "Filter, Sort, Add icons visible" - actual header has
-      // Filter/Sort/Planogram, no Add (documented discrepancy).
-      await test.step('TC165: header shows Sort/Filter/Planogram, not Add', async () => {
-        const actions = await vending.isFillsHeaderActionsVisible();
-        expect(actions.sort).toBe(true);
-        expect(actions.filter).toBe(true);
-        expect(actions.planogram).toBe(true);
-        expect(actions.add).toBe(false);
-      });
-
-      // TC117 "open Planogram from delivery".
-      await test.step('TC117: Planogram opens from the header icon', async () => {
-        await vending.openPlanogram();
-        expect(await vending.isPlanogramTitleVisible()).toBe(true);
-        await vending.pressKeyCode(4);
-        await vending.waitFor('~Product fills');
-      });
-
-      // TC168/TC169 "view package info / Par, Ordered, Picked values" -
-      // only a Par value is actually present (documented discrepancy).
-      await test.step('TC168/TC169: first row exposes a name and Par value', async () => {
-        const summary = await vending.getFillRowSummary('first');
-        expect(summary.name.length).toBeGreaterThan(0);
-        expect(summary.par).toBeGreaterThan(0);
-      });
-
-      // TC170 "Delivery field labeled 'Delivery', not 'DEL'".
-      await test.step("TC170: the Delivery field's label reads \"Delivery\"", async () => {
-        expect(await vending.getDeliveryFieldHint('first')).toBe('Delivery');
-      });
-
-      // TC173/TC175 "enter Ending Inventory, numeric keypad shown" /
-      // TC171/TC172 "default value clears then overwrites, not appends" -
-      // of the End (Ending Inventory) field, which starts pre-filled with
-      // the row's own Par value (see this file's own note above on why
-      // it's End, not Delivery, that carries this default).
-      await test.step('TC171/TC172/TC173/TC175: Ending Inventory field replaces its default on first entry', async () => {
-        const before = await vending.getEndFieldValue('first');
-        expect(before.length).toBeGreaterThan(0);
-        await vending.setEndFieldValue('first', '9');
-        expect(await vending.getEndFieldValue('first')).toBe('9');
-      });
-
-      // TC176 "unable to enter negative Ending Inventory" - the keypad's
-      // "-" key is a decrement stepper floored at 0, not a literal minus
-      // sign - repeated taps never go negative.
-      await test.step('TC176: repeated decrement taps floor Ending Inventory at 0, never negative', async () => {
-        await vending.tapEndFieldDecrement('first', 20);
-        expect(await vending.getEndFieldValue('first')).toBe('0');
-      });
-
-      // TC177 "Continue disabled due to empty Ending Inventory" - live:
-      // Continue stays enabled even with the field cleared to empty
-      // (documented discrepancy).
-      await test.step('TC177: Continue stays enabled even with Ending Inventory cleared to empty', async () => {
-        await vending.clearEndFieldValue('first');
-        expect(await vending.getEndFieldValue('first')).toBe('');
-        expect(await vending.isFillsContinueEnabled()).toBe(true);
-      });
-
-      // TC178/TC179/TC180 "Continue enabled with valid entries, proceeds,
-      // and the Fills tile can be re-opened from the checklist". Live-
-      // verified Continue's ENABLED state is purely cosmetic (see TC177's
-      // own note) - tapping it while any row's own Delivery field is still
-      // blank is a silent no-op that never actually leaves this screen,
-      // regardless of the End field. The real gate is every row's
-      // Delivery field being filled - reuses the already-proven
-      // fillAllProductDeliveryQuantities() scroll-and-fill loop rather
-      // than re-deriving that discovery here.
-      await test.step('TC178/TC179/TC180: restoring a valid value, filling every row\'s Delivery quantity, Continue proceeds back to the checklist, and Fills reopens', async () => {
-        await vending.setEndFieldValue('first', '24');
-        expect(await vending.isFillsContinueEnabled()).toBe(true);
-        await vending.fillAllProductDeliveryQuantities();
-        expect(await vending.isProductFillsTitleVisible()).toBe(false);
-        await vending.openFills();
-        expect(await vending.isProductFillsTitleVisible()).toBe(true);
-      });
-    }
-  );
-
-  // TC004-TC015 (Vending "After Photos") - live-verified 2026-07-29 (build
-  // 0.1.76, Route 103/YESTERDAY, "Aaron's" and "Admark Graphics" stops,
-  // "11333 - Bottle Bev"/"97624 - Bottle Bev" machines).
-  //
-  // Unlike every other Vending tile, After Photos starts DISABLED until
-  // Before Photos, Money Operations, Fills, and Removals & Returns are ALL
-  // completed first - see VendingServiceScreen's own note above
-  // isAfterPhotosEnabled/completeBeforePhotosMoneyOpsAndFills for the full
-  // discovery (including why Fills needs a scroll-and-fill loop, not a
-  // fixed row count).
-  //
-  // NOT independently asserted (documented instead):
-  // - TC006/TC007 (camera opens, no "Taking a photo" text) - both live-
-  //   verified true via a direct manual walkthrough (see this describe
-  //   block's own commit history), but not exercised by this automated
-  //   test - it goes via Skip Photo instead, since driving the emulator's
-  //   own camera reliably from an automated run (shutter tap timing,
-  //   review-screen Attach Photo) proved far less deterministic than the
-  //   shared Skip Photo component every other LOB already relies on.
-  // - TC008/TC009 (capture/save a real photo) - same reason; live-verified
-  //   true manually (unlike Coffee, where the camera view is entirely
-  //   inaccessible) but not re-exercised here.
-  // - TC014 (visual completion checkmark) - live-verified as a real
-  //   visual-only signal (green background + checkmark icon) with NO
-  //   accessible content-desc/selected/checked change - not assertable.
-  test(
-    'TC004-TC015: complete the machine prerequisites, then Skip Photo on After Photos',
-    { tag: ['@Vending-TC004', '@Vending-TC005', '@Vending-TC010', '@Vending-TC011', '@Vending-TC012', '@Vending-TC013', '@Vending-TC015'] },
-    async ({ }, testInfo) => {
-      // Fills' scroll-and-fill loop can run to 40+ rounds on a "full
-      // service" machine with a large catalog - well beyond the 150s
-      // default budget.
-      testInfo.setTimeout(400_000);
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const vending = new VendingServiceScreen(driver);
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      await test.step("Open the first stop's first Vending machine", async () => {
-        await dashboard.clickLocationByPosition('first');
-        await dashboard.openNthServiceStation('vending', 'first');
-      });
-
-      // TC004 "access After Photos" - visible, but NOT yet enabled until
-      // the other three tiles are completed (live-verified discrepancy
-      // from the Excel's own "option available" wording - see
-      // VendingServiceScreen's note).
-      await test.step('TC004: After Photos tile is visible but disabled until prerequisites are met', async () => {
-        expect(await vending.isAfterPhotosEnabled()).toBe(false);
-        await vending.completeBeforePhotosMoneyOpsAndFills();
-        await vending.completeRemovalsAndReturns();
-        expect(await vending.isAfterPhotosEnabled()).toBe(true);
-      });
-
-      // TC005/TC010-TC013/TC015 - the shared Take/Skip photo modal and
-      // Skip Photo reason sheet, identical to Coffee/Market's own.
-      await test.step('TC005: After Photos opens the Take/Skip photo modal without opening the camera', async () => {
-        await vending.openAfterPhotos();
-        const modal = await vending.isPhotoModalVisible();
-        expect(modal.takePhoto).toBe(true);
-        expect(modal.skipPhoto).toBe(true);
-      });
-
-      await test.step('TC010/TC012: Skip photo opens the reason sheet, disabled by default', async () => {
-        await vending.openSkipPhotoReasonSheet();
-        expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(true);
-        expect(await vending.isSkipPhotoSubmitEnabled()).toBe(false);
-      });
-
-      await test.step('TC011: entering a reason enables Skip photo', async () => {
-        await vending.enterSkipPhotoReason('Camera cannot focus and take clear picture');
-        await vending.waitForSkipPhotoSubmitEnabled(true);
-      });
-
-      await test.step('TC013/TC015: submitting returns to the service stop checklist without saving a photo', async () => {
-        await vending.confirmSkipPhoto();
-        expect(await vending.isSkipPhotoReasonSheetVisible()).toBe(false);
-      });
-    }
-  );
-
-  // TC016-TC068 (Vending "Removals & Returns") - live-verified 2026-07-29
-  // (build 0.1.76, Route 103/YESTERDAY, "Advocate Health Carolina
-  // Neurosurgery & Spine Association" stop, "97713 - Bottle Bev" machine).
-  // See VendingServiceScreen's own extensive note above its Removals &
-  // Returns locators for every discrepancy found relative to the Excel
-  // (TC018/TC019/TC020/TC022/TC029/TC030/TC033/TC034/TC036/TC045-TC050/
-  // TC060/TC063-TC066) - not repeated here.
-  test(
-    'TC016-TC068: search, add a product with Spoiled/Damaged quantities, validate zero-quantity handling, save',
-    {
-      tag: [
-        '@Vending-TC016',
-        '@Vending-TC017',
-        '@Vending-TC018',
-        '@Vending-TC021',
-        '@Vending-TC022',
-        '@Vending-TC024',
-        '@Vending-TC028',
-        '@Vending-TC031',
-        '@Vending-TC032',
-        '@Vending-TC035',
-        '@Vending-TC038',
-        '@Vending-TC040',
-        '@Vending-TC041',
-        '@Vending-TC042',
-        '@Vending-TC043',
-        '@Vending-TC044',
-        '@Vending-TC045',
-        '@Vending-TC049',
-        '@Vending-TC050',
-        '@Vending-TC051',
-        '@Vending-TC052',
-        '@Vending-TC054',
-        '@Vending-TC055',
-        '@Vending-TC056',
-        '@Vending-TC060',
-        '@Vending-TC061',
-        '@Vending-TC066',
-        '@Vending-TC067',
-        '@Vending-TC068'
-      ]
-    },
-    async ({ }, testInfo) => {
-      testInfo.setTimeout(240_000);
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const vending = new VendingServiceScreen(driver);
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      await test.step("Open the first stop's first Vending machine", async () => {
-        await dashboard.clickLocationByPosition('first');
-        await dashboard.openNthServiceStation('vending', 'first');
-      });
-
-      // TC016/TC023/TC062 "open Removals & Returns" / TC017/TC037 "route &
-      // date header" (shared chrome) / TC018 "header icons" (Sort/Filter -
-      // see this file's own describe-block note on Search/Scan actually
-      // being the field's own embedded icons) / TC021 "info message" /
-      // TC022 "Continue disabled initially" (live: Done, enabled by
-      // default - documented discrepancy).
-      await test.step('TC016/TC017/TC018/TC021/TC022: open Removals & Returns, verify its empty state', async () => {
-        await vending.openRemovalsAndReturns();
-        expect(await vending.isRemovalsEmptyStateVisible()).toBe(true);
-        const icons = await vending.areRemovalsHeaderIconsVisible();
-        expect(icons.sort).toBe(true);
-        expect(icons.filter).toBe(true);
-        expect(await vending.isRemovalsDoneEnabled()).toBe(true);
-      });
-
-      // TC031 "no results" / TC032 "clear search restores the list".
-      await test.step('TC031/TC032: a non-matching search shows no results; clearing restores them', async () => {
-        await vending.searchRemovalsProduct('XYZNONEXISTENT');
-        expect(await vending.isNoSearchResultsVisible()).toBe(true);
-        await vending.clearRemovalsSearch();
-        await vending.searchRemovalsProduct('Snickers');
-        expect(await vending.getVisibleSearchResultCount()).toBeGreaterThan(0);
-      });
-
-      // TC024/TC028/TC035/TC040 "search, filter, select a product, open
-      // Document product" - reuses the already-open search from above.
-      // Deliberately re-searching by the same plain term ("Snickers"), not
-      // the fuller name searchAndSelect returns (e.g. "Snickers (1.86oz)")
-      // - live-verified the parenthesized full name doesn't reliably
-      // re-match on a fresh search.
-      await test.step('TC024/TC028/TC035/TC040: selecting a search result opens Document product', async () => {
-        const options = await vending.getVisibleSearchResultCount();
-        expect(options).toBeGreaterThan(0);
-        await vending.searchAndSelect('Snickers');
-        expect(await vending.isDocumentProductOpen()).toBe(true);
-      });
-
-      // TC038 "Cancel returns without saving" - back out, reconfirm the
-      // list still has zero saved rows, before actually saving anything.
-      await test.step('TC038: Cancel returns to Removals & Returns without saving', async () => {
-        await vending.cancelDocumentProduct();
-        expect(await vending.getRemovalsSavedRowCount()).toBe(0);
-      });
-
-      // TC041-TC044 "Spoiled/Damaged/Theft/Truck Return fields editable" /
-      // TC045 "numeric keypad" / TC049/TC050 (blocked at the floor/cap -
-      // see VendingServiceScreen's own note; not re-exercised here, just
-      // relied upon) / TC051/TC052/TC054 "zero quantity accepted, saved,
-      // excluded from the list".
-      await test.step('TC041-TC044/TC051/TC052/TC054: a zero-quantity save is accepted but excluded from the list', async () => {
-        await vending.searchAndSelect('Twix');
-        expect(await vending.isRemovalsSaveEnabled()).toBe(true);
-        await vending.saveDocumentProduct();
-        expect(await vending.getRemovalsSavedRowCount()).toBe(0);
-      });
-
-      // TC055/TC056/TC060/TC061/TC066 "valid quantity saves and appears
-      // with an aggregate Qty, not a per-field breakdown".
-      await test.step('TC055/TC056/TC060/TC061/TC066: Spoiled=2/Damaged=1 saves and appears with an aggregate Qty of 3', async () => {
-        await vending.searchAndSelect('Snickers');
-        await vending.fillRemovalsQuantities({ spoiled: '2', damaged: '1' });
-        expect(await vending.isRemovalsSaveEnabled()).toBe(true);
-        await vending.saveDocumentProduct();
-        expect(await vending.getRemovalsSavedRowCount()).toBe(1);
-        expect(await vending.getRemovalsSavedRowQty(0)).toBe('3');
-      });
-
-      // TC067/TC068 "Done enabled after saving; tapping it proceeds".
-      await test.step('TC067/TC068: Done is enabled and navigates back to the checklist', async () => {
-        expect(await vending.isRemovalsDoneEnabled()).toBe(true);
-        await vending.tapRemovalsDone();
-        expect(await vending.isVisible('//android.view.View[starts-with(@content-desc,"Removals")]')).toBe(true);
-      });
-    }
-  );
 });

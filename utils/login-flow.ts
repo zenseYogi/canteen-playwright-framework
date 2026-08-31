@@ -145,25 +145,82 @@ function routeNumber(text: string): string {
  * treating that as "confirmed" too could silently leave the app on the
  * wrong route if two blank-badge routes were ever compared.
  */
+// async function isOnRoute(
+//   driver: Browser,
+//   route: { routeLabel: string; day: DaySelection }
+// ): Promise<boolean> {
+//   const home = new HomeScreen(driver);
+//   const [routeText, dateText] = await Promise.all([home.getRouteBadgeText(), home.getCurrentDateText()]);
+//   const currentDayPrefix = dateText.split(',')[0]?.trim().toUpperCase();
+//   if (currentDayPrefix !== route.day) {
+//     return false;
+//   }
+//   const currentRoute = routeNumber(routeText);
+//   const targetRoute = routeNumber(route.routeLabel);
+//   if (currentRoute !== '') {
+//     return currentRoute === targetRoute;
+//   }
+//   if (targetRoute === routeNumber(mobileConfig.emptyRoute.routeLabel)) {
+//     return (await home.getDeliveriesCount()) === 0;
+//   }
+//   return false;
+// }
+
+
 async function isOnRoute(
   driver: Browser,
   route: { routeLabel: string; day: DaySelection }
 ): Promise<boolean> {
   const home = new HomeScreen(driver);
-  const [routeText, dateText] = await Promise.all([home.getRouteBadgeText(), home.getCurrentDateText()]);
-  const currentDayPrefix = dateText.split(',')[0]?.trim().toUpperCase();
-  if (currentDayPrefix !== route.day) {
+
+  const [routeText, dateText] = await Promise.all([
+    home.getRouteBadgeText(),
+    home.getCurrentDateText(),
+  ]);
+
+  console.log(`Route Badge: ${routeText}`);
+  console.log(`Date Text: ${dateText}`);
+  console.log(`Target Route: ${route.routeLabel}`);
+  console.log(`Target Day: ${route.day}`);
+
+  // Route validation
+  const currentRoute = routeNumber(routeText).trim();
+  const targetRoute = routeNumber(route.routeLabel).trim();
+
+  console.log(`Current Route: ${currentRoute}`);
+  console.log(`Expected Route: ${targetRoute}`);
+
+  if (currentRoute !== targetRoute) {
     return false;
   }
-  const currentRoute = routeNumber(routeText);
-  const targetRoute = routeNumber(route.routeLabel);
-  if (currentRoute !== '') {
-    return currentRoute === targetRoute;
+
+  // Day validation
+  const appDate = new Date(dateText.replace(',', ', '));
+
+  const expectedDate = new Date();
+
+  switch (route.day) {
+    case 'YESTERDAY':
+      expectedDate.setDate(expectedDate.getDate() - 1);
+      break;
+
+    case 'TOMORROW':
+      expectedDate.setDate(expectedDate.getDate() + 1);
+      break;
+
+    case 'TODAY':
+    default:
+      break;
   }
-  if (targetRoute === routeNumber(mobileConfig.emptyRoute.routeLabel)) {
-    return (await home.getDeliveriesCount()) === 0;
-  }
-  return false;
+
+  console.log(`App Date: ${appDate.toDateString()}`);
+  console.log(`Expected Date: ${expectedDate.toDateString()}`);
+
+  return (
+    appDate.getDate() === expectedDate.getDate() &&
+    appDate.getMonth() === expectedDate.getMonth() &&
+    appDate.getFullYear() === expectedDate.getFullYear()
+  );
 }
 
 /**

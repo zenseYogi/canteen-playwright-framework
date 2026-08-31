@@ -32,13 +32,31 @@ export const mobileConfig = {
   // stopgap: once real time passes Jul 24, 'YESTERDAY' will also go stale
   // (it'll resolve to Jul 24, itself empty) - needs BA to either re-seed on
   // a rolling date or confirm a fixed reference date to standardize on.
+  // defaultRoute: {
+  //   operationSearch: process.env.ROUTE_OPERATION_SEARCH || 'Miami',
+  //   operationLabel: process.env.ROUTE_OPERATION_LABEL || 'Miami, FL',
+  //   routeSearch: process.env.ROUTE_SEARCH || 'Route 001',
+  //   routeLabel: process.env.ROUTE_LABEL || 'Route 001',
+  //   day: (process.env.ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'TODAY'
+  // },
+
   defaultRoute: {
-    operationSearch: process.env.ROUTE_OPERATION_SEARCH || 'Miami',
-    operationLabel: process.env.ROUTE_OPERATION_LABEL || 'Miami, FL',
-    routeSearch: process.env.ROUTE_SEARCH || 'Route 010',
-    routeLabel: process.env.ROUTE_LABEL || 'Route 010',
+   operationSearch: process.env.ROUTE_OPERATION_SEARCH || 'Charlotte',
+    operationLabel: process.env.ROUTE_OPERATION_LABEL || 'Charlotte, NC',
+    routeSearch: process.env.ROUTE_SEARCH || 'Route 103',
+    routeLabel: process.env.ROUTE_LABEL || 'Route 103',
     day: (process.env.ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'TODAY'
   },
+
+  // defaultRoute: {
+  //   operationSearch: process.env.VENDING_OPERATION_SEARCH || 'Miami',
+  //   operationLabel: process.env.VENDING_OPERATION_LABEL || 'Miami, FL',
+  //   routeSearch: process.env.VENDING_ROUTE_SEARCH || 'Route 990',
+  //   routeLabel: process.env.VENDING_ROUTE_LABEL || 'Route 990',
+  //   day: (process.env.VENDING_ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'TODAY'
+  // },
+
+
   // Vending confirmed (2026-07-24) to live on a separate route from
   // Market/Coffee - Charlotte, NC / Route 103, not the Miami/010 default
   // above. Kept as its own config (not folded into defaultRoute) since the
@@ -46,11 +64,18 @@ export const mobileConfig = {
   // route call utils/login-flow.ts's switchRoute() explicitly after login,
   // rather than relying on the post-MFA gate auto-handling (which only
   // fires for a fresh/reset account and always uses defaultRoute).
+  // vendingRoute: {
+  //   operationSearch: process.env.VENDING_OPERATION_SEARCH || 'Charlotte',
+  //   operationLabel: process.env.VENDING_OPERATION_LABEL || 'Charlotte, NC',
+  //   routeSearch: process.env.VENDING_ROUTE_SEARCH || 'Route 103',
+  //   routeLabel: process.env.VENDING_ROUTE_LABEL || 'Route 103',
+  //   day: (process.env.VENDING_ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'TODAY'
+  // },
   vendingRoute: {
-    operationSearch: process.env.VENDING_OPERATION_SEARCH || 'Charlotte',
-    operationLabel: process.env.VENDING_OPERATION_LABEL || 'Charlotte, NC',
-    routeSearch: process.env.VENDING_ROUTE_SEARCH || 'Route 103',
-    routeLabel: process.env.VENDING_ROUTE_LABEL || 'Route 103',
+    operationSearch: process.env.VENDING_OPERATION_SEARCH || 'Miami',
+    operationLabel: process.env.VENDING_OPERATION_LABEL || 'Miami, FL',
+    routeSearch: process.env.VENDING_ROUTE_SEARCH || 'Route 990',
+    routeLabel: process.env.VENDING_ROUTE_LABEL || 'Route 990',
     day: (process.env.VENDING_ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'TODAY'
   },
   // PBI 850155 (Ad-hoc Scheduling, TC025/TC028) needs a genuinely zero-delivery

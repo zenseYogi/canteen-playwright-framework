@@ -6,20 +6,20 @@ import { positionToIndex, type Position } from '../utils/position';
 import type { Lob } from '../utils/lob';
 
 export class BaseScreen {
-  constructor(protected driver: Browser) {}
+  constructor(protected driver: Browser) { }
 
   // Shared, app-wide locators ported from the Robot Framework suite's
   // common.yaml / navigation_menu.yaml - identical across every screen there,
   // so they belong here once rather than redeclared per screen.
   protected readonly hamburgerIcon = '~Open navigation menu';
-  protected readonly doneButton = '~Done';
+  readonly doneButton = '~Done';
   protected readonly continueButton = '~Continue';
   protected readonly skipButton = '~Skip';
   protected readonly saveButton = '~Save';
   protected readonly deleteButton = '~Delete';
   protected readonly yesButton = '~Yes';
   protected readonly noButton = '~No';
-  protected readonly addProductButton = '~section_header_add_cta';
+  readonly addProductButton = '~section_header_add_cta';
   protected readonly takePhotoButton = '~Take photo';
   protected readonly attachPhotoButton = '~Attach Photo';
   // Before/After Photos' "skip photo" sub-flow - live-verified 2026-07-27 on
@@ -54,8 +54,10 @@ export class BaseScreen {
   protected readonly skipPhotoReasonField = '//android.widget.EditText[starts-with(@hint,"Reason to skip photo")]';
   // Generic EditText/ScrollView with no content-desc/resource-id of their own -
   // must stay xpath, no accessibility-id shorthand available for these.
-  protected readonly searchField = '//android.widget.EditText';
-  protected readonly searchList = '//android.widget.ScrollView/android.view.View/android.view.View';
+  readonly searchField = '//android.widget.EditText';
+  // protected readonly searchList = '//android.widget.ScrollView/android.view.View/android.view.View';
+  protected readonly searchList =
+    '//android.view.View[@clickable="true" and @focusable="true" and @content-desc]';
   protected readonly cameraPermissionAllowButton =
     '//android.widget.Button[@resource-id="com.android.permissioncontroller:id/permission_allow_foreground_only_button"]';
   // Product-list header controls (Sort/Filter/Planogram) - live-verified on
@@ -132,7 +134,7 @@ export class BaseScreen {
   // TruckStockRouteShoppingScreen alike to expand the group before its first
   // navigation in a fresh session (see TruckStockTruckReturnsScreen's open()
   // for why every Playwright test needs this, unlike RF's suite-shared session).
-  protected readonly navMenuTruckStockCollapsed = '//android.view.View[@content-desc="Truck stock, Collapsed"]';
+  protected readonly navMenuTruckStockCollapsed = '~Truck Stock, Collapsed';
 
   /**
    * `record_to_delete_xpath` / `route_inventory_record_to_delete_xpath` -
@@ -151,7 +153,7 @@ export class BaseScreen {
 
 
   protected textBoxByHint(labelName: string, hint: string): string {
-    return  `//android.view.View[contains(@content-desc,"${labelName}")]/android.widget.EditText[contains(@hint,"${hint}")]`
+    return `//android.view.View[contains(@content-desc,"${labelName}")]/android.widget.EditText[contains(@hint,"${hint}")]`
   }
 
   /**
@@ -639,7 +641,23 @@ export class BaseScreen {
    * could shift the icon's position or color).
    */
   private async isChecklistIconCheckedEl(el: any): Promise<boolean> {
-    const rect = await el.getElementRect(el.elementId);
+    // const rect = await el.getElementRect(el.elementId);
+
+
+    const location = await el.getLocation();
+    const size = await el.getSize();
+
+    const rect = {
+      x: location.x,
+      y: location.y,
+      width: size.width,
+      height: size.height,
+    };
+
+
+
+
+
     const base64 = await this.driver.takeScreenshot();
     const png = PNG.sync.read(Buffer.from(base64, 'base64'));
     const scanWidth = Math.min(140, rect.width - 10);
@@ -737,13 +755,34 @@ export class BaseScreen {
    * fixed xpath suffix (`/android.widget.Button`) to the same row locator,
    * rather than taking it as a separate argument - matched exactly here.
    */
+  // async swipeAndDelete(rowSelector: string): Promise<void> {
+  //   const row = await this.driver.$(rowSelector);
+  //   await row.waitForExist({ timeout: mobileConfig.timeouts.element });
+  //   const loc = await row.getLocation();
+  //   const size = await row.getSize();
+  //   await this.swipe(loc.x + size.width - 10, loc.y + size.height / 2, loc.x + 10, loc.y + size.height / 2);
+  //   await this.tap(`${rowSelector}/android.widget.Button`);
+  //   await this.tap(this.deleteButton);
+  // }
+
+
+
   async swipeAndDelete(rowSelector: string): Promise<void> {
     const row = await this.driver.$(rowSelector);
-    await row.waitForExist({ timeout: mobileConfig.timeouts.element });
+    await row.waitForDisplayed({
+      timeout: mobileConfig.timeouts.element,
+    });
     const loc = await row.getLocation();
     const size = await row.getSize();
-    await this.swipe(loc.x + size.width - 10, loc.y + size.height / 2, loc.x + 10, loc.y + size.height / 2);
-    await this.tap(`${rowSelector}/android.widget.Button`);
+    await this.swipe(
+      loc.x + size.width - 20,
+      loc.y + size.height / 2,
+      loc.x + 50,
+      loc.y + size.height / 2
+    );
+    const deleteBtn = await this.driver.$(`${rowSelector}/android.widget.Button`);
+    await deleteBtn.waitForDisplayed({ timeout: 5000,});
+    await deleteBtn.click();
     await this.tap(this.deleteButton);
   }
 

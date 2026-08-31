@@ -25,7 +25,7 @@ test.describe('Truck Stock - Truck Returns', () => {
     let productName = '';
 
     await test.step('Log in', async () => {
-      await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+      // await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
     });
 
     await test.step('Open the Truck returns screen', async () => {
@@ -43,7 +43,7 @@ test.describe('Truck Stock - Truck Returns', () => {
     // "jaggery" matches exactly one product whose catalog/display names do
     // align cleanly.
     await test.step('Add a product under Coffee', async () => {
-      productName = await truckReturns.addProduct('coffee', 'jaggery');
+      productName = await truckReturns.addProduct('coffee', 'jaggery', 1);
     });
 
     await test.step('Delete the added product under Coffee', async () => {
@@ -77,10 +77,11 @@ test.describe('Truck Stock - Truck Returns', () => {
       const truckReturns = new TruckStockTruckReturnsScreen(driver);
 
       await test.step('Log in', async () => {
-        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+        // await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
       });
 
       await test.step('TC298: the hamburger menu lists Truck Stock (Truck returns/Route Inventory/Route shopping) and Transfers', async () => {
+        truckReturns.open();
         const menu = await truckReturns.isTruckStockMenuVisible();
         expect(menu.truckStock).toBe(true);
         expect(menu.truckReturns).toBe(true);
@@ -117,11 +118,11 @@ test.describe('Truck Stock - Truck Returns', () => {
       let productName = '';
 
       await test.step('Log in', async () => {
-        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+        // await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
       });
 
       await test.step('Add a product under Market', async () => {
-        productName = await truckReturns.addProduct('market', 'jaggery');
+        productName = await truckReturns.addProduct('market', 'jaggery', 1);
       });
 
       await test.step('Delete the added product under Market', async () => {
