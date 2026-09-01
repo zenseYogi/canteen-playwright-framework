@@ -74,12 +74,48 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
         expect(await adhoc.isTitleVisible()).toBe(true);
         expect(await adhoc.isCustomerFieldVisible()).toBe(true);
         expect(await adhoc.isAddDeliveryButtonVisible()).toBe(true);
-        expect(await adhoc.isAddAnotherDeliveryButtonVisible()).toBe(true);
+        // "+ Add Another Delivery" is NOT asserted here any more - it no
+        // longer exists on this screen in build 0.1.92. Confirmed manually
+        // by QA on Charlotte/103 with BOTH Account and Location/Machine/POS
+        // filled in: the only control is a single "Continue" button, and a
+        // uiautomator dump shows no such node anywhere in the tree. Tracked
+        // by the gap test immediately below rather than deleted outright, so
+        // that if the button is ever restored we are told about it.
       });
 
       await test.step('Return to Home', async () => {
         await home.returnToHome();
       });
+    }
+  );
+
+  // GAP (build 0.1.92) - "+ Add Another Delivery" has been removed from the
+  // Add Delivery screen. Follows the same split-test convention used for
+  // C-TC-005 and SD-TC-032: the passing test above asserts what the screen
+  // genuinely offers today, and this test.fail() case pins the missing piece
+  // separately, so a broken setup can never masquerade as the gap.
+  //
+  // It asserts the button IS present, and is expected to FAIL while it is
+  // absent. The day it starts "passing unexpectedly", the feature is back
+  // and the test above should reabsorb the assertion.
+  //
+  // OPEN WITH ANTHONY: is this removal intentional? The screen previously
+  // offered it (live-verified in an earlier build - see the note on
+  // AdhocDeliveryScreen.addAnotherDeliveryButton), so this is a real
+  // behavioural change, not a stale expectation on our side.
+  test(
+    'GAP: the Add Delivery screen no longer offers "+ Add Another Delivery"',
+    { tag: ['@StartOfDay-TC027'] },
+    async ({ driver }) => {
+      // Inside the body, NOT at describe scope - a bare test.fail() at suite
+      // level marks every test that follows it as expected-to-fail. Same
+      // placement as the SD-TC-032 gap test in prep-tasks.spec.ts.
+      test.fail();
+      const home = new HomeScreen(driver);
+      const adhoc = new AdhocDeliveryScreen(driver);
+      await loginAndEnsureRoute(driver, mobileConfig.coffeeRoute);
+      await home.openAdhocDeliveryCreation();
+      expect(await adhoc.isAddAnotherDeliveryButtonVisible()).toBe(true);
     }
   );
 
@@ -654,7 +690,7 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
       // switched back to defaultRoute rather than leave this permanently
       // broken on a route that's gone stale.
       await test.step('Log in, ensure Miami/010 (defaultRoute currently has real data; vendingRoute has since gone empty)', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.marketRoute, day: 'TODAY' });
       });
 
       await test.step('TC029: verify a real delivery count and no empty-state message', async () => {
@@ -776,7 +812,7 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
       const adhoc = new AdhocDeliveryScreen(driver);
 
       await test.step('Log in', async () => {
-        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+        await loginAndEnsureRoute(driver, mobileConfig.marketRoute);
       });
 
       await test.step('TC053: the Customer search field is visible', async () => {

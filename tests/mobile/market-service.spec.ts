@@ -309,7 +309,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // 'second' is always Market.
   test(
     'TC010/M-TC-002: view the account location name as the delivery header, and whether it persists into Product fills',
-    { tag: ['@Market-TC010', '@Market-TC002'] },
+    { tag: ['@Market-TC010', '@Market-TC002', '@Market-M-TC-002'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -323,7 +323,11 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       // (e.g. stop-preview.spec.ts's M-TC-001), so just use it directly
       // instead of re-pinning a day that will drift again.
       await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+      // MIGRATED 2026-09-01 off defaultRoute (Miami 010, retired) to
+      // marketRoute (Miami 001) - Market's own route. Miami 010 no longer
+      // carries Market data, so this failed with "Pending action not
+      // displayed": the schedule it was waiting for does not exist there.
+        await loginAndEnsureRoute(driver, mobileConfig.marketRoute);
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -377,14 +381,18 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // documented in the TC010/M-TC-002 test above (getServiceStopLocationHeaderText).
   test(
     'M-TC-004: order number displays for a real stop; "No Orders" for an ad-hoc one with no backend order',
-    { tag: ['@Market-TC004'] },
+    { tag: ['@Market-TC004', '@Market-M-TC-004'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
       const market = new MarketServiceScreen(driver);
 
       await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+      // MIGRATED 2026-09-01 off defaultRoute (Miami 010, retired) to
+      // marketRoute (Miami 001) - Market's own route. Miami 010 no longer
+      // carries Market data, so this failed with "Pending action not
+      // displayed": the schedule it was waiting for does not exist there.
+        await loginAndEnsureRoute(driver, mobileConfig.marketRoute);
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -407,10 +415,35 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       // means this assertion will be flaky until the underlying app defect
       // is fixed.
       await test.step('M-TC-004 positive: a real stop shows its order number', async () => {
-        await dashboard.clickLocationByPosition('first');
-        await dashboard.openFirstServiceStation('market');
-        const headerText = await market.getServiceStopLocationHeaderText(15_000);
-        expect(headerText).toMatch(/^Order \d+$/);
+        // Finds a stop that HAS an order rather than assuming the first one
+        // does. Live-verified 2026-09-01: the first pending stop's first
+        // market station is "Actavis Weston Break room", which legitimately
+        // shows "No Orders" - that is this case's NEGATIVE half, so asserting
+        // an order number there could never pass. The case states a
+        // precondition ("a delivery with an order"), and this now discovers
+        // one, same runtime-discovery convention the Coffee suite uses.
+        const home = new HomeScreen(driver);
+        const names = await dashboard.getPendingLocationNames();
+        let found = '';
+        for (const name of names) {
+          await dashboard.clickLocationByName(name);
+          await dashboard.openFirstServiceStation('market');
+          found = await market.getServiceStopOrderText(20_000);
+          if (found) break;
+          console.log(`[M-TC-004] "${name}" has no order line, trying the next stop`);
+          await home.returnToHome();
+        }
+        expect(found, `no pending stop exposed an order line (checked: ${names.join(', ')})`).not.toBe('');
+        const orderText = found;
+        // CORRECTED 2026-09-01: read the ORDER line, not the location header.
+        // This asserted getServiceStopLocationHeaderText() matched
+        // /^Order \d+$/, but that node carries the location name ("United
+        // Collection"); the order number sits directly beneath it as its own
+        // node. Confirmed by QA screenshot showing "United Collection" over
+        // "Order 13517428" on the same screen - so the app was right and the
+        // assertion was reading the wrong element. The sheet's "Failed"
+        // status for M-TC-004 traces to this, not to app behaviour.
+        expect(orderText).toMatch(/^Order \d+$/);
         await new HomeScreen(driver).returnToHome();
       });
 
@@ -490,7 +523,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // not a script gap).
   test(
     'M-TC-005: scheduled markets display immediately under the LOB card, no extra dropdown needed',
-    { tag: ['@Market-TC005'] },
+    { tag: ['@Market-TC005', '@Market-M-TC-005'] },
     async ({ driver }) => {
       const dashboard = new DashboardScreen(driver);
       const home = new HomeScreen(driver);
@@ -540,7 +573,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // and then fail on every re-run.
   test(
     'M-TC-015: Audit offers Cycle count/Full audit and saves editable count pills',
-    { tag: ['@Market-TC015'] },
+    { tag: ['@Market-TC015', '@Market-M-TC-015'] },
     async ({ driver }) => {
       const dashboard = new DashboardScreen(driver);
       const home = new HomeScreen(driver);
@@ -626,7 +659,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // product-selection path a scan result feeds into.
   test(
     'M-TC-016: re-selecting an already-counted product increments its count instead of duplicating the row',
-    { tag: ['@Market-TC016'] },
+    { tag: ['@Market-TC016', '@Market-M-TC-016'] },
     async ({ driver }) => {
       const dashboard = new DashboardScreen(driver);
       const home = new HomeScreen(driver);
@@ -689,7 +722,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // combination of prerequisites than the ad-hoc AETNA order suggested.
   test(
     'M-TC-014: driver can proceed without recording any removal',
-    { tag: ['@Market-TC014'] },
+    { tag: ['@Market-TC014', '@Market-M-TC-014'] },
     async ({ driver }) => {
       const dashboard = new DashboardScreen(driver);
       const home = new HomeScreen(driver);
@@ -774,7 +807,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // AETNA order the original session tested this against.
   test(
     'M-TC-008: a completed service station shows a green tick and a fully-updated progress bar',
-    { tag: ['@Market-TC008'] },
+    { tag: ['@Market-TC008', '@Market-M-TC-008'] },
     async ({ driver }) => {
       const dashboard = new DashboardScreen(driver);
       const home = new HomeScreen(driver);
@@ -946,7 +979,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
 
   test(
     'M-TC-013: Removals & Returns saves a product quantity and displays it on reopen',
-    { tag: ['@Market-TC013'] },
+    { tag: ['@Market-TC013', '@Market-M-TC-013'] },
     async ({ driver }) => {
       const dashboard = new DashboardScreen(driver);
       const home = new HomeScreen(driver);
@@ -1846,12 +1879,22 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
 
   // ==== MONEY OPERATIONS (regression sheet "Market", M-TC-017..021/030/031) ====
   //
-  // ROUTE/DAY: Miami 001 on YESTERDAY, not the marketRoute default of TODAY.
-  // The app is parked on 26 Aug (user-configured 2026-08-27) and the Route
-  // Setup "Select operation" modal is currently BROKEN - it returns no results
-  // for any query and traps the app - so any day/route switch fails. Matching
-  // the day the app is already on means no switch is attempted at all.
-  const MONEY_OPS_ROUTE = { ...mobileConfig.marketRoute, day: 'YESTERDAY' as const };
+  // ROUTE/DAY: Miami 001 on marketRoute's own day (TODAY).
+  //
+  // CORRECTED 2026-08-31: this used to pin YESTERDAY, as a workaround from
+  // 2026-08-27 for the app being parked on 26 Aug while the Route Setup
+  // "Select operation" modal was broken - matching the day the app was
+  // already on meant no switch was attempted. Both halves of that have gone:
+  // a clean 0.1.92 install switches day fine (verified by moving Miami 001
+  // from 30 Aug to 31 Aug), and Miami 001 carries its 2 seeded Market
+  // deliveries on TODAY as well as YESTERDAY, so the data rolls rather than
+  // sitting on a fixed date.
+  //
+  // Left pinned, this had become the same trap that cost most of a day on
+  // Coffee: a relative YESTERDAY silently walks the tests onto a different
+  // calendar date every day, and the resulting "missing account" failures
+  // read as data gaps rather than as a stale config.
+  const MONEY_OPS_ROUTE = mobileConfig.marketRoute;
 
   const reachMoneyOpsChecklist = async (driver: any, account = 'Teva Pharmaceutical'): Promise<MarketServiceScreen> => {
     const prepTasks = new PrepTasksScreen(driver);
@@ -2966,12 +3009,19 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
           .poll(() => market.isPhotoReviewVisible().then((r) => r.review).catch(() => false), { timeout: 30_000 })
           .toBe(false);
         // Attaching returns to the CHECKLIST, where the Before Photos tile
-        // flips from "Record pre-service condition" to "tap to view" - that
-        // change IS the confirmation the photo was saved.
+        // stops reading "Record pre-service condition" and instead reports
+        // the stored photo - that change IS the confirmation it was saved.
+        //
+        // CORRECTED 2026-09-01 (build 0.1.92, live-verified): the tile used
+        // to read "tap to view" and now reads a COUNT - "Before Photos | 1
+        // photo". The photo was saved correctly in both cases; only the
+        // wording changed, so this matches the count instead. Kept tolerant
+        // of the old wording so the assertion does not flip again if the
+        // copy is reverted.
         await expect
           .poll(() => market.getVisibleScreenText().catch(() => ''), { timeout: 30_000 })
-          .toContain('tap to view');
-        console.log(`[M-TC-041] photo saved; tile now reads "tap to view"`);
+          .toMatch(/\d+ photo|tap to view/);
+        console.log('[M-TC-041] photo saved; Before Photos tile now reports the stored photo');
       });
 
       // NOT ASSERTED: reading the stored label back off the saved photo.
@@ -3463,8 +3513,33 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
         expect(qty).toBe('2');
         await market.pressKeyCode(4);
       });
+
+      // CORRECTED 2026-09-01: this clause used to be carried as a test.fail()
+      // gap asserting the tile shows NO count. Build 0.1.92 fixed it - QA
+      // screenshot confirms every category now reports one: "Before Photos |
+      // 1 photo", "Removals & Returns | 1 item", "Delivery | 1 item",
+      // "Market Physical | Cycle(1)", "After Photos | 1 photo". The gap test
+      // had started passing unexpectedly across three consecutive runs, which
+      // is exactly the signal that convention is designed to raise, so the
+      // assertion is absorbed back into this passing test and the gap removed.
+      //
+      // Matches a digit-plus-noun rather than the literal "2 items": the tile
+      // counts ITEM LINES, not quantity - a saved quantity of 2 on a single
+      // product reads "1 item".
+      await test.step('M-TC-006: the tile reports the count of entered items', async () => {
+        // Polled, not read once: the back-press off the Removals & Returns
+        // screen is asynchronous, and THAT screen's own title is the same
+        // string as the tile, so an early read returns a bare "Removals &
+        // Returns" with no count and looks exactly like the app failing to
+        // render one. Polling rides out the transition.
+        await expect
+          .poll(() => market.getRemovalsTileText().catch(() => ''), { timeout: 60_000 })
+          .toMatch(/\d+\s+item/i);
+        console.log(`[M-TC-006] tile with items entered = "${await market.getRemovalsTileText()}"`);
+      });
     }
   );
+
 
   // The FAILING clause: the category should display the count next to its
   // title, and it does not.
@@ -3478,28 +3553,4 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // below reads "Market Transfers | 0 Transfers", so this checklist plainly
   // CAN render a count next to a task title. Money Operations does it too,
   // flipping to "POS 58 [77]" once a bag exists (M-TC-021).
-  test(
-    'M-TC-006 (gap): the task tile shows no item count after items are entered',
-    { tag: ['@Market-M-TC-006'] },
-    async ({ driver }) => {
-      test.setTimeout(900_000);
-      test.fail();
-      const market = await reachMoneyOpsChecklist(driver);
-
-      // Precondition: an item is already entered (the test above does this, and
-      // it persists across runs until the route is reset).
-      const qty = await market
-        .openRemovalsAndReturns()
-        .then(() => market.getRemovalsProductQty())
-        .catch(() => '');
-      await market.pressKeyCode(4).catch(() => {});
-      if (qty !== '2') {
-        await market.performRemovalsAndReturns('Balance', { spoiled: '2' });
-      }
-
-      const tile = await market.getRemovalsTileText();
-      console.log(`[M-TC-006] tile with items entered = "${tile}"`);
-      expect(tile).toMatch(/\d/);
-    }
-  );
 });

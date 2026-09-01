@@ -268,9 +268,59 @@ export class RouteSetupScreen extends BaseScreen {
    * post-MFA gate (see MfaScreen.waitForManualApproval), which is what
    * surfaced the mismatch.
    */
-  async waitForSyncAndDaySheet(timeoutMs = 120_000): Promise<void> {
-    const el = await this.driver.$('~Select Day');
-    await el.waitForDisplayed({ timeout: timeoutMs });
+  // CORRECTED 2026-08-31 (build 0.1.92, live-verified): the post-confirm
+  // sync now fails outright some of the time, showing a "Syncing failed"
+  // card (Retry / Change route) where this sheet should be - caught here
+  // switching to Miami/001, where it stalled at 0% and this wait then spent
+  // its whole 120s reporting "Select Day still not displayed", blaming the
+  // sheet for a sync that had already given up. One Retry tap cleared it.
+  // Routed through waitForWithSyncRecovery so the retry is automatic and a
+  // genuinely stuck sync is named as such - see BaseScreen.
+  //
+  // Returns whether the sheet actually appeared. It does NOT always: when
+  // the sync fails and Retry recovers it, the app goes straight past this
+  // sheet into Prep Tasks/Home on whatever day was already active (live-
+  // verified 2026-08-31 - Retry landed on "Start day, Route 1" for Aug 30
+  // while the caller had asked for TODAY). Callers must therefore treat a
+  // recovered sync as "route changed, day NOT applied" - see
+  // changeRouteAndSelectDay, which redoes the change rather than silently
+  // running the rest of a test on the wrong day.
+  async waitForSyncAndDaySheet(timeoutMs = 120_000): Promise<boolean> {
+    try {
+      await this.waitForWithSyncRecovery('~Select Day', timeoutMs);
+      return true;
+    } catch {
+      return this.isVisible('~Select Day');
+    }
+  }
+
+  /**
+   * Same wait, but gives up as soon as the app has clearly landed PAST the
+   * sheet (hamburger visible = Home or Prep Tasks). Only useful under
+   * PIN_CURRENT_DAY, where a skipped sheet is the expected outcome: without
+   * an early exit each of those waits sits out its full 120s, which across a
+   * 26-test suite is most of an hour spent waiting for something known not
+   * to be coming.
+   */
+  private async waitForDaySheetOrLandedPast(timeoutMs = 120_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (await this.isVisible('~Select Day')) {
+        return true;
+      }
+      if (await this.isSyncFailureVisible()) {
+        await this.recoverFromSyncFailure();
+        await this.driver
+          .waitUntil(async () => !(await this.isSyncFailureVisible()), { timeout: 30_000, interval: 1000 })
+          .catch(() => undefined);
+        continue;
+      }
+      if (await this.isVisible(this.hamburgerIcon)) {
+        return false;
+      }
+      await this.driver.pause(2000);
+    }
+    return this.isVisible('~Select Day');
   }
 
   // New as of build 0.1.86 (live-verified 2026-08-20): tapping a day option
@@ -329,10 +379,52 @@ export class RouteSetupScreen extends BaseScreen {
     routeLabel: string;
     day: DaySelection;
   }): Promise<void> {
+    if (await this.attemptChangeRouteAndSelectDay(params)) {
+      return;
+    }
+    // Under PIN_CURRENT_DAY a skipped sheet is the EXPECTED 0.1.92 outcome,
+    // not a failure: the route change has landed and the day stays as-is,
+    // which is exactly what the flag opts into. Retrying here would just
+    // repeat a route change that already succeeded and wait out a second
+    // sheet that will not come.
+    if (process.env.PIN_CURRENT_DAY === 'true') {
+      return;
+    }
+    // The sheet was skipped because the sync failed and recovered (build
+    // 0.1.92 - see waitForSyncAndDaySheet). The route IS now correct, but
+    // the day is whatever was previously active, so the run cannot proceed
+    // as if the request had been honoured. Re-running the whole change is
+    // the fix rather than a bug workaround: per Anthony (2026-08-27) a
+    // same-route Route Setup deliberately clears the local DB, so the
+    // second pass starts from a clean sync and reaches the sheet normally.
+    await this.openFromHamburgerMenu();
+    if (await this.attemptChangeRouteAndSelectDay(params)) {
+      return;
+    }
+    throw new Error(
+      `changeRouteAndSelectDay: Select Day never appeared for ${params.operationLabel} / ${params.routeLabel} across two attempts - the 0.1.92 sync failure recovered both times but skipped day selection, so ${params.day} was never applied`
+    );
+  }
+
+  /** One pass of the change-route flow. False means the sync failed, recovered, and skipped the Select Day sheet. */
+  private async attemptChangeRouteAndSelectDay(params: {
+    operationSearch: string;
+    operationLabel: string;
+    routeSearch: string;
+    routeLabel: string;
+    day: DaySelection;
+  }): Promise<boolean> {
     await this.selectOperation(params.operationSearch, params.operationLabel);
     await this.selectRoute(params.routeSearch, params.routeLabel);
     await this.confirmChangeRoute();
-    await this.waitForSyncAndDaySheet();
+    const sheet =
+      process.env.PIN_CURRENT_DAY === 'true'
+        ? await this.waitForDaySheetOrLandedPast()
+        : await this.waitForSyncAndDaySheet();
+    if (!sheet) {
+      return false;
+    }
     await this.selectDay(params.day);
+    return true;
   }
 }

@@ -17,3 +17,6 @@ docs/evidence/product-collection-no-photo-step-2-after-continue.png
 nexus-app-0.1.78/nexus-app-0.1.78.apk
 nexus-local-qa-debug-86.apk
 nexus-local-qa-debug-90.apk
+
+# QA build artifacts - large binaries, distributed out of band
+*.apk

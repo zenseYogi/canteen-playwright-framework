@@ -69,8 +69,13 @@ export class HomeScreen extends BaseScreen {
    * this is a real settle delay, not a broken locator - deliveriesTitle itself
    * was confirmed correct (content-desc "1 Delivery") once given time.
    */
+  // Sync-failure aware as of build 0.1.92 (2026-08-31): the same "Syncing
+  // failed" card that interrupts Route Setup also appears on launch, before
+  // Dashboard is ever reached - hit at 21% on the first launch after
+  // installing 92. Every spec funnels through here, so recovering at this
+  // one point covers the whole suite. See BaseScreen.waitForWithSyncRecovery.
   async waitForDashboardLoaded(timeoutMs = 120_000): Promise<void> {
-    await this.waitFor(this.deliveriesTitle, timeoutMs);
+    await this.waitForWithSyncRecovery(this.deliveriesTitle, timeoutMs);
   }
 
   async tapStartDay(): Promise<void> {
@@ -267,14 +272,35 @@ export class HomeScreen extends BaseScreen {
     return !(await this.isEnabled(this.startDayButton));
   }
 
-  /** TC026 - the "+" icon (Schedule Ad-hoc Delivery's own primary CTA) is visible before it's tapped. */
-  async isAdhocDeliveryButtonVisible(): Promise<boolean> {
-    return this.isVisible(this.addAdhocDeliveryButton);
+  /**
+   * TC026 - the "+" icon (Schedule Ad-hoc Delivery's own primary CTA) is
+   * visible before it's tapped.
+   *
+   * CORRECTED 2026-08-31: this used a bare isVisible(), which checks
+   * isDisplayed() ONCE with no wait, and so reported false on any route whose
+   * Schedule section had not painted yet. It passed on Miami/001 (2
+   * deliveries, renders instantly) and failed on Charlotte/103 (154
+   * deliveries) - diagnosed by dumping 103's live tree while the "+" was
+   * plainly on screen: the icon was present and exactly where the locator
+   * expects it (clickable View at index 8, immediately after "Schedule"), so
+   * the locator was never wrong, the check just ran too early. The 15s
+   * default was not enough for 103 either - SD-TC-031 timed out on this same
+   * element at 15s - so heavy routes get a longer allowance.
+   */
+  async isAdhocDeliveryButtonVisible(timeoutMs = 45_000): Promise<boolean> {
+    const el = await this.driver.$(this.addAdhocDeliveryButton);
+    return el.waitForDisplayed({ timeout: timeoutMs }).then(
+      () => true,
+      () => false
+    );
   }
 
   /** TC027/TC028 - opens the Ad-hoc delivery creation screen via the "+" icon. */
   async openAdhocDeliveryCreation(): Promise<void> {
-    await this.tap(this.addAdhocDeliveryButton);
+    // Same slow-render allowance as isAdhocDeliveryButtonVisible above - on a
+    // 154-delivery route the default 15s tap timeout expires before the
+    // Schedule row exists.
+    await this.tap(this.addAdhocDeliveryButton, 45_000);
   }
 
   // Live-verified 2026-07-24: pressing BACK from a screen with unsaved

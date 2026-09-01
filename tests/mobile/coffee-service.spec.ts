@@ -125,14 +125,32 @@ async function enumerateAllStops(driver: any): Promise<string[]> {
  * Order tried: the stop cached for this label (fast path, usually one open),
  * then `preferred`, then every other stop on the route. Bounded by `maxScan`
  * so a route where nothing qualifies fails in reasonable time with a clear
- * message rather than walking all 49 stops indefinitely.
+ * message rather than walking every stop indefinitely.
+ *
+ * SCANNING IS NEARLY USELESS ON THIS ROUTE - prefer a known stop name.
+ *
+ * Charlotte 103's 154 deliveries are 153 VENDING stops and exactly ONE Coffee
+ * stop (Home's own LOB counters read "0/153 Vending, 0/1 Coffee"). So a scan
+ * spends its whole budget opening Vending stops that can never satisfy a
+ * Coffee predicate, and the single real candidate is "24Hundred Marketplace".
+ *
+ * That is why raising this cap from 10 to 30 on 2026-09-01 recovered nothing:
+ * coffee-with-equipment, coffee-signed-delivery, coffee-end-to-end and
+ * coffee-over-delivery all still reported "no stop satisfying X" after 31
+ * scanned. The number of stops was never the constraint.
+ *
+ * Callers should pass '24Hundred Marketplace' FIRST in `preferred`. Do not
+ * lead with 'Amerock': it is an ad-hoc account this suite bootstraps, not
+ * seeded route data, and it has not been on the route since the 2026-08-28
+ * re-pull (see the BOOTSTRAP note below). Leading with it costs a full
+ * scroll-search of 154 rows before the fallback even starts.
  */
 async function reachCoffeeStop(
   driver: any,
   label: string,
   qualify: (coffee: CoffeeServiceScreen, stopName: string) => Promise<boolean>,
   preferred: string[] = [],
-  maxScan = 10,
+  maxScan = 30,
   exclude: string[] = []
 ): Promise<string> {
   const home = new HomeScreen(driver);
@@ -1689,7 +1707,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
             await c.tapAddPresaleTrigger();
             return true;
           },
-          ['Amerock', '24Hundred Marketplace'].filter((n) => n !== usedByCancelTest)
+          ['24Hundred Marketplace', 'Amerock'].filter((n) => n !== usedByCancelTest)
         );
         await coffee.openAddPresalesOrder();
       });
@@ -1765,7 +1783,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
         // anything. Qualifying on "not yet complete" makes that impossible.
         await reachCoffeeStop(driver, 'coffee-after-photos-pending', async (c) => {
           return !(await c.isPhotoTileComplete('after'));
-        }, ['Amerock', '24Hundred Marketplace']);
+        }, ['24Hundred Marketplace', 'Amerock']);
       });
 
       await test.step('C-TC-015 (baseline): the After Photos tile shows no completion green', async () => {
@@ -1834,7 +1852,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       await test.step('Reach a Coffee stop whose Before Photos tile is still pending', async () => {
         await reachCoffeeStop(driver, 'coffee-before-photos-pending', async (c) => {
           return !(await c.isPhotoTileComplete('before'));
-        }, ['Amerock', '24Hundred Marketplace']);
+        }, ['24Hundred Marketplace', 'Amerock']);
       });
 
       await test.step('C-TC-016 (baseline): the Before Photos tile shows no completion green', async () => {
@@ -1927,17 +1945,40 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
       });
 
       let cardName = '';
-      await test.step('Reach a Coffee stop that already HAS equipment on file', async () => {
-        // Precondition, not a stop name: C-TC-021 is about what an EXISTING
-        // card displays, so the stop must already have one. With nothing
-        // creatable-and-removable on this build, discovery is the only honest
-        // way to satisfy that.
-        await reachCoffeeStop(driver, 'coffee-with-equipment', async (c) => {
+      let createdCard = false;
+      await test.step('Reach a Coffee stop with equipment on file, creating one if needed', async () => {
+        // REWRITTEN 2026-09-01. This used to SCAN the route for a stop that
+        // already had equipment, on the stated assumption that there was
+        // "nothing creatable-and-removable on this build". QA disproved that
+        // directly: on Amerock, an empty Equipment Audit offers a "+", the Add
+        // Equipment form creates a card ("Alpine Coolers"), and Delete Product
+        // removes it again cleanly.
+        //
+        // The scan was not just unnecessary, it was actively misleading: with
+        // no stop on Charlotte 103 currently carrying equipment, it searched
+        // 31 stops and reported "No Coffee stop satisfying
+        // coffee-with-equipment", which reads as a data gap worth escalating.
+        // Creating the precondition is both faster and honest - the same
+        // find-or-create shape M-TC-014 uses to bootstrap its own stop.
+        await reachCoffeeStop(driver, 'coffee-any-stop', async (c) => {
           await c.openEquipmentAudit();
-          return (await c.getEquipmentCardCount()) > 0;
+          return true;
         }, ['24Hundred Marketplace', 'Amerock']);
+
+        if ((await coffee.getEquipmentCardCount()) === 0) {
+          await coffee.openAddEquipmentFromEmptyState();
+          await coffee.fillAndSubmitNewEquipment({
+            manufacturer: 'Alpine Coolers',
+            model: '3001 UV Tri-Temp CT POU',
+            barcode: '',
+            serialNumber: 'AUTOSER1',
+            assetNumber: '123123'
+          });
+          await coffee.submitAddOrVerifyEquipment();
+          createdCard = true;
+        }
         cardName = await coffee.getFirstEquipmentCardName();
-        expect(cardName).not.toBe('');
+        expect(cardName, 'no equipment card present even after creating one').not.toBe('');
       });
 
       await test.step('C-TC-021: the existing card shows Name, Model, Serial Number and Asset Number', async () => {
@@ -2051,6 +2092,17 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
         await coffee.typeAddEquipmentField('Asset Number', '124');
         await coffee.pressKeyCode(4);
         expect(await coffee.isAddEquipmentSubmitEnabled()).toBe(true);
+      });
+
+      // Only removes what THIS test created. A card that was already on the
+      // stop is left alone - deleting real seeded data to tidy up would be a
+      // worse outcome than leaving a stray test card behind.
+      await test.step('Cleanup: remove the equipment card this test created', async () => {
+        if (!createdCard) return;
+        await coffee.pressKeyCode(4);
+        await coffee.openEquipmentAudit().catch(() => undefined);
+        const removed = await coffee.deleteEquipmentByName(cardName).catch(() => false);
+        console.log(`[C-TC-021] cleanup: created card "${cardName}" removed = ${removed}`);
       });
     }
   );
@@ -3856,7 +3908,7 @@ test.describe('Coffee - Order payment (regression suite C-TC-xxx)', () => {
             await c.tapAddPresaleTrigger();
             return true;
           },
-          ['Amerock', '24Hundred Marketplace'].filter((n) => n !== usedByCancelTest)
+          ['24Hundred Marketplace', 'Amerock'].filter((n) => n !== usedByCancelTest)
         );
       });
 

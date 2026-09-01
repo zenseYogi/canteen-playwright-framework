@@ -156,6 +156,48 @@ export class DashboardScreen extends BaseScreen {
   }
 
   /**
+   * The name of the first stop currently listed under Pending action.
+   *
+   * Added 2026-08-31 so specs can state a PRECONDITION ("a pending stop")
+   * instead of naming an account. stop-preview.spec.ts hardcoded "CureLeaf",
+   * a Miami/010 account, and broke the moment that suite moved to Miami/001
+   * (whose stops are Teva Pharmaceutical and United Collection Bureau) - the
+   * same class of breakage this suite already avoids elsewhere via runtime
+   * stop discovery. Returns '' when the schedule is empty, so callers can
+   * report "no data" rather than failing on a missing element.
+   */
+  /** Every stop name currently listed under Pending action, in order. */
+  async getPendingLocationNames(): Promise<string[]> {
+    await this.ensurePendingActionTabSelected();
+    const rows = await this.driver.$$(
+      '//android.view.View[contains(@content-desc,"Pending action")]/following-sibling::android.view.View//*[@clickable="true" and @content-desc!=""]'
+    );
+    const names: string[] = [];
+    for (const row of rows) {
+      const desc = String(await row.getAttribute('content-desc').catch(() => ''));
+      if (desc && desc !== 'null' && !/^(Pending action|Completed)/.test(desc)) {
+        names.push(desc);
+      }
+    }
+    return names;
+  }
+
+  async getFirstPendingLocationName(): Promise<string> {
+    await this.ensurePendingActionTabSelected();
+    const rows = await this.driver.$$(
+      '//android.view.View[contains(@content-desc,"Pending action")]/following-sibling::android.view.View//*[@clickable="true" and @content-desc!=""]'
+    );
+    for (const row of rows) {
+      const desc = String(await row.getAttribute('content-desc').catch(() => ''));
+      // Skip the tab chips themselves, which match the same clickable filter.
+      if (desc && desc !== 'null' && !/^(Pending action|Completed)/.test(desc)) {
+        return desc;
+      }
+    }
+    return '';
+  }
+
+  /**
    * Like clickLocationByName(), but SCROLLS the schedule list to bring the row
    * into view first.
    *

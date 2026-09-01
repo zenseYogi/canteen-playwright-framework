@@ -235,6 +235,93 @@ export class BaseScreen {
     return el.isDisplayed().catch(() => false);
   }
 
+  // ---- Build 0.1.92 sync-failure recovery ----
+  //
+  // New in build 0.1.92 (live-verified 2026-08-31): route syncing now fails
+  // intermittently, replacing whatever screen was expected with a card
+  // reading "Syncing failed" / "Syncing routes failed" over a stalled
+  // progress bar, offering Retry and Change route. Seen twice within an
+  // hour - at 21% on the first launch after installing 92, and at 0%
+  // immediately after a Route Setup change - and BOTH recovered on the
+  // first Retry tap, so this is a transient sync fault rather than a dead
+  // end.
+  //
+  // Nothing in the framework could see it before: every wait watches only
+  // for its own target element, so the failure card just sat there burning
+  // the full 120s and surfaced as "element still not displayed", pointing
+  // at the wrong cause entirely (that is exactly how it presented as
+  // "Select Day never appeared").
+  //
+  // Keyed on the Retry button PLUS a node containing "failed", not on the
+  // message text: the wording differs between the two places this appears,
+  // and "Retry" alone is too generic to be safe as a sole signal.
+  private readonly syncRetryButton = '~Retry';
+  private readonly syncFailedText = '//*[contains(@content-desc, "failed")]';
+
+  async isSyncFailureVisible(): Promise<boolean> {
+    if (!(await this.isVisible(this.syncRetryButton))) {
+      return false;
+    }
+    return this.isVisible(this.syncFailedText);
+  }
+
+  /** Taps Retry if the sync-failure card is up. Returns whether it was. */
+  async recoverFromSyncFailure(): Promise<boolean> {
+    if (!(await this.isSyncFailureVisible())) {
+      return false;
+    }
+    await this.tap(this.syncRetryButton);
+    return true;
+  }
+
+  /**
+   * Waits for `selector`, tapping Retry each time the sync-failure card
+   * appears instead of the expected screen.
+   *
+   * Bounded by maxRetries rather than looping until the deadline: a sync
+   * that fails repeatedly is a real environment problem the run should
+   * surface, not something to paper over silently. On giving up it throws
+   * naming the sync failure, so the cause is not misreported as a missing
+   * element the way it was before this existed.
+   */
+  async waitForWithSyncRecovery(selector: string, timeoutMs = 120_000, maxRetries = 3): Promise<void> {
+    let deadline = Date.now() + timeoutMs;
+    let retries = 0;
+    while (Date.now() < deadline) {
+      if (await this.isVisible(selector)) {
+        return;
+      }
+      if (await this.isSyncFailureVisible()) {
+        if (retries >= maxRetries) {
+          throw new Error(
+            `waitForWithSyncRecovery: sync kept failing after ${retries} Retry taps while waiting for ${selector} (build 0.1.92 sync fault)`
+          );
+        }
+        retries += 1;
+        await this.tap(this.syncRetryButton);
+        // Let the card actually go away before resuming the poll. It stays
+        // on screen for a beat after the tap, and this loop comes back
+        // around every 2s - without this it would read the SAME failure as
+        // a fresh one and spend the whole retry budget double-tapping a
+        // sync that had already restarted.
+        await this.driver
+          .waitUntil(async () => !(await this.isSyncFailureVisible()), { timeout: 30_000, interval: 1000 })
+          .catch(() => undefined);
+        // A Retry restarts the sync from scratch, and a full sync runs
+        // 60-90s. Without granting it a fresh window it inherits whatever
+        // is left of the original budget and gets cut off mid-resync -
+        // which is exactly how this first presented: Retry was tapped,
+        // the sync WAS recovering, and the wait expired underneath it,
+        // making a working Retry look like a failed one.
+        deadline = Date.now() + timeoutMs;
+      }
+      await this.driver.pause(2000);
+    }
+    throw new Error(
+      `waitForWithSyncRecovery: ${selector} still not displayed after ${timeoutMs}ms (${retries} sync Retry taps along the way)`
+    );
+  }
+
   /** Element's enabled/disabled state - distinct from isVisible/isDisplayed. Needed for the Excel test suite's many "Continue/Add disabled until X" assertions, which RF never tested. */
   async isEnabled(selector: string): Promise<boolean> {
     const el = await this.driver.$(selector);
@@ -1099,9 +1186,41 @@ export class BaseScreen {
    * the shutter is addressed by capturePhotoButton's structural path - see its
    * own declaration for why that is unavoidable here.
    */
+  /**
+   * CORRECTED 2026-09-01 (build 0.1.92, live-verified via uiautomator dump):
+   * capturePhotoButton's 6-level structural path no longer matches. The real
+   * camera tree is FrameLayout > LinearLayout > FrameLayout > FrameLayout >
+   * View x4 > controls - an extra LinearLayout the ported path does not
+   * account for - so the tap hit nothing, the review screen never opened,
+   * and the failure surfaced as "~Photos still not displayed after 15000ms",
+   * which read as a missing review screen rather than a missed shutter. That
+   * locator was always flagged FRAGILE with "re-verify against the current
+   * build"; this is that re-verification.
+   *
+   * Selects by GEOMETRY instead. The camera screen carries no labels at all,
+   * but it has exactly three clickable controls in a fixed arrangement:
+   * flash (left), shutter (centre, clearly the largest), flip (right). The
+   * shutter is the one nearest the horizontal centre, which survives the
+   * hierarchy changing again.
+   */
   async tapCameraShutter(): Promise<void> {
-    await this.tap(this.capturePhotoButton);
-    await this.waitFor(this.photoReviewTitle);
+    const controls = await this.getCameraControls();
+    if (controls.length === 0) {
+      // No camera controls at all: fall back to the legacy path so this
+      // reports the original failure rather than a confusing "no controls".
+      await this.tap(this.capturePhotoButton);
+      await this.waitFor(this.photoReviewTitle, 60_000);
+      return;
+    }
+    const { width: screenWidth } = await this.driver.getWindowSize();
+    const centre = screenWidth / 2;
+    const shutter = controls.reduce((best, c) =>
+      Math.abs(c.x + c.width / 2 - centre) < Math.abs(best.x + best.width / 2 - centre) ? c : best
+    );
+    await shutter.el.click();
+    // 60s, not the 15s default: capture plus review-screen render is slower
+    // than an ordinary screen transition on an emulator.
+    await this.waitFor(this.photoReviewTitle, 60_000);
   }
 
   /** Discards the captured image and returns to the camera. */

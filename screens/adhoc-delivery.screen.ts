@@ -59,8 +59,24 @@ export class AdhocDeliveryScreen extends BaseScreen {
     return this.isVisible(this.customerField);
   }
 
+  /**
+   * Whether the screen's SUBMIT control is present, under either label.
+   *
+   * CORRECTED 2026-08-31 (build 0.1.92, live-verified on Charlotte/103 via
+   * uiautomator dump): this checked only for a Button labelled "Add
+   * Delivery" and so reported false on a screen that was perfectly fine.
+   * "Add Delivery" on this screen is the TITLE - an android.view.View with
+   * clickable="false" - while the real submit control is
+   * android.widget.Button content-desc="Continue". submitAddDelivery()
+   * already tries both labels (see its own note on multi- vs single-service
+   * accounts); the visibility check simply never learned the same lesson,
+   * which is why it disagreed with a screen the eye could see was correct.
+   */
   async isAddDeliveryButtonVisible(): Promise<boolean> {
-    return this.isVisible(this.addDeliveryButton);
+    if (await this.isVisible(this.addDeliveryButton)) {
+      return true;
+    }
+    return this.isVisible(this.continueButton);
   }
 
   async isAddAnotherDeliveryButtonVisible(): Promise<boolean> {

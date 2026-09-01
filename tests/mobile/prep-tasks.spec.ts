@@ -26,7 +26,7 @@ test.describe('Prep Tasks / Start of Day', () => {
       const prepTasks = new PrepTasksScreen(driver);
 
       await test.step('Log in', async () => {
-        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+        await loginAndEnsureRoute(driver, mobileConfig.marketRoute);
       });
 
       // TC071 "I am able to view all prep categories"
@@ -104,7 +104,7 @@ test.describe('Prep Tasks / Start of Day', () => {
       // completion test ran first today) - see loginToFreshStartDayRoute's
       // doc comment.
       await test.step('Log in to a fresh (not yet Start-Day-completed) day', async () => {
-        await loginToFreshStartDayRoute(driver, mobileConfig.defaultRoute);
+        await loginToFreshStartDayRoute(driver, mobileConfig.marketRoute);
       });
 
       // TC198 "view the Skip and Complete buttons on the pop-up" - this is
@@ -185,7 +185,7 @@ test.describe('Prep Tasks / Start of Day', () => {
       const prepTasks = new PrepTasksScreen(driver);
 
       await test.step('Log in to a fresh (not yet Start-Day-completed) day', async () => {
-        await loginToFreshStartDayRoute(driver, mobileConfig.defaultRoute);
+        await loginToFreshStartDayRoute(driver, mobileConfig.marketRoute);
       });
 
       // TC202 "keep Complete start of the day disabled with none selected" -
@@ -275,7 +275,7 @@ test.describe('Prep Tasks / Start of Day', () => {
       const prepTasks = new PrepTasksScreen(driver);
 
       await test.step('Log in to a fresh (not yet Start-Day-completed) day', async () => {
-        await loginToFreshStartDayRoute(driver, mobileConfig.defaultRoute);
+        await loginToFreshStartDayRoute(driver, mobileConfig.marketRoute);
       });
 
       // TC074 "view Production collection title" / TC075 "view Add product (+) icon"
@@ -374,7 +374,7 @@ test.describe('Prep Tasks / Start of Day', () => {
       test.fail();
       const prepTasks = new PrepTasksScreen(driver);
 
-      await loginToFreshStartDayRoute(driver, mobileConfig.defaultRoute);
+      await loginToFreshStartDayRoute(driver, mobileConfig.marketRoute);
       await prepTasks.openFromHamburgerMenu();
       await prepTasks.openProductCollection();
 
@@ -434,7 +434,7 @@ test.describe('Prep Tasks / Start of Day', () => {
       const prepTasks = new PrepTasksScreen(driver);
 
       await test.step('Log in to a fresh (not yet Start-Day-completed) day', async () => {
-        await loginToFreshStartDayRoute(driver, mobileConfig.defaultRoute);
+        await loginToFreshStartDayRoute(driver, mobileConfig.marketRoute);
       });
 
       await test.step('Open Product Collection, then Add product', async () => {
@@ -527,7 +527,7 @@ test.describe('Prep Tasks / Start of Day', () => {
       const prepTasks = new PrepTasksScreen(driver);
 
       await test.step('Log in to a fresh (not yet Start-Day-completed) day', async () => {
-        await loginToFreshStartDayRoute(driver, mobileConfig.defaultRoute);
+        await loginToFreshStartDayRoute(driver, mobileConfig.marketRoute);
       });
 
       let itemCount = 0;
@@ -592,7 +592,7 @@ test.describe('Prep Tasks / Start of Day', () => {
       const prepTasks = new PrepTasksScreen(driver);
 
       await test.step('Log in, then switch to Route 10/TODAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.marketRoute, day: 'TODAY' });
       });
 
       await test.step('TC169: open Money operations and verify the header (date + route) is visible', async () => {
@@ -631,7 +631,7 @@ test.describe('Prep Tasks / Start of Day', () => {
       const prepTasks = new PrepTasksScreen(driver);
 
       await test.step('Log in, then switch to Route 10/TODAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+        await loginAndEnsureRoute(driver, { ...mobileConfig.marketRoute, day: 'TODAY' });
       });
 
       // TC171 "view available checklist items"
@@ -694,7 +694,7 @@ test.describe('Prep Tasks / Start of Day', () => {
       const prepTasks = new PrepTasksScreen(driver);
 
       await test.step('Log in to a fresh (not yet Start-Day-completed) day', async () => {
-        await loginToFreshStartDayRoute(driver, mobileConfig.defaultRoute);
+        await loginToFreshStartDayRoute(driver, mobileConfig.marketRoute);
       });
 
       // TC069 "view date and route in the header" / TC070 "view route details"
@@ -752,7 +752,7 @@ test.describe('Prep Tasks / Start of Day', () => {
       const prepTasks = new PrepTasksScreen(driver);
 
       await test.step('Log in to a fresh (not yet Start-Day-completed) day', async () => {
-        await loginToFreshStartDayRoute(driver, mobileConfig.defaultRoute);
+        await loginToFreshStartDayRoute(driver, mobileConfig.marketRoute);
       });
 
       // TC216 "view the Skip and Complete buttons on the pop-up"
@@ -810,7 +810,7 @@ test.describe('Prep Tasks / Start of Day', () => {
       const prepTasks = new PrepTasksScreen(driver);
 
       await test.step('Log in to a fresh (not yet Start-Day-completed) day', async () => {
-        await loginToFreshStartDayRoute(driver, mobileConfig.defaultRoute);
+        await loginToFreshStartDayRoute(driver, mobileConfig.marketRoute);
       });
 
       // TC204 "view date and route in the header" / TC206 "view

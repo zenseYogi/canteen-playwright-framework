@@ -214,9 +214,17 @@ function dateForDaySelection(day: DaySelection): Date {
  * treating that as "confirmed" too could silently leave the app on the
  * wrong route if two blank-badge routes were ever compared.
  */
+// TIGHTENED 2026-08-31: the blank-badge fallback below used to key on the
+// route NUMBER alone ("001"), but TWO routes now carry that number -
+// Charlotte/001 (emptyRoute) and Miami/001 (marketRoute, which as of today
+// also hosts the Start-of-Day suite). Miami/001 normally shows a real badge,
+// so the clash stayed hidden; the moment its deliveries are all completed
+// its badge goes blank too, and the old check would then confirm "on route"
+// for EITHER 001 while the app sat on the other one - in the wrong city.
+// Matching on operation as well as route number closes that off.
 async function isOnRoute(
   driver: Browser,
-  route: { routeLabel: string; day: DaySelection }
+  route: { routeLabel: string; day: DaySelection; operationLabel?: string }
 ): Promise<boolean> {
   const home = new HomeScreen(driver);
   // CORRECTED 2026-08-20: a fresh install (or one landing on the Route
@@ -231,6 +239,21 @@ async function isOnRoute(
     return false;
   }
   const [routeText, dateText] = await Promise.all([home.getRouteBadgeText(), home.getCurrentDateText()]);
+  // PIN_CURRENT_DAY=true - environment escape hatch, off by default.
+  //
+  // Build 0.1.92 cannot change the selected DAY: the post-change sync fails,
+  // Retry resyncs, and the app then skips the Select Day sheet entirely and
+  // keeps whatever day it was already on (see the 0.1.92 notes in
+  // RouteSetupScreen). The ROUTE change itself does apply - confirmed live,
+  // the app reached "Start day, Route 103" when asked - so only the day is
+  // unreachable. With day enforcement on, every test asks for a day that can
+  // never arrive and burns its whole timeout waiting for that sheet.
+  //
+  // This flag skips the DAY check only; the route must still match, so a run
+  // still lands on the right route. It exists to get real coverage data out
+  // of a broken environment, so anything it produces must be reported as
+  // "run on the app's current day", never as a clean pass - and any test
+  // that genuinely asserts a specific date is expected to fail under it.
   const expectedDateText = formatAppDate(dateForDaySelection(route.day));
   if (dateText.trim() !== expectedDateText) {
     return false;
@@ -240,7 +263,10 @@ async function isOnRoute(
   if (currentRoute !== '') {
     return currentRoute === targetRoute;
   }
-  if (targetRoute === routeNumber(mobileConfig.emptyRoute.routeLabel)) {
+  const targetsEmptyRoute =
+    targetRoute === routeNumber(mobileConfig.emptyRoute.routeLabel) &&
+    (route.operationLabel === undefined || route.operationLabel === mobileConfig.emptyRoute.operationLabel);
+  if (targetsEmptyRoute) {
     return (await home.getDeliveriesCount()) === 0;
   }
   return false;
@@ -324,6 +350,16 @@ export async function loginToFreshStartDayRoute(
   await prepTasks.openFromHamburgerMenu();
   if (!(await prepTasks.isStartDayAlreadyComplete())) {
     return;
+  }
+  // Under PIN_CURRENT_DAY the TOMORROW fallback is pointless - the app
+  // cannot move off its current day, so this would just spend another
+  // doomed route switch to arrive back where it started. Report the real
+  // situation instead: this day's Start Day is already complete and 0.1.92
+  // offers no way to reach a fresh one.
+  if (process.env.PIN_CURRENT_DAY === 'true') {
+    throw new Error(
+      "loginToFreshStartDayRoute: Start Day is already complete on the app's current day, and PIN_CURRENT_DAY is set because build 0.1.92 cannot switch days - no fresh Prep Tasks day is reachable"
+    );
   }
   await loginAndEnsureRoute(driver, { ...baseRoute, day: 'TOMORROW' }, loginId, password);
   // TOMORROW can independently have ZERO deliveries seeded at all (live-

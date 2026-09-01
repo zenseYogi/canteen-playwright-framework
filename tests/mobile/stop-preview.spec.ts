@@ -37,6 +37,7 @@ test.describe('Start of The Day - Stop preview', () => {
         '@Market-TC001',
         '@Market-TC002',
         '@Market-TC003',
+        '@Market-M-TC-003',
         '@Market-TC004',
         '@Market-TC003-legacy-service-date',
         '@Market-TC007-legacy-dropdown',
@@ -46,9 +47,21 @@ test.describe('Start of The Day - Stop preview', () => {
     async ({ driver }) => {
       const home = new HomeScreen(driver);
       const dashboard = new DashboardScreen(driver);
+      // Resolved at runtime in the first step below, then reused by every
+      // later step that needs to re-open the same stop.
+      let stopName = '';
 
       await test.step('Log in', async () => {
-        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+        await loginAndEnsureRoute(driver, mobileConfig.marketRoute);
+        // A day whose Start Day has not been completed lands on the Prep
+        // Tasks "Start day, Route X" gate rather than Home, so the pending
+        // stop list below is unreachable (live-verified 2026-09-01 on 2 Sep).
+        // returnToHome() reaches Home via the drawer's Schedule overview
+        // WITHOUT completing Start Day - which matters, because the last
+        // step of this test asserts the pre-Start-Day gate popup and would
+        // be invalidated by completing it.
+        await home.returnToHome();
+        await home.waitForDashboardLoaded();
       });
 
       // TC039 "view stop details" / TC040 "view full address" / Market
@@ -57,9 +70,17 @@ test.describe('Start of The Day - Stop preview', () => {
       // the stop is visible under Pending action BEFORE tapping (TC001),
       // and tapping it lands on the Stop Preview screen with its "Stop N
       // of M" header (TC002/TC039), name/address (TC040).
+      // CORRECTED 2026-08-31: this used to name "CureLeaf" - a Miami/010
+      // account - and broke outright when this spec moved to Miami/001,
+      // whose stops are Teva Pharmaceutical and United Collection Bureau.
+      // Discovers whichever stop is actually pending instead, so the spec
+      // states a precondition rather than an account name (the same runtime
+      // discovery the Coffee and Market suites already use).
       await test.step('TC001/TC002/TC039/TC040: view the stop in the pending list, open it, and verify its header details', async () => {
-        expect(await dashboard.isLocationVisible('CureLeaf')).toBe(true);
-        await dashboard.clickLocationByName('CureLeaf');
+        stopName = await dashboard.getFirstPendingLocationName();
+        expect(stopName, 'no pending stop on this route/day to preview').not.toBe('');
+        expect(await dashboard.isLocationVisible(stopName)).toBe(true);
+        await dashboard.clickLocationByName(stopName);
         expect(await dashboard.isStopOverviewVisible()).toBe(true);
         const header = await dashboard.getStopHeaderText();
         expect(header.length).toBeGreaterThan(0);
@@ -137,7 +158,7 @@ test.describe('Start of The Day - Stop preview', () => {
       await test.step('TC043: View schedule returns to the Schedule overview', async () => {
         await dashboard.tapViewSchedule();
         expect(await home.isLoaded()).toBe(true);
-        await dashboard.clickLocationByName('CureLeaf');
+        await dashboard.clickLocationByName(stopName);
       });
 
       // TC045/TC046 "click on a service card / first task" - live-
@@ -154,7 +175,13 @@ test.describe('Start of The Day - Stop preview', () => {
       // the Prep Task screen ("Start day, Route X").
       await test.step('TC051: confirming the gate popup navigates to the Prep Task screen', async () => {
         await dashboard.confirmStartDayFromGatePopup();
-        expect(await home.isVisible('~Start day, Route 10')).toBe(true);
+        // Route number derived from config, not hardcoded: this asserted
+        // "Route 10" from when the spec lived on Miami/010, and silently
+        // became wrong on Miami/001 (the app renders "Start day, Route 1" -
+        // it drops the label's leading zeros, same normalisation
+        // login-flow.ts's routeNumber() does).
+        const routeNo = String(parseInt(/\d+/.exec(mobileConfig.marketRoute.routeLabel)![0], 10));
+        expect(await home.isVisible(`~Start day, Route ${routeNo}`)).toBe(true);
       });
     }
   );

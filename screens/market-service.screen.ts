@@ -332,6 +332,45 @@ export class MarketServiceScreen extends BaseScreen {
     return text;
   }
 
+  /**
+   * M-TC-004 - the service stop's ORDER line, e.g. "Order 13517428".
+   *
+   * Added 2026-09-01. M-TC-004 used to read
+   * getServiceStopLocationHeaderText() and assert it matched /^Order \d+$/,
+   * which could never pass: that node holds the LOCATION name ("United
+   * Collection", "Actavis/Teva - Orange Dr"). The order number is a SEPARATE
+   * node directly beneath it - confirmed by QA screenshot and by two
+   * uiautomator dumps showing both values on screen at once. The case was
+   * therefore recorded as a Failed app defect when the app was displaying
+   * the order number correctly all along and the assertion was reading the
+   * wrong element.
+   *
+   * Returns '' when no order node is present, which is the real signal for
+   * the negative half of the case (an ad-hoc delivery with no backend order
+   * shows "No Orders" instead).
+   */
+  private readonly serviceStopOrderLine = '//*[starts-with(@content-desc,"Order ")]';
+
+  async getServiceStopOrderText(timeoutMs = 30_000): Promise<string> {
+    // Polls for the node to EXIST rather than waiting on a handle: the order
+    // line is populated once order data loads, so at first paint there is no
+    // such node at all and waitForDisplayed just burns the timeout and
+    // returns '' - the same late-render behaviour
+    // getServiceStopLocationHeaderText documents for its own "null"
+    // placeholder.
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      for (const node of await this.driver.$$(this.serviceStopOrderLine)) {
+        const desc = String((await node.getAttribute('content-desc').catch(() => '')) ?? '');
+        if (desc && desc !== 'null') {
+          return desc;
+        }
+      }
+      await this.driver.pause(1000);
+    }
+    return '';
+  }
+
   /** Opens the Before Photos step's "Add supporting photo" modal - see BaseScreen's openPhotoTrigger/isPhotoModalVisible/openSkipPhotoReasonSheet for the shared skip-photo flow beyond this. */
   async openBeforePhotos(): Promise<void> {
     await this.openPhotoTrigger(this.beforePhotos);
@@ -398,9 +437,47 @@ export class MarketServiceScreen extends BaseScreen {
    * tap plus one generous wait is the correct fix.
    */
   /** The Removals & Returns checklist tile's full label - M-TC-006 asks whether it reports a COUNT once items are entered. */
+  /**
+   * The Removals & Returns tile's FULL text, title plus subtitle.
+   *
+   * CORRECTED 2026-09-01: this used $() - the FIRST node matching
+   * starts-with(content-desc,"Removals & Returns") - which is the title-only
+   * node, so it returned bare "Removals & Returns" and the count subtitle was
+   * invisible to callers. That made M-TC-006 look like the app was not
+   * rendering a count when it was: QA screenshot shows the tile reading
+   * "Removals & Returns" over "1 item". Collects every match and returns the
+   * richest one, so a composite node wins over a bare title regardless of
+   * document order.
+   */
+  /** Presses BACK until the service checklist is showing (its Complete Delivery button), up to a few tries. */
+  async returnToChecklist(maxPresses = 4): Promise<boolean> {
+    for (let i = 0; i <= maxPresses; i++) {
+      if (await this.isVisible('~Complete Delivery')) {
+        return true;
+      }
+      await this.pressKeyCode(4);
+      await this.driver.pause(2000);
+    }
+    return this.isVisible('~Complete Delivery');
+  }
+
   async getRemovalsTileText(): Promise<string> {
-    const el = await this.driver.$(this.removalsAndReturns);
-    return ((await el.getAttribute('content-desc')) ?? '').replace(/\n/g, ' | ');
+    // The Removals & Returns SCREEN carries a title with the identical text,
+    // so reading before returning to the checklist matches that page heading
+    // and yields a bare "Removals & Returns" with no count - exactly how
+    // M-TC-006 came to look like a missing count. A single back-press is not
+    // enough (the product keypad can consume one), so press until the
+    // checklist's own Complete Delivery button is actually showing.
+    await this.returnToChecklist();
+    const nodes = await this.driver.$$(this.removalsAndReturns);
+    let best = '';
+    for (const node of nodes) {
+      const desc = String((await node.getAttribute('content-desc').catch(() => '')) ?? '');
+      if (desc && desc !== 'null' && desc.length > best.length) {
+        best = desc;
+      }
+    }
+    return best.replace(/\n/g, ' | ');
   }
 
   async openRemovalsAndReturns(): Promise<void> {
