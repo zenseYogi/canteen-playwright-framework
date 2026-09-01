@@ -14,8 +14,11 @@ import { BaseScreen } from './base.screen';
  * flow end-to-end against the live emulator.
  */
 export class LoginScreen extends BaseScreen {
-  private readonly loginIdField = '#login-id';
-  private readonly continueBtn = '#get-home-realm-details-button';
+  // IDs corrected 2026-08-20 (build 0.1.86, live-verified via CDP against
+  // ssoqas.compassmanager.com): the CAS page now renders `#loginId` /
+  // `#hrdContinueBtn`, not the earlier `#login-id` / `#get-home-realm-details-button`.
+  private readonly loginIdField = '#loginId';
+  private readonly continueBtn = '#hrdContinueBtn';
 
   async enterLoginId(loginId: string): Promise<void> {
     await this.switchToWebView();

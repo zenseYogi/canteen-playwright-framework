@@ -101,11 +101,21 @@ export class TransfersScreen extends BaseScreen {
 
   // CORRECTED (live-verified 2026-08-03): BaseScreen's own lobTabSelector
   // uses capitalized "Coffee"/"Market"/"Vending" - this screen's real tabs
-  // are lowercase ("coffee"/"market"/"vending"), same capitalization
-  // mismatch already documented elsewhere in this app (e.g. Dashboard's
-  // own lowercase "market" LOB card). Not reusing the shared helper here.
-  private readonly lowercaseLobTab = (lob: 'coffee' | 'market' | 'vending') =>
-    `//android.view.View[@content-desc="${lob}"]`;
+  // CASE-INSENSITIVE, corrected 2026-08-28. These tabs were live-verified
+  // LOWERCASE on 2026-08-03 ("coffee"/"market"/"vending"); on build 0.1.90
+  // they render CAPITALISED ("Coffee"/"Market"/"Vending"). The exact-match
+  // locator therefore found none of them, and isLandingPageVisible() reported
+  // all three ABSENT - which silently broke transfers.spec.ts's TC085, whose
+  // whole assertion is that they are present. Found incidentally by End Day's
+  // ED-TC-008, which needed the same landing page.
+  //
+  // Third instance of this exact class of bug in this repo (see
+  // CoffeeServiceScreen.isChecklistTileComplete for "Equipment audit" vs
+  // "Equipment Audit", and the login/route-setup casing note). Matching
+  // case-insensitively rather than re-pinning to the new capitalisation, so
+  // the next flip does not break it again.
+  private readonly lobTab = (lob: 'coffee' | 'market' | 'vending') =>
+    `//android.view.View[translate(@content-desc,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="${lob}"]`;
 
   /** Excel TC085 - the Transfers landing page's per-LOB tabs and Route to Route/Route to Warehouse tab pair, live-verified 2026-08-03. */
   async isLandingPageVisible(): Promise<{
@@ -116,9 +126,9 @@ export class TransfersScreen extends BaseScreen {
     routeToWarehouse: boolean;
   }> {
     return {
-      coffee: await this.isVisible(this.lowercaseLobTab('coffee')),
-      market: await this.isVisible(this.lowercaseLobTab('market')),
-      vending: await this.isVisible(this.lowercaseLobTab('vending')),
+      coffee: await this.isVisible(this.lobTab('coffee')),
+      market: await this.isVisible(this.lobTab('market')),
+      vending: await this.isVisible(this.lobTab('vending')),
       routeToRoute: await this.isVisible(this.routeToRouteTab),
       routeToWarehouse: await this.isVisible(this.routeToWarehouseTab)
     };
@@ -188,7 +198,7 @@ export class TransfersScreen extends BaseScreen {
 
   /** Taps a LOB tab (coffee/market/vending) on the Transfers landing page (assumes open() was already called). */
   async switchToLob(lob: Lob): Promise<void> {
-    await this.tap(this.lowercaseLobTab(lob));
+    await this.tap(this.lobTab(lob));
   }
 
   // Excel TC138/TC139/TC145 - live-verified 2026-08-04: this account has
@@ -398,7 +408,7 @@ export class TransfersScreen extends BaseScreen {
 
   private async openTab(lob: Lob, transferType: TransferType): Promise<void> {
     await this.open();
-    await this.tap(this.lowercaseLobTab(lob));
+    await this.tap(this.lobTab(lob));
     await this.tap(transferType === 'routeToRoute' ? this.routeToRouteTab : this.routeToWarehouseTab);
   }
 

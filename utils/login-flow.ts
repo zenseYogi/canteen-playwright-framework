@@ -71,6 +71,24 @@ export async function loginAndWaitForMfa(driver: Browser, loginId?: string, pass
     if (onDashboard) {
       return;
     }
+    // CORRECTED 2026-08-20: a resumed session can also be sitting on the
+    // Route Setup gate or the standalone Select Day sheet - both native,
+    // hamburger-less, and WEBVIEW-less, same as Dashboard's own absence
+    // signal below. The old logic treated "no login webview" alone as
+    // proof login+route-setup were both already done and returned
+    // immediately, silently skipping the handling these two screens still
+    // need - leaving the app stuck on a blank, never-selected Route Setup
+    // gate for every caller downstream. Route through the same
+    // handlePostAuthScreen() branch a fresh login uses instead of
+    // returning early whenever either is detected.
+    if (await mfaScreen.isVisible('~Route Setup')) {
+      await handlePostAuthScreen(driver, 'route-setup');
+      return;
+    }
+    if (await mfaScreen.isVisible('~Select Day')) {
+      await handlePostAuthScreen(driver, 'select-day');
+      return;
+    }
     const contexts = await driver.getContexts();
     const onLoginWebview = contexts.some((c) => String(c).startsWith('WEBVIEW'));
     if (!onLoginWebview) {
@@ -85,11 +103,36 @@ export async function loginAndWaitForMfa(driver: Browser, loginId?: string, pass
   // Interim: MFA (Authenticator push + number match + fingerprint) requires
   // manual approval on a separate physical device - see MfaScreen.
   const postAuthScreen = await mfaScreen.waitForManualApproval();
+  await handlePostAuthScreen(driver, postAuthScreen);
+}
 
+/** Extracted from loginAndWaitForMfa so the KEEP_APP_SESSION resume path (see its own note above) can reuse the exact same route-setup/select-day handling as a fresh login, instead of duplicating it. */
+async function handlePostAuthScreen(driver: Browser, postAuthScreen: import('../screens/mfa.screen').PostAuthScreen): Promise<void> {
   if (postAuthScreen === 'route-setup') {
     const routeSetup = new RouteSetupScreen(driver);
     // Already on the gate screen - no navigation via Settings needed.
     await routeSetup.changeRouteAndSelectDay(DEFAULT_ROUTE);
+  } else if (postAuthScreen === 'select-day') {
+    // New as of build 0.1.86 (live-verified 2026-08-20): account already
+    // has a route (Miami, FL / Route 010 pre-filled) but still needs the
+    // day confirmed before Home is usable - just pick the day, no
+    // operation/route search needed (unlike the full route-setup gate).
+    const routeSetup = new RouteSetupScreen(driver);
+    await routeSetup.selectDay(DEFAULT_ROUTE.day);
+
+    // CORRECTED 2026-08-20 (build 0.1.86, live-verified): confirming the day
+    // lands directly on the pre-existing Prep Tasks "Start day, Route X"
+    // gate (PrepTasksScreen) instead of Dashboard - a real ordering change
+    // from earlier builds, where this gate was only reached LATER by
+    // tapping Dashboard's own Start Day button. Nothing downstream
+    // (waitForDashboardLoaded etc.) can proceed until this is cleared, so
+    // it's handled unconditionally here rather than left for each spec to
+    // discover independently. ensureFullDayPrepComplete() already handles
+    // both a genuinely fresh day (drives the full 4-category checklist,
+    // skipping the GeoTab-only Vehicle check per its own note) and an
+    // already-complete one (just taps through) - safe either way.
+    const prepTasks = new PrepTasksScreen(driver);
+    await prepTasks.ensureFullDayPrepComplete();
   }
 }
 
@@ -122,6 +165,32 @@ function routeNumber(text: string): string {
   return match ? String(parseInt(match[0], 10)) : '';
 }
 
+// CORRECTED 2026-08-20 (build 0.1.86, live-verified): Home's date badge
+// dropped its relative Today/Yesterday/Tomorrow label and now shows the
+// plain absolute date instead (e.g. "August 20,2026" - no space before the
+// comma, no leading zero on the day - confirmed via uiautomator dump).
+// isOnRoute() below used to just read the first comma-separated word
+// ("Today"/"Yesterday"/"Tomorrow") and compare it directly to route.day;
+// that comparison can never match anymore, since there's no such word left
+// to read. Replaced with computing route.day's own real calendar date
+// (via a plain day offset from "now") and formatting it the same way the
+// app does, then comparing the two formatted strings directly.
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+function formatAppDate(d: Date): string {
+  return `${MONTH_NAMES[d.getMonth()]} ${d.getDate()},${d.getFullYear()}`;
+}
+
+function dateForDaySelection(day: DaySelection): Date {
+  const d = new Date();
+  if (day === 'YESTERDAY') d.setDate(d.getDate() - 1);
+  else if (day === 'TOMORROW') d.setDate(d.getDate() + 1);
+  return d;
+}
+
 /**
  * Whether the app is currently sitting on the given route/day, per Home's
  * own badges (HomeScreen.getRouteBadgeText()/getCurrentDateText()) -
@@ -145,14 +214,48 @@ function routeNumber(text: string): string {
  * treating that as "confirmed" too could silently leave the app on the
  * wrong route if two blank-badge routes were ever compared.
  */
+// TIGHTENED 2026-08-31: the blank-badge fallback below used to key on the
+// route NUMBER alone ("001"), but TWO routes now carry that number -
+// Charlotte/001 (emptyRoute) and Miami/001 (marketRoute, which as of today
+// also hosts the Start-of-Day suite). Miami/001 normally shows a real badge,
+// so the clash stayed hidden; the moment its deliveries are all completed
+// its badge goes blank too, and the old check would then confirm "on route"
+// for EITHER 001 while the app sat on the other one - in the wrong city.
+// Matching on operation as well as route number closes that off.
 async function isOnRoute(
   driver: Browser,
-  route: { routeLabel: string; day: DaySelection }
+  route: { routeLabel: string; day: DaySelection; operationLabel?: string }
 ): Promise<boolean> {
   const home = new HomeScreen(driver);
+  // CORRECTED 2026-08-20: a fresh install (or one landing on the Route
+  // Setup gate/Select Day sheet per loginAndWaitForMfa's own
+  // PostAuthScreen note) legitimately isn't on Home at all yet - reading
+  // the date badge unconditionally used to throw a real "element wasn't
+  // found"/timeout here instead of just reporting "not on route" so
+  // ensureOnRoute()/loginAndEnsureRoute() could proceed to switchRoute().
+  // isLoaded()'s hamburger check is a quick non-throwing signal for
+  // whether Home's own badges are even worth reading.
+  if (!(await home.isLoaded())) {
+    return false;
+  }
   const [routeText, dateText] = await Promise.all([home.getRouteBadgeText(), home.getCurrentDateText()]);
-  const currentDayPrefix = dateText.split(',')[0]?.trim().toUpperCase();
-  if (currentDayPrefix !== route.day) {
+  // PIN_CURRENT_DAY=true - environment escape hatch, off by default.
+  //
+  // Build 0.1.92 cannot change the selected DAY: the post-change sync fails,
+  // Retry resyncs, and the app then skips the Select Day sheet entirely and
+  // keeps whatever day it was already on (see the 0.1.92 notes in
+  // RouteSetupScreen). The ROUTE change itself does apply - confirmed live,
+  // the app reached "Start day, Route 103" when asked - so only the day is
+  // unreachable. With day enforcement on, every test asks for a day that can
+  // never arrive and burns its whole timeout waiting for that sheet.
+  //
+  // This flag skips the DAY check only; the route must still match, so a run
+  // still lands on the right route. It exists to get real coverage data out
+  // of a broken environment, so anything it produces must be reported as
+  // "run on the app's current day", never as a clean pass - and any test
+  // that genuinely asserts a specific date is expected to fail under it.
+  const expectedDateText = formatAppDate(dateForDaySelection(route.day));
+  if (dateText.trim() !== expectedDateText) {
     return false;
   }
   const currentRoute = routeNumber(routeText);
@@ -160,7 +263,10 @@ async function isOnRoute(
   if (currentRoute !== '') {
     return currentRoute === targetRoute;
   }
-  if (targetRoute === routeNumber(mobileConfig.emptyRoute.routeLabel)) {
+  const targetsEmptyRoute =
+    targetRoute === routeNumber(mobileConfig.emptyRoute.routeLabel) &&
+    (route.operationLabel === undefined || route.operationLabel === mobileConfig.emptyRoute.operationLabel);
+  if (targetsEmptyRoute) {
     return (await home.getDeliveriesCount()) === 0;
   }
   return false;
@@ -244,6 +350,16 @@ export async function loginToFreshStartDayRoute(
   await prepTasks.openFromHamburgerMenu();
   if (!(await prepTasks.isStartDayAlreadyComplete())) {
     return;
+  }
+  // Under PIN_CURRENT_DAY the TOMORROW fallback is pointless - the app
+  // cannot move off its current day, so this would just spend another
+  // doomed route switch to arrive back where it started. Report the real
+  // situation instead: this day's Start Day is already complete and 0.1.92
+  // offers no way to reach a fresh one.
+  if (process.env.PIN_CURRENT_DAY === 'true') {
+    throw new Error(
+      "loginToFreshStartDayRoute: Start Day is already complete on the app's current day, and PIN_CURRENT_DAY is set because build 0.1.92 cannot switch days - no fresh Prep Tasks day is reachable"
+    );
   }
   await loginAndEnsureRoute(driver, { ...baseRoute, day: 'TOMORROW' }, loginId, password);
   // TOMORROW can independently have ZERO deliveries seeded at all (live-
