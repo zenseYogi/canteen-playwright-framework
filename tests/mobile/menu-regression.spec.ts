@@ -37,7 +37,6 @@ test.describe('Truck Stock - Truck Returns', () => {
         } catch (e) {
           console.warn('Could not capture failure screenshot:', e);
         }
-  
       }
       await new HomeScreen(driver).returnToHome();
     });

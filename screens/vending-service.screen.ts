@@ -114,6 +114,12 @@ export class VendingServiceScreen extends BaseScreen {
     return `(${this.additionalCodeField}/following-sibling::android.widget.ImageView)[${n}]`;
   }
 
+  /**
+   * Checks whether the scanner icon is visible for the requested additional bag code field.
+   *
+   * @param {number} [n=1] - The additional bag code field index to inspect.
+   * @returns {Promise<boolean>} Resolves to true when the scanner icon is displayed.
+   */
   async isAdditionalCodeScannerIconVisible(n = 1): Promise<boolean> {
     return this.isVisible(this.additionalCodeScannerIconAt(n));
   }
@@ -123,6 +129,11 @@ export class VendingServiceScreen extends BaseScreen {
     await this.tap(this.addBagCodeIcon);
   }
 
+  /**
+   * Counts how many additional bag code fields are currently visible.
+   *
+   * @returns {Promise<number>} The number of additional code fields on screen.
+   */
   async getAdditionalCodeFieldCount(): Promise<number> {
     const fields = await this.driver.$$(this.additionalCodeField);
     return fields.length;
@@ -144,11 +155,20 @@ export class VendingServiceScreen extends BaseScreen {
 
 
   /** Opens the Before Photos step's "Add supporting photo" modal - see BaseScreen's openPhotoTrigger/isPhotoModalVisible/openSkipPhotoReasonSheet for the shared skip-photo flow beyond this. */
+  /**
+   * Opens the Before Photos step by triggering the supporting photo modal.
+   *
+   * @returns {Promise<void>} Resolves once the Before Photos flow is opened.
+   */
   async openBeforePhotos(): Promise<void> {
     await this.openPhotoTrigger(this.beforePhotos);
   }
 
-
+  /**
+   * Checks whether the After Photos tile is disabled.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the tile is non-clickable.
+   */
   async isAfterPhotosDisabled(): Promise<boolean> {
     // return !this.isEnabled(this.afterPhotos);
     const el = await this.driver.$('//android.view.View[contains(@content-desc,"After Photos")]');
@@ -157,15 +177,32 @@ export class VendingServiceScreen extends BaseScreen {
 
 
   protected readonly audit = '//android.view.View[contains(@content-desc,"Audit")]';
+
+  /**
+   * Checks whether the Audit tile is visible in the service checklist.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the audit item is shown.
+   */
   async isAuditVisible(): Promise<boolean> {
     return this.isVisible(this.audit);
   }
 
+  /**
+   * Checks whether the Money Operations tile is visible on the service checklist.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the money operations item is displayed.
+   */
   async isMoneyOperationsVisible(): Promise<boolean> {
     return this.isVisible(this.moneyOperations);
   }
 
   protected readonly fillsAndEndingInventoryTile = '//android.view.View[contains(@content-desc,"Fills & Ending Inventory")]';
+
+  /**
+   * Opens the Fills & Ending Inventory screen.
+   *
+   * @returns {Promise<void>} Resolves once the screen is opened and the product fills title loads.
+   */
   async openFillsAndEndingInventory(): Promise<void> {
     await this.tap(this.fillsAndEndingInventoryTile);
 
@@ -183,6 +220,11 @@ export class VendingServiceScreen extends BaseScreen {
 
   }
 
+  /**
+   * Checks whether the Product fills title is visible.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the screen title is displayed.
+   */
   async isProductTitleVisible(): Promise<boolean> {
     return this.isVisible(this.productFillsTitle);
   }
@@ -191,6 +233,12 @@ export class VendingServiceScreen extends BaseScreen {
     return `//android.view.View[contains(@content-desc,'${productName}')]`;
   }
 
+  /**
+   * Reads the Par, Cap, Ordered, and Picked values for a specific product card.
+   *
+   * @param {string} productName - The product name to inspect.
+   * @returns {Promise<{ par: number; cap: number; ordered: number; picked: number }>} The extracted product metrics.
+   */
   async getProductInfoLabels(productName: string): Promise<{
     par: number;
     cap: number;
@@ -211,6 +259,11 @@ export class VendingServiceScreen extends BaseScreen {
   }
 
 
+  /**
+   * Reads the metrics for the first visible product card in the fills view.
+   *
+   * @returns {Promise<{ par: number; cap: number; ordered: number; picked: number }>} The collected product metrics.
+   */
   async getFirstProductInfoLabels(): Promise<{
     par: number;
     cap: number;
@@ -239,6 +292,12 @@ export class VendingServiceScreen extends BaseScreen {
     };
   }
 
+  /**
+   * Taps the more-info arrow for a named product row.
+   *
+   * @param {string} productName - The product whose more-info control should be opened.
+   * @returns {Promise<void>} Resolves after the control is tapped.
+   */
   async clickMoreInfoArrow(productName: string) {
     const moreInfoArrow = await this.driver.$(
       `//android.view.View[contains(@content-desc,'${productName}')]/android.view.View`
@@ -246,6 +305,11 @@ export class VendingServiceScreen extends BaseScreen {
     await moreInfoArrow.click();
   }
 
+  /**
+   * Taps the more-info arrow on the first visible product card.
+   *
+   * @returns {Promise<void>} Resolves after the first card's more-info action is opened.
+   */
   async clickFirstMoreInfoArrow(): Promise<void> {
     const moreInfoArrow = await this.driver.$('//android.widget.ScrollView/android.view.View[1]//android.view.View');
     await moreInfoArrow.waitForDisplayed({ timeout: 10000 });
@@ -256,6 +320,12 @@ export class VendingServiceScreen extends BaseScreen {
     return `//android.widget.Button[@content-desc="${d}"]`;
   }
   private readonly numericKeypadDownArrow = `${this.numericKeypadDigit('6')}/following-sibling::android.widget.Button[1]`;
+
+  /**
+   * Taps the keypad's down-arrow control.
+   *
+   * @returns {Promise<void>} Resolves after the keypad navigation action is triggered.
+   */
   async tapKeypadDownArrow(): Promise<void> {
     await this.tap(this.numericKeypadDownArrow);
   }
@@ -269,17 +339,33 @@ export class VendingServiceScreen extends BaseScreen {
   protected readonly confirmDeletePopup =
     '//android.view.View[contains(@content-desc,"Confirm delete")]';
 
+  /**
+   * Checks whether the confirm delete popup is visible.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the delete confirmation dialog is shown.
+   */
   async isConfirmDeletePopupDisplayed(): Promise<boolean> {
     const popup = await this.driver.$(this.confirmDeletePopup);
     return await popup.isDisplayed();
   }
 
+  /**
+   * Returns the editable quantity fields for the current service page.
+   *
+   * @returns {Promise<WebdriverIO.Element[]>} The matching delivery and end quantity editor elements.
+   */
   async getEditableQuantityFields() {
     return await this.driver.$$(
       `//android.widget.EditText[@hint='Delivery' or @hint='End']`
     );
   }
 
+  /**
+   * Determines whether a service station has been completed by inspecting the screenshot for a green completion indicator.
+   *
+   * @param {string} stationName - The service station name to inspect.
+   * @returns {Promise<boolean>} Resolves to true when the completion checkmark is detected.
+   */
   async isServiceStationCompleted(stationName: string): Promise<boolean> {
     const row = await this.driver.$(
       `//android.view.View[contains(@content-desc,"${stationName}")]`
@@ -309,6 +395,12 @@ export class VendingServiceScreen extends BaseScreen {
 
 
 
+  /**
+   * Checks whether a station row shows the skip icon instead of the completed state.
+   *
+   * @param {string} stationName - The service station label to inspect.
+   * @returns {Promise<boolean>} Resolves to true when the skip indicator is detected.
+   */
   async isServiceStationSkipped(stationName: string): Promise<boolean> {
     const row = await this.driver.$(
       `//android.view.View[contains(@content-desc,"${stationName}")]`
@@ -351,6 +443,11 @@ export class VendingServiceScreen extends BaseScreen {
     return orangePixelCount > 15;
   }
 
+  /**
+   * Checks whether the Skip money bag checkbox is selected.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the checkbox is checked.
+   */
   async isSkipMoneyBagChecked(): Promise<boolean> {
     const checkbox = await this.driver.$(
       '//android.widget.CheckBox[following-sibling::android.view.View[@content-desc="Skip money bag"]]'
@@ -359,6 +456,12 @@ export class VendingServiceScreen extends BaseScreen {
     return (await checkbox.getAttribute('checked')) === 'true';
   }
 
+  /**
+   * Verifies the Skip money bag checkbox state against the expected value.
+   *
+   * @param {boolean} expected - The checked state expected for the checkbox.
+   * @returns {Promise<void>} Resolves once the assertion is complete.
+   */
   async verifySkipMoneyBagChecked(expected: boolean): Promise<void> {
     expect(await this.isSkipMoneyBagChecked()).toBe(expected);
   }
@@ -367,6 +470,12 @@ export class VendingServiceScreen extends BaseScreen {
     '//android.view.View[contains(@content-desc,"Pending action")]/following-sibling::android.view.View//*[@clickable="true" and string-length(@content-desc) > 0]';
 
 
+  /**
+   * Gets the location name for a given positional index in the pending action list.
+   *
+   * @param {Position} position - The location position to read.
+   * @returns {Promise<string>} The matching location label.
+   */
   async getLocationNameByPosition(position: Position): Promise<string> {
     // await this.ensurePendingActionTabSelected();
     await this.waitFor(this.deliveryLocationList);
@@ -386,6 +495,11 @@ export class VendingServiceScreen extends BaseScreen {
   //   expect(isFocused).toBe('true');
   // }
 
+  /**
+   * Verifies the focused field advances to the next editable field when the down-arrow action is used.
+   *
+   * @returns {Promise<void>} Resolves once the focus assertion is complete.
+   */
   async verifyArrowDownMovesToNextEditableField() {
     // const deliveryFields = await this.driver.$$(
     //   `//android.widget.EditText[@hint='Delivery' or @hint='End']`
@@ -398,6 +512,12 @@ export class VendingServiceScreen extends BaseScreen {
     expect(hint).toBe('End');
   }
 
+  /**
+   * Selects the requested category filters from the filter sheet.
+   *
+   * @param {string[]} categoryLabels - The filter labels to toggle on.
+   * @returns {Promise<void>} Resolves once the selected filters are applied.
+   */
   async selectFilterCategories(categoryLabels: string[]): Promise<void> {
     await this.tap(this.filterCta);
     for (const label of categoryLabels) {
@@ -437,27 +557,58 @@ export class VendingServiceScreen extends BaseScreen {
   readonly parCapacityHeader = '//android.view.View[contains(@content-desc,"Par / Capacity")]';
   readonly parCapacityRowSelector = '//android.view.View[starts-with(@content-desc,"Row ") and contains(@content-desc,"Par") and contains(@content-desc,"Cap")]';
 
+  /**
+   * Checks whether the grid layout toggle is visible.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the toggle is displayed.
+   */
   async isGridLayoutToggleVisible(): Promise<boolean> {
     return this.isVisible(this.layoutToggle);
   }
 
+  /**
+   * Checks whether the list layout toggle is visible.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the list toggle is displayed.
+   */
   async isListLayoutToggleVisible(): Promise<boolean> {
     return this.isVisible(this.layoutToggle);
   }
 
+  /**
+   * Checks whether the Par / Capacity header is visible.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the header is shown.
+   */
   async isParCapacityHeaderVisible(): Promise<boolean> {
     return this.isVisible(this.parCapacityHeader);
   }
 
+  /**
+   * Checks whether a Par field is visible in the row selector.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the Par field is present.
+   */
   async isParFieldVisible(): Promise<boolean> {
     return this.isVisible(`${this.parCapacityRowSelector}[contains(@content-desc,"Par")]`);
   }
 
+  /**
+   * Checks whether a specific Par value is displayed.
+   *
+   * @param {string} value - The expected Par value.
+   * @returns {Promise<boolean>} Resolves to true when the value is displayed.
+   */
   async isParValueDisplayed(value: string): Promise<boolean> {
     const selector = `${this.parCapacityRowSelector}[contains(@content-desc,"Par") and contains(@content-desc,"${value}")]`;
     return this.isVisible(selector);
   }
 
+  /**
+   * Reads the visible Par / Capacity row values from the current layout.
+   *
+   * @returns {Promise<string[]>} The visible row strings.
+   */
   async getParCapacityRowStrings(): Promise<string[]> {
     const elements = await this.driver.$$(this.parCapacityRowSelector);
     const count = await elements.length;
@@ -472,27 +623,60 @@ export class VendingServiceScreen extends BaseScreen {
     return values;
   }
 
+  /**
+   * Switches the layout to the grid view.
+   *
+   * @returns {Promise<void>} Resolves once the toggle action is triggered.
+   */
   async switchToGridView(): Promise<void> {
     await this.tap(this.layoutToggle);
   }
 
+  /**
+   * Switches the layout to the list view.
+   *
+   * @returns {Promise<void>} Resolves once the toggle action is triggered.
+   */
   async switchToListView(): Promise<void> {
     await this.tap(this.layoutToggle);
   }
 
+  /**
+   * Opens the Label name dropdown.
+   *
+   * @returns {Promise<void>} Resolves once the dropdown is opened.
+   */
   async openLabelNameDropdown(): Promise<void> {
     await this.tap(this.labelNameDropdown);
   }
 
+  /**
+   * Selects a label-name option from the dropdown.
+   *
+   * @param {string} option - The option label to choose.
+   * @returns {Promise<void>} Resolves once the option is selected.
+   */
   async selectLabelNameOption(option: string): Promise<void> {
     await this.tap(`//android.widget.Button[contains(@content-desc,"${option}")]`);
   }
 
+  /**
+   * Checks whether a label-name value is displayed.
+   *
+   * @param {string} option - The label option to verify.
+   * @returns {Promise<boolean>} Resolves to true when the value is shown.
+   */
   async isLabelNameValueDisplayed(option: string): Promise<boolean> {
     const selector = `//android.view.View[contains(@content-desc,"${option}") and contains(@content-desc,"Label name")]`;
     return this.isVisible(selector);
   }
 
+  /**
+   * Returns the display state for each label-name option.
+   *
+   * @param {string[]} options - The options to inspect.
+   * @returns {Promise<Record<string, boolean>>} A map of each option and its visibility state.
+   */
   async getLabelNameValueDisplayStatus(
     options: string[]
   ): Promise<Record<string, boolean>> {
@@ -504,6 +688,12 @@ export class VendingServiceScreen extends BaseScreen {
     return result;
   }
 
+  /**
+   * Checks whether a given option is displayed for selection.
+   *
+   * @param {string} option - The option label to find.
+   * @returns {Promise<boolean>} Resolves to true when the option is visible.
+   */
   async isOptionDisplayed(option: string): Promise<boolean> {
     const selector = `//android.widget.Button[@content-desc="${option}"]`;
 
@@ -517,6 +707,11 @@ export class VendingServiceScreen extends BaseScreen {
 
 
 
+  /**
+   * Skips the Google Maps sign-in prompt if it is currently displayed.
+   *
+   * @returns {Promise<void>} Resolves after the prompt is skipped or confirmed absent.
+   */
   async skipGoogleMapsSigninIfDisplayed(): Promise<void> {
     const skipLocator = '//android.widget.Button[@text="SKIP"]';
     const skipButton = await this.driver.$(skipLocator);
@@ -526,7 +721,11 @@ export class VendingServiceScreen extends BaseScreen {
     }
   }
 
-
+  /**
+   * Reads the current Bag code, Bills, and Refund values from Money Operations.
+   *
+   * @returns {Promise<{ bagCode: string | null; bills: string | null; refund: string | null }>} The current field values.
+   */
   async getMoneyOperationsValues() {
     return {
       bagCode: await (await this.driver.$(this.bagCodeField)).getAttribute('text'),
@@ -535,6 +734,11 @@ export class VendingServiceScreen extends BaseScreen {
     };
   }
 
+  /**
+   * Clears the Bag code value from the Money Operations form.
+   *
+   * @returns {Promise<void>} Resolves once the field is cleared.
+   */
   async clearBagCode(): Promise<void> {
     const bagCode = await this.driver.$(this.bagCodeField);
     await bagCode.click();
@@ -542,6 +746,11 @@ export class VendingServiceScreen extends BaseScreen {
     await this.driver.hideKeyboard().catch(() => { });
   }
 
+  /**
+   * Checks whether the Skip money bag option is selected.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the option is checked.
+   */
   async isSkipMoneyBagSelected(): Promise<boolean> {
     const checkbox = await this.driver.$(this.skipMoneyBagCheckbox);
     return (await checkbox.getAttribute('checked')) === 'true';
@@ -584,6 +793,12 @@ export class VendingServiceScreen extends BaseScreen {
   }
 
 
+  /**
+   * Enters a Bag code value in the Money Operations form.
+   *
+   * @param {string} digits - The bag code digits to enter.
+   * @returns {Promise<void>} Resolves once the value is entered and the keypad closes.
+   */
   async enterBagCodeInMoneyOperations(digits: string): Promise<void> {
     const field = await this.driver.$(this.bagCodeField);
     await field.click();
@@ -593,6 +808,11 @@ export class VendingServiceScreen extends BaseScreen {
 
   private readonly leaveOnTruckRadioButton = '~Leave on truck';
 
+  /**
+   * Selects the Leave on truck option when it is not already checked.
+   *
+   * @returns {Promise<void>} Resolves after the radio button state is confirmed.
+   */
   async selectLeaveOnTruck(): Promise<void> {
     const radioBtn = await this.driver.$(this.leaveOnTruckRadioButton);
     await radioBtn.waitForDisplayed({ timeout: 10000 });
@@ -602,12 +822,24 @@ export class VendingServiceScreen extends BaseScreen {
     }
   }
 
-
+  /**
+   * Checks whether the Continue button is enabled.
+   *
+   * @returns {Promise<boolean>} Resolves to true when Continue is enabled.
+   */
   async isContinueEnabled(): Promise<boolean> {
     return this.isEnabled(this.continueButton);
   }
 
 
+  /**
+   * Enters the specified spoiled and RETK values for a product row.
+   *
+   * @param {string} productName - The product whose row should be updated.
+   * @param {string} [spoiled] - The spoiled quantity to enter.
+   * @param {string} [retk] - The RETK quantity to enter.
+   * @returns {Promise<void>} Resolves once the values are written.
+   */
   async enterRemovalReturnValues(
     productName: string,
     spoiled?: string,
@@ -641,6 +873,13 @@ export class VendingServiceScreen extends BaseScreen {
 
 
 
+  /**
+   * Enters values for the first visible removal return row and returns the product name.
+   *
+   * @param {string} [spoiled] - The spoiled amount to set.
+   * @param {string} [retk] - The RETK amount to set.
+   * @returns {Promise<string>} The product name whose row was edited.
+   */
   async enterRemovalReturnValuesForFirstRow(spoiled?: string, retk?: string): Promise<string> {
     const row = '(//android.widget.ScrollView/android.view.View)[1]';
     const rowEl = await this.driver.$(row);
@@ -674,6 +913,13 @@ export class VendingServiceScreen extends BaseScreen {
   }
 
 
+  /**
+   * Enters the first-row delivery and spoil values and returns the product name.
+   *
+   * @param {string} [delivery] - The delivery quantity to set.
+   * @param {string} [spoil] - The spoil quantity to set.
+   * @returns {Promise<string>} The product name from the first row.
+   */
   async enterFillsAndRemovalsForFirstRow(delivery?: string, spoil?: string): Promise<string> {
     const row = '(//android.widget.ScrollView/android.view.View)[1]';
     const rowEl = await this.driver.$(row);
@@ -726,6 +972,13 @@ export class VendingServiceScreen extends BaseScreen {
     await field.setValue(value);
   }
 
+  /**
+   * Fills multiple named value fields for a product row.
+   *
+   * @param {string} productName - The product name whose row should be updated.
+   * @param {Record<string, string>} values - The field names and values to set.
+   * @returns {Promise<void>} Resolves once all provided values are entered.
+   */
   async enterProductValues(
     productName: string,
     values: Record<string, string>
@@ -744,6 +997,14 @@ export class VendingServiceScreen extends BaseScreen {
 
 
 
+  /**
+   * Verifies the real values stored for a product's removal return fields.
+   *
+   * @param {string} productName - The product name whose row should be checked.
+   * @param {string} [expectedSpoiled] - The expected spoiled value.
+   * @param {string} [expectedRetk] - The expected RETK value.
+   * @returns {Promise<void>} Resolves once the assertions pass.
+   */
   async verifyRemovalReturnValues(
     productName: string,
     expectedSpoiled?: string,
@@ -778,6 +1039,11 @@ export class VendingServiceScreen extends BaseScreen {
   }
 
 
+  /**
+   * Opens the reason-for-skipping dropdown.
+   *
+   * @returns {Promise<boolean>} Resolves to true after the dropdown is tapped.
+   */
   async tapSkipReasonDropdown(): Promise<boolean> {
     const dropdown = await this.driver.$(
       '//android.view.View[contains(@content-desc,"Reason for skipping stop")]'
@@ -787,8 +1053,12 @@ export class VendingServiceScreen extends BaseScreen {
     return true;
   }
 
-
-
+  /**
+   * Selects a skip reason from the reason list.
+   *
+   * @param {string} reason - The skip reason label to select.
+   * @returns {Promise<void>} Resolves after the option is tapped.
+   */
   async selectSkipReason(reason: string): Promise<void> {
     const option = await this.driver.$(
       `//android.view.View[contains(@content-desc,'${reason}')]`
@@ -797,6 +1067,11 @@ export class VendingServiceScreen extends BaseScreen {
     await option.click();
   }
 
+  /**
+   * Reads the order text from the visible order card.
+   *
+   * @returns {Promise<string>} The order value from the content description.
+   */
   async getOrderText(): Promise<string> {
     const card = await this.driver.$(
       '//android.view.View[contains(@content-desc,"Order:")]'
@@ -839,12 +1114,21 @@ export class VendingServiceScreen extends BaseScreen {
 
 
   readonly fillsAndRemovals = '//android.view.View[contains(@content-desc,"Fills & Removals")]';
+  /**
+   * Opens the Fills & Removals screen.
+   *
+   * @returns {Promise<void>} Resolves once the screen is displayed.
+   */
   async openFillsAndRemovals(): Promise<void> {
     await this.tap(this.fillsAndRemovals);
     await this.waitFor('~Fills/Removals');
   }
 
-
+  /**
+   * Reads the current Google Maps destination text from the destination field.
+   *
+   * @returns {Promise<string>} The destination value shown in the Maps UI.
+   */
   async getMapsDestination(): Promise<string> {
   const address = await this.driver.$(
     '//android.widget.EditText[@resource-id="com.google.android.apps.maps:id/search_omnibox_text_box"]/android.widget.TextView'
@@ -869,11 +1153,21 @@ export class VendingServiceScreen extends BaseScreen {
   return (await address.getText()).trim();
 }
 
+  /**
+   * Counts the visible Par / Capacity rows.
+   *
+   * @returns {Promise<number>} The row count currently present in the view.
+   */
   async getParCapacityRowCount(): Promise<number> {
     const rows = await this.driver.$$('//android.view.View[contains(@content-desc,"Row ")]');
     return rows.length;
   }
 
+  /**
+   * Checks whether Par / Capacity data is displayed.
+   *
+   * @returns {Promise<boolean>} Resolves to true when data rows are visible.
+   */
   async isParCapacityDataDisplayed(): Promise<boolean> {
     const values = await this.driver.$$(
       '//android.view.View[contains(@content-desc,"Par") and contains(@content-desc,"Cap")]'
@@ -881,7 +1175,11 @@ export class VendingServiceScreen extends BaseScreen {
     return await values.length > 0;
   }
 
-
+  /**
+   * Checks whether the grid view is currently displayed.
+   *
+   * @returns {Promise<boolean>} Resolves to true when grid-row layout is active.
+   */
   async isGridViewDisplayed(): Promise<boolean> {
     const rows = await this.driver.$$(
       '//android.view.View[starts-with(@content-desc,"Row ")]/android.widget.HorizontalScrollView'
@@ -890,6 +1188,11 @@ export class VendingServiceScreen extends BaseScreen {
     return await rows.length > 0;
   }
 
+  /**
+   * Checks whether the list view is currently displayed.
+   *
+   * @returns {Promise<boolean>} Resolves to true when list layout is active.
+   */
   async isListViewDisplayed(): Promise<boolean> {
     const row = await this.driver.$(
       '//android.view.View[@content-desc="Row 1"]'
@@ -898,6 +1201,11 @@ export class VendingServiceScreen extends BaseScreen {
     return await horizontalViews.length === 0;
   }
 
+  /**
+   * Waits until the list view layout is visible.
+   *
+   * @returns {Promise<void>} Resolves once the list layout is confirmed.
+   */
   async waitForListViewLayout(): Promise<void> {
     await this.driver.waitUntil(
       async () =>

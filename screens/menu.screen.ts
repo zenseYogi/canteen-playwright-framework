@@ -70,16 +70,28 @@ export class MenuScreen extends BaseScreen {
   private readonly lastSyncValue =
     '(//android.view.View[@content-desc="Last sync"]/following-sibling::android.view.View)[1]';
 
+  private readonly hamburgerMenu =
+    '//android.widget.Button[@content-desc="Open navigation menu"]';
+  private readonly discardChangesButton = '~Discard';
+  private readonly saveChangesNoButton = '~No';
+
+  /**
+   * Verifies that the device information header is visible on the settings screen.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the device information section is displayed.
+   */
   async isDeviceInformationHeaderDisplayed(): Promise<boolean> {
     return await this.driver.$(this.deviceInfoHeader).isDisplayed();
   }
 
+  /**
+   * Checks whether the User label is visible in the device information panel.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the user label is present.
+   */
   async isUserDisplayed(): Promise<boolean> {
     return await this.driver.$(this.userLabel).isDisplayed();
   }
-
-  private readonly hamburgerMenu =
-    '//android.widget.Button[@content-desc="Open navigation menu"]';
 
   private readonly settingsMenu =
     '//android.view.View[contains(@content-desc,"Settings")]';
@@ -87,6 +99,12 @@ export class MenuScreen extends BaseScreen {
   private readonly deviceInfoMenu =
     '//android.widget.Button[@content-desc="Device info"]';
 
+  /**
+   * Reads the current user name from the device information screen.
+   *
+   * @returns {Promise<string>} The user name value displayed in the device info panel.
+   * @throws {Error} Throws when no user value is available in the UI.
+   */
   async getUserName(): Promise<string> {
     const value = await this.driver.$(this.userName)
       .getAttribute('content-desc');
@@ -96,17 +114,32 @@ export class MenuScreen extends BaseScreen {
     return value;
   }
 
+  /**
+   * Verifies that the user name value is displayed in the device information section.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the user name is populated.
+   */
   async isUserNameDisplayed(): Promise<boolean> {
     const user = await this.getUserName();
     return user.trim().length > 0;
   }
 
-
+  /**
+   * Checks whether the security functions label is visible.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the security functions field is shown.
+   */
   async isSecurityFunctionsDisplayed(): Promise<boolean> {
     return await this.driver.$(this.securityFunctionsLabel)
       .isDisplayed();
   }
 
+  /**
+   * Reads the configured security permissions value from the device information screen.
+   *
+   * @returns {Promise<string>} The security functions value shown for the logged-in user.
+   * @throws {Error} Throws when the value cannot be retrieved from the screen.
+   */
   async getSecurityFunctions(): Promise<string> {
     const value = await this.driver.$(this.securityFunctionsValue)
       .getAttribute('content-desc');
@@ -116,16 +149,32 @@ export class MenuScreen extends BaseScreen {
     return value;
   }
 
+  /**
+   * Confirms whether any security permission text is present.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the security function value has content.
+   */
   async hasSecurityPermissions(): Promise<boolean> {
     const permissions = await this.getSecurityFunctions();
     return permissions.trim().length > 0;
   }
 
+  /**
+   * Checks whether the Last sync label is visible.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the sync label is displayed.
+   */
   async isLastSyncDisplayed(): Promise<boolean> {
     return await this.driver.$(this.lastSyncLabel)
       .isDisplayed();
   }
 
+  /**
+   * Reads the current last sync value from the device information screen.
+   *
+   * @returns {Promise<string>} The current sync timestamp or status value.
+   * @throws {Error} Throws when the last sync field is missing or empty.
+   */
   async getLastSyncValue(): Promise<string> {
     const value = await this.driver
       .$(this.lastSyncValue)
@@ -138,18 +187,32 @@ export class MenuScreen extends BaseScreen {
     return value;
   }
 
+  /**
+   * Verifies that the last sync value contains usable content.
+   *
+   * @returns {Promise<boolean>} Resolves to true when a sync value is available.
+   */
   async hasLastSyncValue(): Promise<boolean> {
     const value = await this.getLastSyncValue();
     return value.trim().length > 0;
   }
 
+  /**
+   * Opens the navigation drawer from the hamburger menu.
+   *
+   * @returns {Promise<void>} Resolves once the menu is opened.
+   */
   async openNavigationMenu(): Promise<void> {
     const menu = await this.driver.$(this.hamburgerMenu);
     await menu.waitForDisplayed({ timeout: 10000 });
     await menu.click();
   }
 
-
+  /**
+   * Opens the Settings section from the navigation menu.
+   *
+   * @returns {Promise<void>} Resolves once the Settings section is expanded or available.
+   */
   async openSettings(): Promise<void> {
     const settings = await this.driver.$(this.settingsMenu);
 
@@ -167,6 +230,11 @@ export class MenuScreen extends BaseScreen {
     }
   }
 
+  /**
+   * Opens the Device information screen from the Settings menu.
+   *
+   * @returns {Promise<void>} Resolves once the device information page is loaded.
+   */
   async openDeviceInfo(): Promise<void> {
     const deviceInfo = await this.driver.$(this.deviceInfoMenu);
 
@@ -178,6 +246,12 @@ export class MenuScreen extends BaseScreen {
     ).waitForDisplayed({ timeout: 10000 });
   }
 
+  /**
+   * Checks whether a product with the given name is visible on screen.
+   *
+   * @param {string} productName - The product name to search for.
+   * @returns {Promise<boolean>} Resolves to true when the product row is visible.
+   */
   async isProductPresent(productName: string): Promise<boolean> {
     const product = await this.driver.$(
       `//android.view.View[@content-desc="${productName}"]`
@@ -192,6 +266,13 @@ export class MenuScreen extends BaseScreen {
 
   private readonly addedProductRow = (name: string) =>
     `//android.view.View[contains(@content-desc,"${name}")]`;
+
+  /**
+   * Checks whether an added product row is visible for the given name.
+   *
+   * @param {string} productName - The resolved product name to look up.
+   * @returns {Promise<boolean>} Resolves to true when the product row is displayed.
+   */
   async isProductDisplayed(productName: string): Promise<boolean> {
     try {
       await this.driver
@@ -204,6 +285,12 @@ export class MenuScreen extends BaseScreen {
     }
   }
 
+  /**
+   * Verifies that a product row has additional details beyond just the name.
+   *
+   * @param {string} productName - The product name to inspect.
+   * @returns {Promise<boolean>} Resolves to true when the content description contains extra detail text.
+   */
   async hasProductDetails(productName: string): Promise<boolean> {
     const details = await this.getProductDetails(productName);
 
@@ -213,6 +300,12 @@ export class MenuScreen extends BaseScreen {
     );
   }
 
+  /**
+   * Reads the content description for the matched product row.
+   *
+   * @param {string} productName - The product name to read details for.
+   * @returns {Promise<string>} The product row content description, or an empty string when unavailable.
+   */
   async getProductDetails(productName: string): Promise<string> {
     const row = await this.driver.$(this.addedProductRow(productName));
 
@@ -228,10 +321,20 @@ export class MenuScreen extends BaseScreen {
   private readonly productRow = (productName: string) =>
     `//android.view.View[contains(@content-desc,"${productName}")]`;
 
+  /**
+   * Verifies that the Route Shopping title is visible.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the Route shopping heading is shown.
+   */
   async isRouteShoppingTitleDisplayed(): Promise<boolean> {
     return await this.driver.$(this.routeShoppingTitle).isDisplayed();
   }
 
+  /**
+   * Reads the warehouse details text displayed for the active route.
+   *
+   * @returns {Promise<string>} The warehouse label or an empty string if not found.
+   */
   async getWarehouseDetails(): Promise<string> {
     const value = await this.driver
       .$(this.warehouseDetails)
@@ -240,11 +343,21 @@ export class MenuScreen extends BaseScreen {
     return value ?? '';
   }
 
+  /**
+   * Checks whether the warehouse details are visible on the route shopping screen.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the warehouse metadata is displayed.
+   */
   async isWarehouseDetailsDisplayed(): Promise<boolean> {
     return await this.driver.$(this.warehouseDetails).isDisplayed();
   }
 
-
+  /**
+   * Reads the full row details for a given product in the current list.
+   *
+   * @param {string} productName - The product name to inspect.
+   * @returns {Promise<string>} The product row content description or an empty string when unavailable.
+   */
   async getProductRowDetails(productName: string): Promise<string> {
     const value = await this.driver
       .$(this.productRow(productName))
@@ -253,8 +366,13 @@ export class MenuScreen extends BaseScreen {
     return value ?? '';
   }
 
-
-
+  /**
+   * Validates that a product row includes the expected quantity text.
+   *
+   * @param {string} productName - The product name to validate.
+   * @param {string} quantity - The expected quantity string such as x1 or 2.
+   * @returns {Promise<boolean>} Resolves to true when both the name and quantity are found in the row details.
+   */
   async verifyProductQuantity(
     productName: string,
     quantity: string
@@ -269,6 +387,11 @@ export class MenuScreen extends BaseScreen {
 
   private readonly navMenuRouteShopping = '//android.widget.Button[@content-desc="Route Shopping"]';
 
+  /**
+   * Opens the Route Shopping view from the navigation menu.
+   *
+   * @returns {Promise<void>} Resolves once Route Shopping is loaded.
+   */
   async openRouteShopping(): Promise<void> {
     await this.tap(this.hamburgerIcon);
 
@@ -284,7 +407,12 @@ export class MenuScreen extends BaseScreen {
     await this.waitFor(this.routeShoppingTitle);
   }
 
-  /** Adds a product and returns its resolved name - feed straight into editAddedProduct/deleteProduct/addMultipleToEditedProduct. */
+  /**
+   * Adds a product to Route Shopping and returns the fully resolved product name.
+   *
+   * @param {string} [searchTerm='can'] - The product search term to use.
+   * @returns {Promise<string>} The resolved product name selected from the catalog.
+   */
   async addProduct(searchTerm = 'can'): Promise<string> {
     await this.openRouteShopping();
     await this.tap(this.addProductButton);
@@ -297,6 +425,11 @@ export class MenuScreen extends BaseScreen {
   private readonly quantityFieldBox =
     '(//android.widget.EditText[contains(@hint,"Qty")])[1]';
 
+  /**
+   * Reads the product name currently displayed in the quantity field hint.
+   *
+   * @returns {Promise<string>} The visible product name for the currently focused row.
+   */
   async getProductName(): Promise<string> {
     const hint = await this.driver
       .$(this.quantityFieldBox)
@@ -305,6 +438,13 @@ export class MenuScreen extends BaseScreen {
     return value.split('\n')[0].trim();
   }
 
+  /**
+   * Searches for a product and selects the option at the requested index.
+   *
+   * @param {string} value - The search text to enter.
+   * @param {number} [position=0] - The matching result index to select.
+   * @returns {Promise<string | null>} The normalized product name if a result was selected, otherwise null.
+   */
   async searchAndSelectProducts(
     value: string,
     position = 0
@@ -328,7 +468,12 @@ export class MenuScreen extends BaseScreen {
   }
 
 
-  /** Opens an already-added product's edit screen by its resolved name. */
+  /**
+   * Opens the edit screen for a previously added product row.
+   *
+   * @param {string} productName - The product name to edit.
+   * @returns {Promise<void>} Resolves once the product detail editor is opened.
+   */
   async editAddedProduct(productName: string): Promise<void> {
     await this.waitFor(this.addedProductRow(productName));
     await this.tap(this.addedProductRow(productName));
@@ -348,6 +493,13 @@ export class MenuScreen extends BaseScreen {
     return `//android.widget.EditText[contains(@hint,"${productName}")]`;
   }
 
+  /**
+   * Updates the quantity value for a given product in the edit dialog.
+   *
+   * @param {string} productName - The product row whose quantity will be edited.
+   * @param {number} quantity - The new numeric quantity to set.
+   * @returns {Promise<void>} Resolves when the numeric value is confirmed and validated.
+   */
   async updateQuantity(
     productName: string,
     quantity: number
@@ -390,11 +542,23 @@ export class MenuScreen extends BaseScreen {
 
 
 
+  /**
+   * Saves the current route shopping edits and waits for the screen to reload.
+   *
+   * @returns {Promise<void>} Resolves after the save action completes.
+   */
   async saveChanges(): Promise<void> {
     await this.tap(this.doneButton);
     await this.waitFor(this.routeShoppingTitle);
   }
 
+  /**
+   * Verifies that a product quantity matches the expected value after saving.
+   *
+   * @param {string} productName - The product name to check.
+   * @param {string} expectedQty - The expected quantity string.
+   * @returns {Promise<boolean>} Resolves to true when the saved quantity matches the expected value.
+   */
   async verifySavedQuantity(
     productName: string,
     expectedQty: string
@@ -406,6 +570,12 @@ export class MenuScreen extends BaseScreen {
   }
 
 
+  /**
+   * Reads the current quantity text for a product row.
+   *
+   * @param {string} productName - The product name to read.
+   * @returns {Promise<string>} The quantity value currently displayed in the row.
+   */
   async getQuantity(productName: string): Promise<string> {
     const value = await this.driver
       .$(this.quantityField(productName))
@@ -414,6 +584,13 @@ export class MenuScreen extends BaseScreen {
     return value ?? '';
   }
 
+  /**
+   * Confirms that discarding edits restores the original product value.
+   *
+   * @param {string} productName - The product being checked.
+   * @param {string} originalQty - The expected restored quantity.
+   * @returns {Promise<void>} Resolves after the discard verification completes.
+   */
   async verifyDiscardRestoresValue(
     productName: string,
     originalQty: string,
@@ -434,6 +611,11 @@ export class MenuScreen extends BaseScreen {
   // private readonly noButton =
   //   '//android.widget.Button[@content-desc="No"]';
 
+  /**
+   * Discards the current product edits and returns to the Route Shopping screen.
+   *
+   * @returns {Promise<void>} Resolves once the discard flow is confirmed.
+   */
   async discardChanges(): Promise<void> {
     await this.tap(this.backButton);
     await this.tap(this.noButton)
@@ -459,16 +641,33 @@ export class MenuScreen extends BaseScreen {
 
 
 
+  /**
+   * Deletes an added product from the current Route Shopping list.
+   *
+   * @param {string} productName - The product to remove.
+   * @returns {Promise<void>} Resolves after the row is removed and the screen is saved.
+   */
   async deleteProduct(productName: string): Promise<void> {
     await this.editAddedProduct(productName);
     await this.swipeAndDelete(this.recordByHint(productName));
     await this.tap(this.doneButton);
   }
 
+  /**
+   * Taps the screen back arrow to navigate backward.
+   *
+   * @returns {Promise<void>} Resolves after the back action is triggered.
+   */
   async tapBackArrow(): Promise<void> {
     await this.tap(this.backButton);
   }
 
+  /**
+   * Reads the numeric quantity for a product from the visible list row.
+   *
+   * @param {string} productName - The product name to inspect.
+   * @returns {Promise<number>} The parsed product quantity as a number, or 0 when not found.
+   */
   async getProductQuantity(productName: string): Promise<number> {
     const quantityElement = await this.driver.$(
       `//android.view.View[contains(@content-desc,"${productName}")]
@@ -480,6 +679,13 @@ export class MenuScreen extends BaseScreen {
     return Number(qty?.[0] ?? 0);
   }
 
+  /**
+   * Validates the product count shown on a route transfer card.
+   *
+   * @param {string} routeName - The route or warehouse label to inspect.
+   * @param {number} expectedCount - The expected product total count.
+   * @returns {Promise<void>} Resolves after asserting the count matches.
+   */
   async verifyRouteTransferTotalProducts(
     routeName: string,
     expectedCount: number
@@ -494,6 +700,14 @@ export class MenuScreen extends BaseScreen {
     );
   }
 
+  /**
+   * Validates that a specific product and quantity are presented in a route transfer card.
+   *
+   * @param {string} routeName - The route or warehouse label to inspect.
+   * @param {string} productName - The product expected to appear in the route transfer.
+   * @param {number} expectedQty - The expected transfer quantity.
+   * @returns {Promise<void>} Resolves after asserting the product details match the expected content.
+   */
   async verifyRouteTransferProduct(
     routeName: string,
     productName: string,
@@ -510,6 +724,12 @@ export class MenuScreen extends BaseScreen {
   }
 
 
+  /**
+   * Opens the product details drawer for the provided route card.
+   *
+   * @param {string} routeName - The route label whose details should be opened.
+   * @returns {Promise<void>} Resolves once the details panel is opened.
+   */
   async openProductDetails(routeName: string): Promise<void> {
     const icon = await this.driver.$(`//android.view.View[contains(@content-desc,"${routeName}")]/android.view.View`
     );
@@ -517,6 +737,13 @@ export class MenuScreen extends BaseScreen {
     await icon.click();
   }
   private readonly anyRouteOption = '//android.view.View[starts-with(@content-desc,"Route ")]';
+
+  /**
+   * Checks whether the route label is present in the route picker list.
+   *
+   * @param {string} routeLabel - The route label to look for.
+   * @returns {Promise<boolean>} Resolves to true when the selected route is available in the list.
+   */
   async isRouteDisplayed(routeLabel: string): Promise<boolean> {
     const options = await this.driver.$$(this.anyRouteOption);
 
@@ -535,6 +762,11 @@ export class MenuScreen extends BaseScreen {
   protected readonly routeSetupMenu = '~Route setup';
   protected readonly routeWarehouseHeader =
     '//android.view.View[contains(@content-desc,",")]';
+  /**
+   * Reads the warehouse name from the Route setup header.
+   *
+   * @returns {Promise<string>} The route warehouse name extracted from the header text.
+   */
   async getRouteWarehouseName(): Promise<string> {
     await this.openNavigationMenu();
     await this.tap(this.routeSetupMenu);
@@ -550,6 +782,12 @@ export class MenuScreen extends BaseScreen {
 
   readonly confirmDatesheet = '//android.view.View[contains(@content-desc,"Confirm Date!")]'
 
+  /**
+   * Builds the locator for the Start day element tied to a specific route.
+   *
+   * @param {string} route - The route label to match in the start-day content description.
+   * @returns {string} A locator string for the matching route start-day element.
+   */
   titleStartDayAndRoute(route: string): string {
     return `//android.view.View[starts-with(@content-desc,"Start day") and contains(@content-desc,"${route}")]`;
   }
@@ -558,6 +796,11 @@ export class MenuScreen extends BaseScreen {
   protected readonly changeRoutePopup =
     '//android.view.View[contains(@content-desc,"Change route")]';
 
+  /**
+   * Validates the route change confirmation popup content before proceeding.
+   *
+   * @returns {Promise<void>} Resolves after asserting the warning header and message are present.
+   */
   async verifyChangeRoutePopupContent(): Promise<void> {
     const popup = await this.driver.$('//android.view.View[contains(@content-desc,"If you proceed all information will be DELETED.")]');
     const contentDesc = (await popup.getAttribute('content-desc')) ?? '';
@@ -572,6 +815,11 @@ export class MenuScreen extends BaseScreen {
 
   protected readonly routeSetupHeader = '//android.view.View[@content-desc="Route setup"]';
 
+  /**
+   * Checks whether the Route setup header is currently visible.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the route setup screen is loaded.
+   */
   async isRouteSetupHeaderDisplayed(): Promise<boolean> {
     try {
       const el = await this.driver.$(this.routeSetupHeader);
@@ -590,6 +838,15 @@ export class MenuScreen extends BaseScreen {
 
 
 
+  /**
+   * Adds a product to Truck Stock with specified damaged and spoiled quantities.
+   *
+   * @param {string} lob - The line of business tab to use (for example Coffee or Market).
+   * @param {string} searchTerm - The product lookup term.
+   * @param {number} damagedQuantity - Quantity to assign as damaged.
+   * @param {number} spoiledQuantity - Quantity to assign as spoiled.
+   * @returns {Promise<string>} The selected product name after save.
+   */
   async addProductInTruckStock(lob: string, searchTerm: string, damagedQuantity: number, spoiledQuantity: number): Promise<string> {
     await this.open();
     await this.tap(this.lobTab(lob));
@@ -610,12 +867,23 @@ export class MenuScreen extends BaseScreen {
 
   private readonly selectedProductName =
     '//android.view.View[@content-desc="Add product"]/following-sibling::android.view.View[1]';
+  /**
+   * Reads the product name shown in the add-product confirmation dialog.
+   *
+   * @returns {Promise<string>} The selected product name from the detail screen.
+   */
   async getSelectedProductName(): Promise<string> {
     const el = await this.driver.$(this.selectedProductName);
     return (await el.getAttribute('content-desc')) ?? '';
   }
 
   private readonly navMenuTruckReturns = '//android.widget.Button[@content-desc="Truck Returns"]';
+
+  /**
+   * Opens the Truck Returns screen via the navigation menu.
+   *
+   * @returns {Promise<void>} Resolves once the Truck Returns screen is visible.
+   */
   async open(): Promise<void> {
     if (await this.isVisible(this.truckReturnsTitle)) {
       return;
@@ -635,6 +903,13 @@ export class MenuScreen extends BaseScreen {
   private truckReturnProductRow = (productName: string) =>
     `//android.view.View[contains(@hint,"${productName}")]`;
 
+  /**
+   * Validates the quantity shown for a Truck Return product row.
+   *
+   * @param {string} productName - The product to validate.
+   * @param {number} expectedQuantity - The expected numeric quantity.
+   * @returns {Promise<void>} Resolves after the row quantity assertion passes.
+   */
   async verifyTruckReturnProduct(
     productName: string,
     expectedQuantity: number
@@ -661,6 +936,13 @@ export class MenuScreen extends BaseScreen {
   private truckReturnDeleteButton = (productName: string) =>
     `//android.view.View[contains(@hint,"${productName}")]/following-sibling::android.widget.Button`;
 
+  /**
+   * Deletes a product from a Truck Returns tab.
+   *
+   * @param {string} lob - The current LOB tab name.
+   * @param {string} productName - The product to delete.
+   * @returns {Promise<void>} Resolves once the product is removed from the list.
+   */
   async deleteTruckReturnsProduct(lob: string, productName: string): Promise<void> {
 
     await this.tap(this.lobTab(lob));
@@ -701,12 +983,25 @@ export class MenuScreen extends BaseScreen {
   }
 
 
- 
 
+
+  /**
+   * Checks whether a Truck Returns product row has been removed.
+   *
+   * @param {string} productName - The product name to verify is deleted.
+   * @returns {Promise<boolean>} Resolves to true if the row is no longer displayed.
+   */
   async verifyTruckReturnsProductDeleted(productName: string): Promise<boolean> {
     return this.verifyProductDeleted(productName, this.truckReturnProductRow(productName));
   }
 
+  /**
+   * Verifies that a product row is no longer present in the matching locator.
+   *
+   * @param {string} productName - The product name being checked.
+   * @param {string} locator - The selector used to find the product row.
+   * @returns {Promise<boolean>} Resolves to true when the row disappears within the timeout.
+   */
   async verifyProductDeleted(productName: string, locator: string): Promise<boolean> {
     try {
       await this.driver.waitUntil(
@@ -781,6 +1076,14 @@ export class MenuScreen extends BaseScreen {
   // }
 
 
+  /**
+   * Adds one or more products into the selected Route Inventory tab.
+   *
+   * @param {string} lob - The line-of-business tab name.
+   * @param {InventoryType} type - The inventory type, either audit or cycle.
+   * @param {{ count?: number; searchTerm?: string }} [opts={}] - Optional count and search term overrides.
+   * @returns {Promise<string>} The last added product name after the action completes.
+   */
   async addProductInRouteInventory(
     lob: string,
     type: InventoryType,
@@ -799,6 +1102,13 @@ export class MenuScreen extends BaseScreen {
   }
 
 
+  /**
+   * Opens a specific Route Inventory tab for a line of business and inventory type.
+   *
+   * @param {string} lob - The line-of-business tab to open.
+   * @param {InventoryType} type - The inventory tab type to select.
+   * @returns {Promise<void>} Resolves once the tab is opened.
+   */
   async openTab(lob: string, type: InventoryType): Promise<void> {
     await this.openRouteInventory();
     await this.tap(this.lobTab(lob));
@@ -814,6 +1124,11 @@ export class MenuScreen extends BaseScreen {
     return type === 'audit' ? this.auditTab : this.cycleTab;
   }
 
+  /**
+   * Opens the Route Inventory screen from the hamburger menu.
+   *
+   * @returns {Promise<void>} Resolves once the Route Inventory page is visible.
+   */
   async openRouteInventory(): Promise<void> {
     if (await this.isVisible(this.truckReturnsTitle)) {
       return;
@@ -827,13 +1142,14 @@ export class MenuScreen extends BaseScreen {
     await this.waitFor(this.routeInventoryTitle);
   }
 
-  // private async openAuditTypeTab(lob: Lob, type: InventoryType): Promise<void> {
-  //   await this.open();
-  //   await this.tap(this.lobTabSelector(lob));
-  //   await this.tap(this.addProductButton);
-  //   await this.tap(this.inventoryTabSelector(type));
-  // }
 
+  /**
+   * Checks that a Route Inventory product row shows the expected quantity.
+   *
+   * @param {string} productName - The product name to validate.
+   * @param {number} quantity - The expected quantity.
+   * @returns {Promise<void>} Resolves after the quantity assertion passes.
+   */
   async verifyProductQuantityInRouteInventory(
     productName: string,
     quantity: number
@@ -845,25 +1161,14 @@ export class MenuScreen extends BaseScreen {
     expect(details).toContain(`x${quantity}`);
   }
 
-  // async getRouteInventoryProductRowDetails(
-  //   productName: string
-  // ): Promise<string> {
-  //   const row = await this.driver.$(
-  //     this.productRow(productName)
-  //   );
-  //   await row.waitForDisplayed({
-  //     timeout: mobileConfig.timeouts.element
-  //   });
-  //   const value = await row.getAttribute('content-desc');
-  //   return value || '';
-  // }
 
 
-  // private routeInventoryProductRow(productName: string): string {
-  //   return `//android.view.View[contains(@content-desc,"${productName}")]`;
-  // }
-
-
+  /**
+   * Waits until a product row is removed from the Route Inventory list.
+   *
+   * @param {string} productName - The product expected to be absent.
+   * @returns {Promise<void>} Resolves once the product is no longer visible.
+   */
   async verifyProductNotDisplayedInRouteInventory(
     productName: string
   ): Promise<void> {
@@ -884,18 +1189,31 @@ export class MenuScreen extends BaseScreen {
 
 
 
- async deleteRouteInventoryProduct(lob: string, productName: string): Promise<void> {
+  /**
+   * Deletes a product from a Route Inventory row.
+   *
+   * @param {string} lob - The LOB tab to use.
+   * @param {string} productName - The product to delete.
+   * @returns {Promise<void>} Resolves after the product is removed from the inventory list.
+   */
+  async deleteRouteInventoryProduct(lob: string, productName: string): Promise<void> {
     await this.tap(this.lobTab(lob));
     await this.waitFor(this.addedProductRow(productName));
     await this.tap(this.addedProductRow(productName));
     await this.waitFor(this.recordByHint(productName));
-   await this.deleteProductTest(productName);
+    await this.deleteProductTest(productName);
   }
 
-private truckRouteInventoryDeleteButton = (productName: string) =>
-  `//android.widget.EditText[contains(@hint,"${productName}")]/android.widget.Button`;
+  private truckRouteInventoryDeleteButton = (productName: string) =>
+    `//android.widget.EditText[contains(@hint,"${productName}")]/android.widget.Button`;
 
-  async deleteProductTest (productName: string): Promise<void> {
+  /**
+   * Deletes a product after swiping the inventory row and confirming the delete action.
+   *
+   * @param {string} productName - The product row to delete.
+   * @returns {Promise<void>} Resolves once the row disappears from the screen.
+   */
+  async deleteProductTest(productName: string): Promise<void> {
     await this.driver.pause(500);
     const rowLocator = `//android.widget.EditText[contains(@hint,"${productName}")]`;
     await this.isVisible(rowLocator);
@@ -927,24 +1245,6 @@ private truckRouteInventoryDeleteButton = (productName: string) =>
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   async isLoaded(): Promise<boolean> {
     return this.isVisible(this.hamburgerIcon);
   }
@@ -958,20 +1258,7 @@ private truckRouteInventoryDeleteButton = (productName: string) =>
     await this.tap(this.startDayButton);
   }
 
-  /** TC006 "click on the Hamburger menu" - opens the nav drawer. */
-  async openHamburgerMenu(): Promise<void> {
-    await this.tap(this.hamburgerIcon);
-  }
 
-  /** Whether the nav drawer is open, per its own "Schedule overview" menu item - the hamburger icon itself is hidden behind the drawer once open, so this (not hamburgerIcon) is the visibility signal. */
-  async isNavigationMenuVisible(): Promise<boolean> {
-    return this.isVisible('~Schedule overview');
-  }
-
-  /** Closes the nav drawer via hardware back - the hamburger icon is hidden while the drawer is open, so re-tapping it isn't an option. */
-  async closeHamburgerMenu(): Promise<void> {
-    await this.pressKeyCode(4);
-  }
 
   /** TC007 "view the System Date" - the day/date badge in the navigation bar (e.g. "Yesterday, Thu 23 Jul"). */
   async getCurrentDateText(): Promise<string> {
@@ -992,145 +1279,10 @@ private truckRouteInventoryDeleteButton = (productName: string) =>
     return Number(/(\d+)/.exec(desc)?.[1]);
   }
 
-  /**
-   * TC015 "view Vending counter" (and the equivalent Market/Coffee counts,
-   * part of PBI 622025's "dynamic" claim) - returns whichever LOBs actually
-   * have a card rendered today (this screen only shows a LOB's badge when it
-   * has scheduled stops - e.g. Miami/010 shows Market+Coffee, never Vending).
-   */
-  async getLobCounts(): Promise<Partial<Record<Lob, string>>> {
-    const labelEls = await this.driver.$$(this.lobLabels);
-    const countEls = await this.driver.$$(this.lobCountBadge);
-    const result: Partial<Record<Lob, string>> = {};
-    const labelCount = await labelEls.length;
-    for (let i = 0; i < labelCount; i++) {
-      const label = ((await labelEls[i].getAttribute('content-desc')) ?? '').toLowerCase() as Lob;
-      const count = countEls[i] ? await countEls[i].getAttribute('content-desc') : null;
-      if (count) {
-        result[label] = count;
-      }
-    }
-    return result;
-  }
 
-  async openEditSchedule(): Promise<void> {
-    await this.tap(this.editScheduleButton);
-    await this.waitFor(this.editScheduleTitle);
-  }
 
-  async isEditScheduleVisible(): Promise<boolean> {
-    return this.isVisible(this.editScheduleTitle);
-  }
 
-  /**
-   * TC036 "view Edit schedule order screen... with icon and list of stops
-   * with names and addresses" - each stop row's content-desc is
-   * "{address}\n{Name}" (live-verified, e.g. "19000 SW 192nd St Miami
-   * Florida 33187-1908\nCureLeaf"), so this returns just the trailing name
-   * line from every multi-line View on the (assumed already open) sheet.
-   */
-  async getEditScheduleStopNames(): Promise<string[]> {
-    const els = await this.driver.$$('//android.view.View');
-    const names: string[] = [];
-    for (const el of els) {
-      const desc = (await el.getAttribute('content-desc')) ?? '';
-      if (desc.includes('\n')) {
-        const parts = desc.split('\n');
-        names.push(parts[parts.length - 1]);
-      }
-    }
-    return names;
-  }
 
-  /**
-   * TC037 "verify drag handle visibility" - each stop row (the same
-   * multi-line View getEditScheduleStopNames() reads) renders a drag
-   * handle icon on its right edge, live-confirmed visually, but with NO
-   * accessible node of its own anywhere in the tree (baked into the row's
-   * bitmap - see BaseScreen.hasNonWhiteIconNearRightEdge's own doc
-   * comment). Returns true only if every stop row has one.
-   */
-  async areDragHandlesVisibleForAllStops(): Promise<boolean> {
-    const els = await this.driver.$$('//android.view.View');
-    const rows = [];
-    for (const el of els) {
-      const desc = (await el.getAttribute('content-desc')) ?? '';
-      if (desc.includes('\n')) {
-        rows.push(el);
-      }
-    }
-    if (rows.length === 0) {
-      return false;
-    }
-    for (const row of rows) {
-      if (!(await this.hasNonWhiteIconNearRightEdge(row))) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  // PBI 850155 "Ad-hoc Scheduling" (TC025/027/028/029).
-  //
-  // TC027 "navigate to Ad-hoc delivery creation screen" - live-verified
-  // 2026-07-24: the "+" icon next to the Schedule pane header has NO
-  // content-desc/resource-id of its own (confirmed via dump - an unlabeled
-  // clickable View), so it's targeted structurally as the immediate
-  // following-sibling of the "Schedule" text. Confirmed reachable
-  // regardless of whether the current day is empty or not (tested against
-  // a day with 4 real deliveries) - opens an "Add Delivery" screen with a
-  // Customer search field and Add Delivery / "+ Add Another Delivery"
-  // buttons.
-  private readonly addAdhocDeliveryButton = '//android.view.View[@content-desc="Schedule"]/following-sibling::android.view.View[1]';
-
-  // TC025 "No deliveries available" message - UNVERIFIED locators below.
-  // Live-confirmed the SHAPE of this empty state earlier the same day
-  // (2026-07-24) on a genuinely zero-delivery day ("0 Delivery", "You do
-  // not have an active deliveries for Fri 24 Jul. To add an ad-hoc
-  // delivery, click the plus (+) icon", Start day shown disabled) - but
-  // BA has since seeded data across every day on both known routes
-  // (Miami/010 and Charlotte/103), so no zero-delivery day remains to
-  // confirm the EXACT locator/content-desc for that message text right
-  // now. Matched via the Excel's literal wording ("do not have"), tolerant
-  // of the varying day/date suffix - needs re-verification once a
-  // zero-delivery day exists again (tracked, not guessed away).
-  private readonly noDeliveriesMessage = '//android.view.View[contains(@content-desc,"do not have")]';
-
-  /** TC025 - true only when Deliveries is genuinely 0 AND the no-deliveries message is showing (see noDeliveriesMessage's caveat above). */
-  async isDeliveriesEmptyStateVisible(): Promise<boolean> {
-    const count = await this.getDeliveriesCount();
-    return count === 0 && (await this.isVisible(this.noDeliveriesMessage));
-  }
-
-  /** TC025 "Start day button should be display as inactive" when there are no deliveries. */
-  async isStartDayDisabled(): Promise<boolean> {
-    return !(await this.isEnabled(this.startDayButton));
-  }
-
-  /** TC026 - the "+" icon (Schedule Ad-hoc Delivery's own primary CTA) is visible before it's tapped. */
-  async isAdhocDeliveryButtonVisible(): Promise<boolean> {
-    return this.isVisible(this.addAdhocDeliveryButton);
-  }
-
-  /** TC027/TC028 - opens the Ad-hoc delivery creation screen via the "+" icon. */
-  async openAdhocDeliveryCreation(): Promise<void> {
-    await this.tap(this.addAdhocDeliveryButton);
-  }
-
-  // Live-verified 2026-07-24: pressing BACK from a screen with unsaved
-  // Sort/Filter selections (e.g. Vending's Product Fills) triggers a "Save
-  // Changes! Your changes have not saved yet, Do you want to save?" dialog
-  // (Discard/Save). A naive repeated-BACK loop presses BACK again on this
-  // dialog, which just dismisses it back to the SAME screen - the very next
-  // press re-triggers the identical dialog, looping forever and never
-  // making progress. Must tap "Discard" explicitly instead.
-  private readonly discardChangesButton = '~Discard';
-  // A SECOND, differently-worded variant of the same dialog class - live-
-  // verified 2026-08-05 on Market's Removals & Returns "Document product"
-  // screen: "Save Changes / Do you want to save your changes? / No / Save"
-  // (not "Discard"/"Save"). Same looping-forever risk as discardChangesButton
-  // if not handled explicitly.
-  private readonly saveChangesNoButton = '~No';
   // A THIRD variant, live-verified 2026-08-06 on Coffee's Pre-sales summary
   // screen ("Complete Pre-sale! Do you want to complete the pre-sale for
   // this service? / Skip pre-sale / Complete") - tapping "Skip pre-sale"
@@ -1140,34 +1292,10 @@ private truckRouteInventoryDeleteButton = (productName: string) =>
   private readonly skipPresaleButton = '~Skip pre-sale';
 
   /**
-   * Navigates back to Dashboard from wherever the app currently is - used to
-   * let multiple tests share one login session (see vending-service.spec.ts)
-   * instead of each paying the manual-MFA-approval cost of a fresh login.
+   * Navigates back to the Dashboard by following the app's back stack and handling common dialogs.
    *
-   * CORRECTED: this can't be done with plain repeated BACK presses alone -
-   * live-verified this app's back-stack is NOT a simple linear chain back to
-   * Dashboard. From Vending's Product Fills (after Sort/Filter, no hamburger
-   * icon - only a back arrow), one BACK press reaches the machine's task
-   * list (still no hamburger), a second reaches the stop-detail screen
-   * ("Aaron's" - hamburger IS present here), but a THIRD exits the app
-   * entirely to the OS launcher instead of reaching Dashboard - there is no
-   * intermediate Dashboard entry in that back-stack to land on. So this
-   * instead presses BACK only until any screen with the hamburger menu is
-   * reached, then uses the app's own "Schedule overview" nav item (found in
-   * the hamburger menu, live-verified) to deterministically reach Dashboard,
-   * rather than continuing to guess with more back-presses. Also handles the
-   * "Save Changes" dialog (see discardChangesButton) by tapping Discard
-   * instead of pressing BACK again, which would otherwise loop forever.
-   *
-   * CORRECTED (live-verified 2026-08-06): the hardware BACK button
-   * (pressKeyCode(4)) is a no-op on at least one screen (Coffee's
-   * Pre-sales summary) - it neither navigates nor opens the confirm
-   * dialog below, so a loop that only ever presses hardware BACK gets
-   * stuck there for all maxBackPresses attempts. The on-screen back arrow
-   * (BaseScreen.backButton) reliably triggers the real in-app back action
-   * on that same screen. Now prefers tapping it when visible, falling
-   * back to hardware BACK only when it isn't (e.g. genuinely no back
-   * arrow on screen).
+   * @param {number} [maxBackPresses=10] - Maximum number of back attempts before failing.
+   * @returns {Promise<void>} Resolves once the dashboard is reached from the current screen.
    */
   async returnToHome(maxBackPresses = 10): Promise<void> {
     let reachedHamburger = false;
