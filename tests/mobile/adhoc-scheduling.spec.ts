@@ -653,6 +653,15 @@ test.describe('Ad-hoc Scheduling (PBI 850155)', () => {
   // ad-hoc delivery starts EMPTY, and the empty state omits them - the same
   // BUG 918856 family. "Fuel Adjustment" is a separate question: no such line
   // has been seen anywhere in this build, on Deliveries or Signing Order.
+  //
+  // RE-CHECKED 2026-09-02 on build 0.1.92 (full tree dump, not a single
+  // locator - see CoffeeServiceScreen's own note for the complete listing):
+  // BUG 918856 is PARTIALLY fixed. "Shipping & Handling (Taxable) $1.10" now
+  // DOES render on the empty state; "Delivery Charge" and "Fuel" still do not.
+  // This test asserts only the two that are still missing, so it remains a
+  // legitimate expected-failure - but the reason has narrowed, and whether
+  // Delivery Charge belongs on an empty stop at all is now an open question
+  // with Dev rather than a settled defect.
   test(
     'SD-TC-018 (BUG 918856 family): ad-hoc Coffee delivery omits Delivery Fees and Fuel Adjustment',
     { tag: ['@StartOfDay-SD-TC-018', '@bug-918856'] },

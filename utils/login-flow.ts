@@ -94,6 +94,16 @@ export async function loginAndWaitForMfa(driver: Browser, loginId?: string, pass
     if (!onLoginWebview) {
       return;
     }
+    // STALE-WEBVIEW GUARD, added 2026-09-02. A listed WEBVIEW context is NOT
+    // proof we are on Login - the note above already records that the entry
+    // survives long past sign-in. Any resumed session sitting on a screen
+    // without a hamburger (an open modal, the sync screen) therefore fell
+    // through to a full sign-in and then WAITED ON AN MFA PUSH that nobody was
+    // going to approve, turning a leftover modal from the previous test into a
+    // multi-minute hang. The login FIELD is the honest signal.
+    if (!(await loginScreen.isLoginFormPresent())) {
+      return;
+    }
   }
 
   await loginScreen.enterLoginId(loginId ?? process.env.TEST_LOGIN_ID ?? 'MPY01');
@@ -261,13 +271,47 @@ async function isOnRoute(
   const currentRoute = routeNumber(routeText);
   const targetRoute = routeNumber(route.routeLabel);
   if (currentRoute !== '') {
-    return currentRoute === targetRoute;
+    if (currentRoute !== targetRoute) {
+      return false;
+    }
+    // AMBIGUOUS ROUTE NUMBERS - added 2026-09-02 after a real miss.
+    //
+    // Home's badge shows the route NUMBER only, never the operation, and two
+    // configured routes share the number "001": Charlotte 001 (emptyRoute)
+    // and Miami 001 (marketRoute). So a matching badge does NOT prove we are
+    // on the right one, and this returned true while the app sat on the other
+    // city's route - no switch was attempted.
+    //
+    // That is how TC025 came to assert "0 deliveries" against Miami 001 and
+    // receive 3: it asked for the empty route, was told it was already there,
+    // and measured the wrong one. Silent, and it looked like a data problem.
+    //
+    // When another configured route shares this number under a DIFFERENT
+    // operation, refuse to confirm and let the caller switch. The cost is one
+    // redundant switch; the alternative is measuring the wrong route.
+    const configuredRoutes = [
+      mobileConfig.defaultRoute,
+      mobileConfig.vendingRoute,
+      mobileConfig.coffeeRoute,
+      mobileConfig.emptyRoute,
+      mobileConfig.marketRoute
+    ];
+    const distinctOperations = new Set(
+      configuredRoutes
+        .filter((r) => routeNumber(r.routeLabel) === targetRoute)
+        .map((r) => r.operationLabel)
+    );
+    return distinctOperations.size <= 1;
   }
   const targetsEmptyRoute =
     targetRoute === routeNumber(mobileConfig.emptyRoute.routeLabel) &&
     (route.operationLabel === undefined || route.operationLabel === mobileConfig.emptyRoute.operationLabel);
   if (targetsEmptyRoute) {
-    return (await home.getDeliveriesCount()) === 0;
+    // getDeliveriesCount() now throws rather than inventing a 0 when Home's
+    // Deliveries node is absent (see its own note). Absent means we cannot
+    // read the badge, which is "not confirmed on route", not "on the empty
+    // route" - so this must resolve to false, never to a bogus match.
+    return (await home.getDeliveriesCount().catch(() => -1)) === 0;
   }
   return false;
 }
@@ -325,6 +369,46 @@ export async function loginAndEnsureRoute(
     return;
   }
   await switchRoute(driver, route);
+  // CORRECTED 2026-09-02: Route Setup does NOT reliably land on Home. Where
+  // the newly-selected route/day has not had Start Day completed yet, the app
+  // drops straight onto the "Start day, Route nnn" checklist instead (live-
+  // captured on Charlotte/103 - see the TC027 failure screenshot), and where
+  // it HAS been completed it goes to Home. The postcondition was therefore
+  // whichever of the two the route data happened to dictate, and every caller
+  // that reads a Home element right after a switch was relying on luck. That
+  // is what broke TC026/TC027 the moment the destructive reorder stopped
+  // leaving 103's Start Day pre-completed: isAdhocDeliveryButtonVisible()
+  // waited 45s for a "+" that was on a screen we were not on, and reported a
+  // missing button rather than a navigation miss.
+  //
+  // returnToHome() is safe on both landings - it looks for the hamburger
+  // (present on the Start day checklist too) and then takes Schedule overview
+  // - so this simply makes the postcondition uniform: logged in, on the
+  // requested route/day, on HOME. Matches the early-return path above, which
+  // has always guaranteed exactly that.
+  //
+  // SETTLE FIRST - do NOT call returnToHome() straight off the route change.
+  // Corrected the same day it was written, after a full-suite run: a route
+  // switch is followed by a background sync, and while that sync is on screen
+  // there is NO hamburger anywhere. returnToHome() reads that as "not home
+  // yet" and starts pressing BACK, which walks straight out of the app to the
+  // Android launcher and strands every test that follows. That single missing
+  // wait turned one slow sync into five consecutive failures.
+  //
+  // The hamburger is the right thing to wait for: it is present on Home AND on
+  // the "Start day, Route nnn" checklist, the two legitimate landings, and
+  // absent on the sync screen we must not act on. If it never arrives, fail
+  // HERE with a description of what happened rather than falling through to a
+  // BACK loop that would leave the app unusable for the rest of the run.
+  await driver.waitUntil(async () => new HomeScreen(driver).isLoaded().catch(() => false), {
+    timeout: 180_000,
+    interval: 2_000,
+    timeoutMsg:
+      `loginAndEnsureRoute: after switching to ${route.operationLabel} / ${route.routeLabel} the app never ` +
+      'settled on a screen with a hamburger menu within 180s - most likely still syncing. Not pressing BACK, ' +
+      'which would exit the app and break every test after this one.'
+  });
+  await home.returnToHome();
 }
 
 /**

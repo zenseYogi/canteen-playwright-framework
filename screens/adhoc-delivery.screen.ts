@@ -46,6 +46,9 @@ export class AdhocDeliveryScreen extends BaseScreen {
   private readonly serviceField = '//android.view.View[contains(@content-desc,"Search by type or number")]';
   private readonly coffeeServiceRow = '//android.view.View[contains(@content-desc,"OCS/Pantry")]';
   private readonly marketServiceRow = '//android.view.View[contains(@content-desc,"- Market")]';
+  // The service picker's own search box - present whether or not the list
+  // arrives pre-populated.
+  private readonly serviceSearchField = '//android.widget.EditText';
   private readonly serviceTypeField = '//android.view.View[contains(@content-desc,"Select service type")]';
   private serviceTypeOption(type: string): string {
     return `//android.view.View[@content-desc="${type}"]`;
@@ -144,9 +147,23 @@ export class AdhocDeliveryScreen extends BaseScreen {
 
   /** TC057 "clear selected account" - clears the already-open search field (see searchCustomer), restoring the full unfiltered account list. */
   async clearAccountSearch(): Promise<void> {
-    const search = await this.driver.$(this.accountSearchField);
-    await search.clearValue();
+    const icon = await this.driver.$(this.modalClearIcon);
+    if (await icon.isDisplayed().catch(() => false)) {
+      await icon.click().catch(() => {});
+    } else {
+      const search = await this.driver.$(this.accountSearchField);
+      await search.clearValue().catch(() => {});
+    }
+    await this.driver
+      .waitUntil(async () => (await this.getResultRowCount().catch(() => 0)) > 0, {
+        timeout: 10_000,
+        interval: 500
+      })
+      .catch(() => {});
   }
+
+  /** The X inside a search modal's field - the only clickable ImageView on these sheets. */
+  private readonly modalClearIcon = '//android.widget.ImageView[@clickable="true"]';
 
   // TC058 "no-results state" - live-verified 2026-08-10: a non-matching
   // search shows this exact message in place of any result rows.
@@ -248,6 +265,52 @@ export class AdhocDeliveryScreen extends BaseScreen {
   }
 
   /**
+   * Opens the Service picker and selects a row whose label carries the given
+   * LOB tag - e.g. "Vending", "Market", "OCS/Pantry" for Coffee.
+   *
+   * Added 2026-09-02 for SD-TC-015/016, which assert that an ad-hoc delivery
+   * for a SPECIFIC LOB lands on that LOB's service screen.
+   * selectFirstServiceAnyLob() cannot serve them: it takes whichever row is
+   * first, so neither case could ever assert its own LOB. Returns the row's
+   * first line so callers can report which service was taken.
+   */
+  async selectServiceByLob(lobLabel: string): Promise<string> {
+    await this.tap(this.serviceField);
+    const match = await this.driver.$(`//android.view.View[contains(@content-desc,"${lobLabel}")]`);
+    if (await match.waitForDisplayed({ timeout: 15_000 }).then(() => true, () => false)) {
+      const desc = String((await match.getAttribute('content-desc')) ?? '');
+      await match.click();
+      return desc.split('\n')[0] ?? '';
+    }
+    // Say what the picker DID offer. A bare "element not displayed" here is
+    // ambiguous between "this account has no such service" and "the locator
+    // is wrong", and those need opposite fixes.
+    // Nothing matched on open. Some accounts PRE-POPULATE this picker and
+    // others open with only a search box - that is an ACCOUNT property, not a
+    // route one (see selectFirstCoffeeService's own note). So when the list is
+    // empty, type the LOB term to filter rather than concluding the service
+    // does not exist.
+    const search = await this.driver.$(this.serviceSearchField);
+    if (await search.waitForDisplayed({ timeout: 5_000 }).then(() => true, () => false)) {
+      await search.click();
+      for (const ch of lobLabel.replace(/^-\s*/, '')) {
+        await this.driver.keys(ch);
+      }
+      await this.driver.pause(1_500);
+      const filtered = await this.driver.$(`//android.view.View[contains(@content-desc,"${lobLabel}")]`);
+      if (await filtered.waitForDisplayed({ timeout: 10_000 }).then(() => true, () => false)) {
+        const desc = String((await filtered.getAttribute('content-desc')) ?? '');
+        await filtered.click();
+        return desc.split('\n')[0] ?? '';
+      }
+    }
+    const offered = await this.getResultRowLabels().catch(() => []);
+    throw new Error(
+      `No "${lobLabel}" service offered by this account. The picker listed: ${offered.length ? offered.join(' / ') : '(nothing)'}`
+    );
+  }
+
+  /**
    * Opens the Service picker and selects whichever service row comes
    * first, regardless of LOB - unlike selectFirstCoffeeService, which only
    * matches the "OCS/Pantry" tag. Used by ensureAnyDeliveryExistsToday,
@@ -284,8 +347,22 @@ export class AdhocDeliveryScreen extends BaseScreen {
     await this.tap(this.serviceTypeOption(type));
   }
 
+  /**
+   * Whether the form's SUBMIT control is enabled, whichever label it carries.
+   *
+   * CORRECTED 2026-09-02: this checked "Add Delivery" only, so on a
+   * single-service account - where the control is "Continue" instead, exactly
+   * as submitAddDelivery() and isAddDeliveryButtonVisible() already document -
+   * it reported false for a fully-filled, perfectly enabled form. isEnabled()
+   * folds a missing element into false, so the caller saw "disabled" and had no
+   * way to tell it apart from "that button does not exist here". Live-hit on
+   * Miami 001 / Pet SuperMarket with the service and type both selected.
+   */
   async isAddDeliveryButtonEnabled(): Promise<boolean> {
-    return this.isEnabled(this.addDeliveryButton);
+    if (await this.isVisible(this.addDeliveryButton)) {
+      return this.isEnabled(this.addDeliveryButton);
+    }
+    return this.isEnabled(this.continueButton);
   }
 
   /**

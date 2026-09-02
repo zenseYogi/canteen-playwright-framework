@@ -227,17 +227,65 @@ Delivery, Equipment Audit, Add Presale, After Photos, Signing Order).
 ---
 
 ## SD-TC-018 — Ad-hoc Coffee shows Delivery Fees and Fuel Adjustment
-**Route:** Charlotte 103
+**Route:** Charlotte 103 · **Day:** YESTERDAY · **BUG 918856 family**
 
-1. Create or open an ad-hoc **Coffee** delivery
-2. Open its **Deliveries** screen and the **Signing Order** cost summary
+**Precondition — Start Day must be COMPLETE for the chosen day.** A service
+screen cannot be opened otherwise: tapping Continue creates the delivery
+correctly but drops you on the Start day checklist instead. Confirmed intended
+behaviour, not a defect.
+
+1. Hamburger → **Settings → Route setup** → operation **Charlotte, NC**, route
+   **Route 103**, day **Yesterday**
+2. Complete Start Day (all four prep categories, then **Start day**)
+3. On Home, tap the **"+"** icon next to *Schedule*
+4. Customer: search **American**, pick **American Airlines** — the SECOND hit.
+   The catalogue lists two under that name and only this one offers a Coffee
+   service station
+5. Location / Machine / POS: pick **Sim Room**
+6. Service type: **FULL**
+7. Tap **Continue** / **Add Delivery** → lands on the Coffee service screen
+8. Open the **Delivery** tile → the **Deliveries** screen
+9. Also check the **Signing Order** cost summary further along the flow
 
 **Expected (per the sheet):** **Delivery Fees** and **Fuel Adjustment** charges
 are displayed, matching OneCup or showing zero.
 
-**Known result: FAIL — these fields do not exist anywhere in the Coffee flow.**
-Recorded in the sheet as "Bug to be raised". If you see no fee fields, that is
-the known defect, not a data problem.
+### What build 0.1.92 actually shows (verified 2026-09-02, full tree dump)
+
+A fresh ad-hoc stop starts EMPTY, and the empty Deliveries screen renders
+exactly this — nothing else:
+
+> `01 Sep 2026 · Route 103` / **Deliveries** / + and sort icons /
+> **Shipping & Handling (Taxable)  $1.10** / ⓘ *No Deliveries Requested.* /
+> *"This service stop doesn't have any requested fills…"* / **Continue**
+
+| Fee line | 0.1.90 | 0.1.92 |
+| --- | --- | --- |
+| Shipping & Handling (Taxable) | absent | **now present — the fix** |
+| Delivery Charge | absent | still absent |
+| Fuel / Fuel Adjustment | absent | still absent |
+
+**So: PARTIAL FIX.** Seeing Shipping & Handling but no Delivery Charge and no
+Fuel line is the CURRENT KNOWN STATE — not a data problem, and not a fresh
+regression.
+
+**The comparison that makes the verdict meaningful:** open a POPULATED Coffee
+stop (**24Hundred Marketplace** on the same route, the one real Coffee stop
+Charlotte 103 has) and look at its Deliveries screen. It renders *Shipping &
+Handling (Taxable) $1.06* **and** *Delivery Charge (Nontaxable) $12.00*. So the
+fee lines do belong on this screen — the question is only whether they belong
+on an EMPTY one.
+
+**Open with Anthony/Dev before closing this:** is Delivery Charge meant to
+appear on an empty stop at all? At $12.00 on a populated stop it looks
+order-dependent, whereas Shipping & Handling reads like a flat per-stop fee. If
+it is order-dependent, the remaining half of 918856 is correct behaviour and the
+TEST needs narrowing, not the app. "Fuel Adjustment" is a third question
+entirely: no such line has ever appeared in any build, on any screen.
+
+**Cleanup:** delete the ad-hoc stop afterwards (Home → the American Airlines
+stop → delete the Coffee station). A leftover stop makes the next attempt hit
+the app's silent duplicate refusal.
 
 ---
 

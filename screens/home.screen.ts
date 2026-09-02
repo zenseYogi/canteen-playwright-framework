@@ -1,4 +1,5 @@
 import { BaseScreen } from './base.screen';
+import { mobileConfig } from '../config/mobile.config';
 import type { Lob } from '../utils/lob';
 
 /**
@@ -136,10 +137,32 @@ export class HomeScreen extends BaseScreen {
   }
 
   /** TC013 "view Deliveries" / TC014 "view remaining deliveries" (PBI 622025) - parsed from the shared "N Delivery/Deliveries" text. */
-  async getDeliveriesCount(): Promise<number> {
+  async getDeliveriesCount(timeoutMs = 30_000): Promise<number> {
+    // Bounded wait, added 2026-09-02. This read used to be completely
+    // unguarded - $() straight into getAttribute() - so any caller arriving a
+    // moment before Home painted got a raw "Can't call getAttribute on
+    // element ... element wasn't found" rather than a count, or a diagnosis.
+    // Same Home-settle race getRouteBadgeText() already allows for. It is how
+    // TC025 reported a missing element when the real problem was that the app
+    // was still on the Start day checklist after a route switch (fixed at
+    // source in loginAndEnsureRoute), and the message pointed nowhere useful.
+    //
+    // Deliberately does NOT swallow an absent node into 0. isOnRoute() reads a
+    // 0 here as proof we are on emptyRoute, so inventing a zero would confirm
+    // the WRONG route - exactly the class of silent mis-navigation the
+    // ambiguous-route-number fix in login-flow.ts was written to close off.
+    // Callers that can legitimately be off Home catch this instead.
+    await this.waitFor(this.deliveriesTitle, timeoutMs).catch(() => {});
     const el = await this.driver.$(this.deliveriesTitle);
-    const desc = (await el.getAttribute('content-desc')) ?? '';
-    return Number(/(\d+)/.exec(desc)?.[1]);
+    const desc = (await el.getAttribute('content-desc').catch(() => '')) ?? '';
+    const digits = /(\d+)/.exec(desc)?.[1];
+    if (digits === undefined) {
+      throw new Error(
+        `getDeliveriesCount: no "N Delivery/Deliveries" node on Home after ${timeoutMs}ms ` +
+          `(read "${desc}") - the app is most likely not on Home at all`
+      );
+    }
+    return Number(digits);
   }
 
   /**
@@ -365,6 +388,24 @@ export class HomeScreen extends BaseScreen {
       if (await this.isVisible(this.hamburgerIcon)) {
         reachedHamburger = true;
         break;
+      }
+      // FOREGROUND GUARD, added 2026-09-02 after this loop walked the whole
+      // suite out of the app. BACK from Home EXITS to the Android launcher,
+      // and every further BACK is then pressed against the launcher, which
+      // obviously never grows a hamburger. The loop burns its budget, the
+      // relaunch fallback below runs while the app is already gone, and the
+      // test dies leaving the LAUNCHER on screen - so every following test
+      // fails at its own first returnToHome(). Live-captured: one such exit
+      // cascaded into 5 consecutive failures, screenshot showing the Pixel
+      // home screen with our icon sitting in the dock.
+      //
+      // Reactivating is the correct move rather than another BACK: once we
+      // are outside the app its back stack is not ours to reason about. Same
+      // reasoning as returnToThisApp()'s own note about external apps.
+      if ((await this.getForegroundPackage()) !== mobileConfig.capabilities['appium:appPackage']) {
+        await this.returnToThisApp();
+        await this.driver.pause(2_000);
+        continue;
       }
       if (await this.isVisible(this.discardChangesButton)) {
         await this.tap(this.discardChangesButton);

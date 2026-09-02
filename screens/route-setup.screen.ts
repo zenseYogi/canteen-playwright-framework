@@ -137,66 +137,73 @@ export class RouteSetupScreen extends BaseScreen {
     await this.driver.pause(1_500);
   }
 
-  private async typeAndSelectFromModal(searchTerm: string, resultLabel: string, maxAttempts = 3): Promise<void> {
-    // APP DEFECT WORKAROUND, reported by QA and live-confirmed 2026-08-25
-    // (build 0.1.90): the Select Route modal opens with its list EMPTY and
-    // renders nothing at all until the user taps the search field's own X
-    // clear icon - only then does the route data populate. A programmatic
-    // field.clearValue() does NOT trigger it (it changes the field's text
-    // without firing whatever the app actually listens to), which is why the
-    // retry loop below used to burn every attempt against a list that was
-    // never going to appear, failing with "~Route 010 still not displayed".
-    // Tapping the real icon first is what makes the rest of this method work.
+  /**
+   * Clears the modal via its own X icon, then types the search term and taps
+   * the matching row.
+   *
+   * REWRITTEN 2026-09-02, and an earlier diagnosis here was WRONG. This used to
+   * fail with the field showing "Miami" over "No search results found", and
+   * that was recorded as an app-side filter defect. It is not: typing "Miami"
+   * by hand returns "Miami, FL" every time (QA screenshot). The defect was
+   * ours.
+   *
+   * The cause is field.clearValue(). This method's own long-standing note
+   * already said clearValue "changes the field's text without firing whatever
+   * the app actually listens to" - so after a clearValue the app's filter state
+   * and the field's visible text are out of step, and anything typed next
+   * filters against a value the app no longer believes in. The result is
+   * exactly what was seen: correct text on screen, empty list underneath. Every
+   * retry then repeated the same corruption, which is why three attempts failed
+   * as reliably as one.
+   *
+   * So: clear ONLY through the X icon, which is what the app listens to, and
+   * never call clearValue on this field. With the clearing done properly a
+   * single typing pass is enough - the retry loop existed to paper over the
+   * corruption this method was causing itself, and has been removed rather than
+   * left to hide the next real problem.
+   */
+  private async typeAndSelectFromModal(searchTerm: string, resultLabel: string): Promise<void> {
+    // The modal can open with its list EMPTY until the X is tapped (live-
+    // confirmed 2026-08-25, build 0.1.90) - so this both clears any stale text
+    // AND is what makes the list render in the first place.
     await this.populateModalListViaClearIcon();
 
-    // With the list populated, the wanted row is often already right there in
-    // the unfiltered list - take it directly rather than typing a search term
-    // that this modal may not even match (see the digits-only note below).
+    // Often the wanted row is already right there in the unfiltered list -
+    // take it directly rather than typing a term this modal may not match.
     const unfiltered = await this.driver.$(`~${resultLabel}`);
     if (await unfiltered.waitForDisplayed({ timeout: 5_000 }).catch(() => false)) {
       await unfiltered.click();
       return;
     }
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      await this.tap(this.modalSearchField);
-      const field = await this.driver.$(this.modalSearchField);
-      await field.clearValue().catch(() => {});
-      await this.typeViaAdb(searchTerm);
-      const resultEl = await this.driver.$(`~${resultLabel}`);
-      const filtered = await resultEl.waitForDisplayed({ timeout: 5_000 }).catch(() => false);
-      if (filtered) {
-        await resultEl.click();
-        return;
-      }
+    await this.tap(this.modalSearchField);
+    await this.typeViaAdb(searchTerm);
+    const resultEl = await this.driver.$(`~${resultLabel}`);
+    if (await resultEl.waitForDisplayed({ timeout: 10_000 }).catch(() => false)) {
+      await resultEl.click();
+      return;
     }
-    // CORRECTED 2026-08-24 (build 0.1.90, live-verified on Route 001/990):
-    // the Select Route modal's search only matches against the route's own
-    // number, not its full display label - searching the literal "Route
-    // 001"/"Route 990" text (what changeRouteAndSelectDay's own callers
-    // naturally pass, matching resultLabel's own wording) returns "No
-    // search results found" every time, even though the exact row exists
-    // in the unfiltered list. Only a bare numeric search ("001", "990")
-    // filters correctly. Retry once with just the digits extracted before
-    // giving up - keeps every existing call site working unchanged rather
-    // than requiring each caller to know this quirk.
+
+    // CORRECTED 2026-08-24 (build 0.1.90, live-verified on Route 001/990): the
+    // Select Route modal's search matches the route NUMBER only, not the full
+    // display label - "Route 001" returns nothing while the row plainly exists.
+    // Only a bare numeric search ("001", "990") filters correctly. Re-clear
+    // through the icon (never clearValue - see above) and retry with digits.
     const digitsOnly = searchTerm.replace(/\D/g, '');
     if (digitsOnly && digitsOnly !== searchTerm) {
+      await this.populateModalListViaClearIcon();
       await this.tap(this.modalSearchField);
-      const field = await this.driver.$(this.modalSearchField);
-      await field.clearValue().catch(() => {});
       await this.typeViaAdb(digitsOnly);
-      const resultEl = await this.driver.$(`~${resultLabel}`);
-      const filtered = await resultEl.waitForDisplayed({ timeout: 5_000 }).catch(() => false);
-      if (filtered) {
-        await resultEl.click();
+      const byDigits = await this.driver.$(`~${resultLabel}`);
+      if (await byDigits.waitForDisplayed({ timeout: 10_000 }).catch(() => false)) {
+        await byDigits.click();
         return;
       }
     }
-    // Final attempt already exhausted - let the normal tap() surface a clear
-    // timeout error rather than silently trying again.
+    // Let the normal tap() surface a clear timeout rather than trying again.
     await this.tap(`~${resultLabel}`);
   }
+
 
   /**
    * Taps a field expected to open a "Search"-labeled modal sheet (Operation

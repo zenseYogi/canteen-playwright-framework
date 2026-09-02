@@ -1630,6 +1630,29 @@ export class CoffeeServiceScreen extends BaseScreen {
   // fees had been absent from the populated screen too, the test case would
   // simply have been pointing at the wrong screen rather than the app being
   // wrong.
+  //
+  // UPDATE 2026-09-02, build 0.1.92 - BUG 918856 is PARTIALLY FIXED. Probed
+  // the empty Deliveries screen of a fresh ad-hoc Coffee stop (Charlotte 103 /
+  // American Airlines / Sim Room / 01 Sep) and dumped the whole tree rather
+  // than testing one locator, so this is the complete list of what renders:
+  //
+  //   "01 Sep 2026", "Route 103", "Deliveries", section_header_add_cta,
+  //   section_header_sort_cta, "Shipping & Handling (Taxable)", "$1.10",
+  //   "Information i", "No Deliveries Requested.", <the empty-state body>,
+  //   "Continue"
+  //
+  //   - Shipping & Handling: NOW PRESENT on the empty state (was absent on
+  //     0.1.90). This is the fix.
+  //   - Delivery Charge: STILL ABSENT.
+  //   - Fuel / Fuel Adjustment: STILL ABSENT, and never seen in any build on
+  //     any screen - a separate question from 918856, possibly not a feature.
+  //
+  // OPEN QUESTION for Anthony/Dev: is Delivery Charge meant to appear on an
+  // EMPTY stop at all? Shipping & Handling reads like a flat per-stop fee,
+  // while a delivery charge may legitimately be order-dependent - in which
+  // case the remaining half of 918856 is not a defect but correct behaviour,
+  // and C-TC-005's gap test needs its expectation narrowed rather than the
+  // app changed. Do not close either gap test until this is answered.
   private readonly deliverySearchField = '//android.widget.EditText[@hint="Search product"]';
   private readonly deliveryAddIcon = '~section_header_add_cta';
   private readonly deliverySortIcon = '~section_header_sort_cta';
