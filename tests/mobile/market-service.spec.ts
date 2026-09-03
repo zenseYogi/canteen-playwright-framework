@@ -2874,8 +2874,119 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // unaffected" - IS covered: M-TC-037 and M-TC-041 both capture through this
   // same camera and assert the results.
   //
-  // Revisit if the controls ever gain content-descs, or on a device where the
-  // flash/flip state is observable some other way.
+  // REVISITED 2026-09-01 - NOW AUTOMATED, see the test immediately below.
+  //
+  // The reasoning above holds as far as it goes: naming the left control
+  // "Flash" from POSITION alone would be a guess presented as a fact. The
+  // conclusion drawn from it was too pessimistic, though. The controls do not
+  // have to be named by position - they can be named by what tapping them
+  // demonstrably DOES, which is observable even with no labels at all. Coffee's
+  // C-TC-046 established the technique on this same shared camera component
+  // (mapped node-for-node identical on both LOBs), and this ports it.
+  test(
+    'M-TC-039: the camera exposes a working Flash toggle and Camera Flip alongside capture',
+    { tag: ['@Market-M-TC-039'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const market = await reachMoneyOpsChecklist(driver);
+
+      await test.step('Reach the in-app camera from the Market checklist', async () => {
+        await market.openBeforePhotos();
+        // reachCamera() rather than a bare "Take photo" tap: a tile that
+        // already holds a photo opens that photo's REVIEW screen instead of
+        // the camera.
+        await market.reachCamera();
+      });
+
+      let flash: any;
+      let shutter: any;
+      let flip: any;
+
+      await test.step('M-TC-039: the capture screen offers two controls either side of the shutter', async () => {
+        // Guarded first so a screen that is not the camera fails HERE with a
+        // clear message rather than as a puzzling length mismatch.
+        expect(await market.isCameraScreen()).toBe(true);
+        const controls = await market.getCameraControls();
+        console.log(
+          `[M-TC-039] camera controls = ${JSON.stringify(
+            controls.map((c) => ({ cls: c.className, x: c.x, w: c.width }))
+          )}`
+        );
+        // Exactly three, shutter widest and central - so the other two are
+        // identified as "the controls flanking capture", not merely as "the
+        // first and last clickable things on screen".
+        expect(controls).toHaveLength(3);
+        [flash, shutter, flip] = controls;
+        expect(shutter.width).toBeGreaterThan(flash.width);
+        expect(shutter.width).toBeGreaterThan(flip.width);
+        expect(flash.x).toBeLessThan(shutter.x);
+        expect(flip.x).toBeGreaterThan(shutter.x);
+      });
+
+      // The floor every "the feed changed" claim below is judged against. Read
+      // live rather than hardcoded: the preview is never pixel-identical frame
+      // to frame, and how much it drifts is a property of the device.
+      let jitter = 0;
+      await test.step('Measure the idle preview jitter', async () => {
+        jitter = await market.measureCameraPreviewJitter();
+        console.log(`[M-TC-039] idle preview jitter = ${jitter}%`);
+        expect(jitter).toBeLessThan(60);
+      });
+
+      await test.step('M-TC-039: the left control is a Flash toggle - it switches state and back', async () => {
+        const on = await market.tapCameraControlAndMeasure(flash);
+        console.log(`[M-TC-039] flash tap 1: own=${on.own}% preview=${on.preview}%`);
+        // Its own icon repainted...
+        expect(on.own).toBeGreaterThan(0.5);
+        // ...and it did NOT swap the camera - a flash toggle leaves the scene
+        // alone, which is what separates it from the control on the right.
+        expect(on.preview).toBeLessThan(jitter + 25);
+
+        // Tapping again must return the icon to EXACTLY its first state. This
+        // is what makes it a toggle rather than a coincidence: measured against
+        // the pre-first-tap screenshot, a live region could not come back
+        // pixel-identical.
+        const off = await market.tapCameraControlAndMeasure(flash, on.before);
+        console.log(`[M-TC-039] flash tap 2 (vs original): own=${off.own}% preview=${off.preview}%`);
+        expect(off.own).toBeLessThan(0.5);
+      });
+
+      await test.step('M-TC-039: the right control is Camera Flip - it swaps the feed and back', async () => {
+        const flipped = await market.tapCameraControlAndMeasure(flip);
+        console.log(`[M-TC-039] flip tap 1: own=${flipped.own}% preview=${flipped.preview}%`);
+        // The whole scene was replaced, well clear of the idle jitter floor.
+        expect(flipped.preview).toBeGreaterThan(jitter + 30);
+
+        const back = await market.tapCameraControlAndMeasure(flip, flipped.before);
+        console.log(`[M-TC-039] flip tap 2 (vs original): preview=${back.preview}%`);
+        // ...and flipping back returns to the ORIGINAL camera, i.e. within
+        // jitter of where it started rather than to a third state.
+        expect(back.preview).toBeLessThan(jitter + 25);
+      });
+
+      await test.step('M-TC-039: existing capture behaviour is unaffected', async () => {
+        // The case's second clause. Capture must still work after both controls
+        // have been exercised - asserted here rather than assumed from the
+        // shutter merely being present.
+        await market.tapCameraShutter();
+        const review = await market.isPhotoReviewVisible();
+        console.log(`[M-TC-039] post-capture review = ${JSON.stringify(review)}`);
+        expect(review.review).toBe(true);
+      });
+
+      await test.step('Cleanup: discard the capture and return to the checklist', async () => {
+        // Deleted rather than attached: this case is about the camera's
+        // controls, not about adding a photo, so it leaves no trace on the
+        // checklist it borrowed.
+        await market.deleteCapturedPhoto();
+        await expect
+          .poll(() => market.isPhotoReviewVisible().then((r) => r.review).catch(() => false), { timeout: 20_000 })
+          .toBe(false);
+        // One BACK escapes Market's camera - see M-TC-037's note.
+        await market.returnToChecklist();
+      });
+    }
+  );
 
   // ==== M-TC-037 (retake, delete, or skip optional photos) ====
   //

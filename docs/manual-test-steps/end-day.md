@@ -52,6 +52,41 @@ Repeat until the gate clears.
 
 ---
 
+## ED-TC-001 — Full End Day journey through closure
+**COVERED / RETIRED — verified live 2026-09-01. Do not test separately.**
+
+The case describes the whole journey: blocked gate -> Unused Kits -> Money Bag
+Review -> Reports -> **Additional Closure** -> **Sign Off** -> complete.
+
+**Those last two steps do not exist.** Walked live on Miami 001 with two stops
+unserviced, and the real sequence is:
+
+1. **Gate** — *"Please finish the following… complete the service or provide a
+   No Service reason"*, listing each stop with **Service** / **No Service**
+2. **Unused kits** — each kit with Keep on truck / Return to warehouse
+3. **Reports** — `31 Aug 2026 · Route 1`, `No Service Report (Count: 2)`,
+   category `MARKET`, **Done** visible and enabled
+4. **Done → success popup → Close**
+
+No Additional Closure screen, no Sign Off screen. (Money Bag Review is also
+absent on this path — correct, since the stops were resolved by No Service
+rather than serviced with a bag.)
+
+Every testable clause is already covered:
+
+| Clause | Covered by |
+|---|---|
+| Blocked with pending items listed | ED-TC-002 / ED-TC-003 |
+| Unused Kits | ED-TC-006 / ED-TC-007 |
+| Money Bag Review | ED-TC-010 / ED-TC-012 |
+| Reports | ED-TC-013 |
+| Completes and saves closure options | ED-TC-014 / ED-TC-015 |
+
+Retired as covered by those six. Recorded here rather than deleted so nobody
+re-opens it from the sheet.
+
+---
+
 ## ED-TC-002 — End Day blocked until required activities are complete
 **Route:** Miami 001 · **Day:** one with **pending** Market stops
 
@@ -176,6 +211,21 @@ the **reason**. **Continue** moves to the next End Day step.
 **How to read the result:** the precondition is a stop serviced **with a bag** —
 a *skipped* stop will not produce one. An empty review usually means no bag was
 ever added, not a display bug.
+
+---
+
+## ED-TC-011 — Duplicate money bag during Money Bag Review
+**OBSOLETE — confirmed by Anthony, 2026-09-01. Do not test.**
+
+The case asked for a duplicate bag code to be blocked *during End Day's Money
+Bag Review*. That screen is a **read-only summary** — bags are listed with ID,
+time and machine/account, with only a Continue action — so there is no entry
+point at which a duplicate could be created.
+
+Duplicate rejection **is** covered, at the point of entry: **Market M-TC-018**
+("a bag code already used that day is rejected with an error"), which passes.
+
+Recorded here rather than deleted so nobody re-opens it from the sheet.
 
 ---
 
