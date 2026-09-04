@@ -92,9 +92,10 @@ test.describe('Prep Tasks / Start of Day', () => {
   // list, a sub-screen, etc.) under KEEP_APP_SESSION - return to Dashboard
   // after each test so no test inherits a stale screen from whichever ran
   // before it.
-  test.afterEach(async ({ driver }) => {
-    await new HomeScreen(driver).returnToHome().catch(() => {});
-  });
+  // afterEach removed 2026-09-03 - the return-to-home now happens in the
+  // appium fixture AFTER the failure screenshot is captured. Doing it here ran
+  // before the capture (Playwright orders afterEach ahead of fixture teardown)
+  // and made every failure artifact show Home instead of the failing screen.
 
   // TC200/TC201 mirror the exact same back-arrow-again -> popup-reappears
   // -> Complete pattern already proven for Money Operations (see this
@@ -1352,9 +1353,10 @@ test.describe('Home / Dashboard - dynamic data (PBI 622025)', () => {
   // app wherever the last step landed under KEEP_APP_SESSION - return to
   // Dashboard after each so no test inherits a stale screen from whichever
   // ran before it.
-  test.afterEach(async ({ driver }) => {
-    await new HomeScreen(driver).returnToHome().catch(() => {});
-  });
+  // afterEach removed 2026-09-03 - the return-to-home now happens in the
+  // appium fixture AFTER the failure screenshot is captured. Doing it here ran
+  // before the capture (Playwright orders afterEach ahead of fixture teardown)
+  // and made every failure artifact show Home instead of the failing screen.
 
   test(
     'view the system date, route badge, and dynamic Deliveries/LOB counts',

@@ -324,12 +324,47 @@ updates**.
 ---
 
 ## M-TC-030 — Money Operations numeric validation
-1. Enter valid numbers in Bills / Coins / Refund
-2. Then try invalid input (letters, negative)
+**Route:** Miami 001 · **Day:** one whose Market stops are NOT yet completed
 
-**Expected:** valid accepted; invalid rejected.
+**Preconditions**
+- **Start Day must be complete** for the chosen route/day, or a stop's Market
+  checklist tiles are unreachable.
+- **The stop must not already be completed.** Money Operations on a completed
+  station silently accepts input without persisting it, and reads back stale
+  values - that is what produced a bogus "expected 222, received 2.22" failure
+  on 2026-09-03, on a day whose station M-TC-008 had already completed.
 
-**Known:** a negative sign being **stripped** is expected behaviour here.
+1. Home → open **Teva Pharmaceutical Industries LTB**
+2. Expand the **market** card. It lists **two** stations - pick
+   **"Actavis/Teva - Orange Dr"**, NOT "Actavis Weston Break room".
+   Only the Orange Dr station has a Money Operations tile at all.
+3. Open **Money Operations**
+4. In **Replenishment Amount → Bills**, type `222`
+5. In **Coins**, type `333`
+6. In **Refund → Amounts**, type `444`
+7. Back in **Coins**, clear it and type `-5`
+8. Leave without saving (back arrow → discard)
+
+### Expected - note the asymmetry, it is real
+
+| Field | Type | Shows |
+| --- | --- | --- |
+| Bills | `222` | **`222`** - NOT reformatted |
+| Coins | `333` | **`3.33`** - reformatted to 2dp currency |
+| Refund | `444` | **`4.44`** - reformatted to 2dp currency |
+| Coins | `-5` | **`0.05`** - the sign is dropped, digits formatted |
+
+Bills behaving differently from Coins/Refund is **real app behaviour**, live-
+verified 2026-08-27 and re-confirmed 2026-09-03 (typed `222`, read back `222`
+at every point - immediately, after 1.5s, after 4.5s and after blur). If you see
+Bills render `2.22`, do not report a formatting change: check first whether the
+stop was already completed, which is the known cause.
+
+Stripping the negative sign is the behaviour this case ASKS for, so `-5` →
+`0.05` is a PASS, not a defect.
+
+**Gotcha:** the numeric keypad opens on focus and covers the money-bag list.
+Dismiss it before trying to read anything underneath.
 
 ---
 

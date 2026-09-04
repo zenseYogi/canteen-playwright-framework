@@ -301,7 +301,33 @@ async function isOnRoute(
         .filter((r) => routeNumber(r.routeLabel) === targetRoute)
         .map((r) => r.operationLabel)
     );
-    return distinctOperations.size <= 1;
+    if (distinctOperations.size <= 1) {
+      return true;
+    }
+    // SOFTENED 2026-09-03. Refusing outright was too blunt: "001" is ambiguous
+    // for EVERY caller, so a suite pinned to Miami 001 re-ran Route Setup on
+    // every single test even while sitting on exactly the right route and day -
+    // caught live by the new [route] log line ("found route 001 / September 2 -
+    // switching" when September 2 was already correct). That spends the most
+    // failure-prone step in the framework 40 times for nothing.
+    //
+    // The two routes sharing "001" are distinguishable by DATA: emptyRoute
+    // (Charlotte 001) is guaranteed to carry zero deliveries by design - that
+    // is the entire reason it exists - while marketRoute (Miami 001) carries
+    // real ones. So a non-zero count proves we are NOT on the empty route, and
+    // a zero count proves we are not on a populated one.
+    //
+    // Still refuses when the count cannot be read, and when the count is 0 and
+    // a populated route was wanted (Miami 001 legitimately reads 0 once every
+    // stop is completed) - in both cases a redundant switch is the safe answer.
+    const deliveries = await home.getDeliveriesCount().catch(() => -1);
+    if (deliveries < 0) {
+      return false;
+    }
+    const targetIsEmptyRoute =
+      routeNumber(mobileConfig.emptyRoute.routeLabel) === targetRoute &&
+      route.operationLabel === mobileConfig.emptyRoute.operationLabel;
+    return targetIsEmptyRoute ? deliveries === 0 : deliveries > 0;
   }
   const targetsEmptyRoute =
     targetRoute === routeNumber(mobileConfig.emptyRoute.routeLabel) &&
@@ -366,8 +392,21 @@ export async function loginAndEnsureRoute(
   const home = new HomeScreen(driver);
   await home.returnToHome();
   if (await isOnRoute(driver, route)) {
+    console.log(`[route] already on ${route.operationLabel} / ${route.routeLabel} / ${route.day} - no switch`);
     return;
   }
+  // Say WHAT was found, not just that a switch is happening. Until now a run
+  // that started on the wrong day was indistinguishable from one that started
+  // right: isOnRoute() answered silently and the switch just happened, 40 times
+  // over. That hid a real effect - returnToHome()'s hardware-BACK fallback can
+  // silently reset the app to TODAY (see ensureOnRoute's note), so a suite
+  // pinned to a non-TODAY day can end up switching on EVERY test, paying the
+  // most failure-prone step in the framework each time for no reason.
+  console.log(
+    `[route] want ${route.operationLabel} / ${route.routeLabel} / ${route.day} - ` +
+      `found route "${await home.getRouteBadgeText().catch(() => '?')}" ` +
+      `date "${await home.getCurrentDateText().catch(() => '?')}" - switching`
+  );
   await switchRoute(driver, route);
   // CORRECTED 2026-09-02: Route Setup does NOT reliably land on Home. Where
   // the newly-selected route/day has not had Start Day completed yet, the app
