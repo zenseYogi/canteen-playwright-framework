@@ -26,26 +26,28 @@ test.describe('Truck Stock - Truck Returns', () => {
   //   await new HomeScreen(driver).returnToHome().catch(() => { });
   // });
 
-  test.afterEach(async ({ driver}, testInfo) => {
-      // Same failure-screenshot capture appium.fixture.ts's driver fixture
-      // normally does per test - reproduced here since this file bypasses it.
-      if (testInfo.status !== testInfo.expectedStatus) {
-        try {
-          const screenshotPath = testInfo.outputPath('failure.png');
-          await driver.saveScreenshot(screenshotPath);
-          await testInfo.attach('failure-screenshot', { path: screenshotPath, contentType: 'image/png' });
-        } catch (e) {
-          console.warn('Could not capture failure screenshot:', e);
-        }
+  test.afterEach(async ({ driver }, testInfo) => {
+    // Same failure-screenshot capture appium.fixture.ts's driver fixture
+    // normally does per test - reproduced here since this file bypasses it.
+    if (testInfo.status !== testInfo.expectedStatus) {
+      try {
+        const screenshotPath = testInfo.outputPath('failure.png');
+        await driver.saveScreenshot(screenshotPath);
+        await testInfo.attach('failure-screenshot', { path: screenshotPath, contentType: 'image/png' });
+      } catch (e) {
+        console.warn('Could not capture failure screenshot:', e);
       }
-      await new HomeScreen(driver).returnToHome();
-    });
+    }
+    await new HomeScreen(driver).returnToHome();
+  });
 
 
 
 
 
-  test('Menu', async ({ driver }) => {
+  test('Menu', { tag: ['@Menu-TC002'] },
+    async ({ driver }) => {
+    
     const home = new HomeScreen(driver);
     const dashboard = new DashboardScreen(driver);
     const menu = new MenuScreen(driver);
@@ -73,49 +75,21 @@ test.describe('Truck Stock - Truck Returns', () => {
 
 
 
-  // test('Truck returns, add a product under Coffee, then delete it', async ({ driver }) => {
-  //   const truckReturns = new TruckStockTruckReturnsScreen(driver);
-  //   const menu = new MenuScreen(driver);
-  //   let productName = '';
 
-  //   await test.step('Log in', async () => {
-  //     await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
-  //   });
+  
 
-  //   await test.step('Open the Truck returns screen', async () => {
-  //     await truckReturns.open();
-  //   });
-
-  //   await test.step('Add a product under Coffee', async () => {
-  //     productName = await truckReturns.addProduct('coffee', 'Kit Kat', 1);
-  //   });
-
-  //   await test.step('Delete the added product under Coffee', async () => {
-  //     await truckReturns.deleteProduct('coffee', productName);
-  //   });
-
-  //   await test.step('Add a product under Coffee', async () => {
-  //     productName = await truckReturns.addProduct('coffee', 'Kit Kat', 0);
-  //   });
-
-  //   await test.step('verify Deleted product is not displayed', async () => {
-  //     expect(await menu.isProductPresent(productName)).toBe(false);
-  //   });
-
-  // });
-
-
-// /passed
-  test.skip('truckReturnsRouteShopping, Driver searches or scans products in Route Shopping', async ({ driver }) => {
-    const truckReturnsRouteShopping = new TruckStockRouteShoppingScreen(driver);
+  test('Truck Returns - Route Shopping, Driver searches or scans products in Route Shopping',
+    { tag: ['@Menu-TC006', '@Menu-TC007'] },
+    async ({ driver }) => { const truckReturnsRouteShopping = new TruckStockRouteShoppingScreen(driver);
     const menu = new MenuScreen(driver);
 
     await test.step('Log in', async () => {
-      // await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+      await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
       // await loginAndEnsureRoute(driver, mobileConfig.vendingRoute);
     });
 
     var productName: string = 'A&W Rt Beer CN 12oz';
+    // var productName: string = 'CanDry GingrAle CN 12oz';
     await test.step('Driver searches or scans products in Route Shopping', async () => {
       productName = await menu.addProduct('can');
       console.log(`Added Product: ${productName}`);
@@ -177,13 +151,15 @@ test.describe('Truck Stock - Truck Returns', () => {
 
 
 
-  test('Search with no match or invalid scan does not select wrong product [Route shopping]', async ({ driver }) => {
+  test('Search with no match or invalid scan does not select wrong product [Route shopping]', 
+    { tag: ['@Menu-TC008'] },
+    async ({ driver }) => {
     const truckReturnsRouteShopping = new TruckStockRouteShoppingScreen(driver);
     const menu = new MenuScreen(driver);
     const prepTasks = new PrepTasksScreen(driver);
 
     await test.step('Log in', async () => {
-      // await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+      await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
     });
 
     await test.step('Search with no match or invalid scan does not select wrong product', async () => {
@@ -206,13 +182,15 @@ test.describe('Truck Stock - Truck Returns', () => {
   })
 
 
-  test('TC009: Search and scan return expected product across key modules [Route shopping]', async ({ driver }) => {
+  test('TC009: Search and scan return expected product across key modules [Route shopping]', 
+     { tag: ['@Menu-TC009'] },
+     async ({ driver }) => {
     const truckReturnsRouteShopping = new TruckStockRouteShoppingScreen(driver);
     const menu = new MenuScreen(driver);
     const prepTasks = new PrepTasksScreen(driver);
 
     await test.step('Log in', async () => {
-      // await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+      await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
     });
 
     var productName: string = 'Kit Kat Big Kat';
@@ -245,7 +223,7 @@ test.describe('Menu - Route to Route Transfers', () => {
       const home = new HomeScreen(driver);
       let driverDefaultRoute = '';
       await test.step('Log in', async () => {
-        // await loginAndEnsureRoute(driver, mobileConfig.vendingRoute);
+        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
         driverDefaultRoute = await home.getRouteBadgeText();
       });
       let routeLabel = '';
@@ -274,7 +252,7 @@ test.describe('Menu - Route to Route Transfers', () => {
       await test.step('searching a non-matching term shows no search results found', async () => {
         await transfers.openRtrDetails(routeLabel);
         await menu.searchAndSelectProducts('zzznonexistentproduct123');
-        await driver.waitUntil(async () => transfers.isNoSearchResultsFoundVisible(), {
+        await driver.waitUntil(async () => await transfers.isNoSearchResultsFoundVisible(), {
           timeout: 15000
         });
         expect(await transfers.isNoSearchResultsFoundVisible()).toBe(true);
@@ -301,6 +279,11 @@ test.describe('Menu - Route to Route Transfers', () => {
         await menu.openProductDetails(routeLabel);
         await menu.verifyRouteTransferTotalProducts(routeLabel, 1);
         await menu.verifyRouteTransferProduct(routeLabel, product, 599);
+
+        await menu.openProductDetails(routeLabel);
+        await transfers.openRtrDetails(routeLabel);
+        await menu.swipeAndDelete(menu.recordByHint(product));
+        await menu.tapBackArrow();
         // await transfers.pressKeyCode(4);
         // await transfers.deleteRoute('coffee', 'routeToRoute', routeLabel);
       });
@@ -321,6 +304,11 @@ test.describe('Menu - Route to Route Transfers', () => {
         await menu.verifyRouteTransferTotalProducts(routeLabel, 1);
         await menu.verifyRouteTransferProduct(routeLabel, product, 1);
 
+        await menu.openProductDetails(routeLabel);
+        await transfers.openRtrDetails(routeLabel);
+        await menu.swipeAndDelete(menu.recordByHint(product));
+        await menu.tapBackArrow();
+
       });
 
       await test.step('Vending search returns expected product', async () => {
@@ -337,6 +325,12 @@ test.describe('Menu - Route to Route Transfers', () => {
         await menu.openProductDetails(routeLabel);
         await menu.verifyRouteTransferTotalProducts(routeLabel, 1);
         await menu.verifyRouteTransferProduct(routeLabel, product, 1);
+
+
+        await menu.openProductDetails(routeLabel);
+        await transfers.openRtrDetails(routeLabel);
+        await menu.swipeAndDelete(menu.recordByHint(product));
+        await menu.tapBackArrow();
       });
     });
 });
@@ -360,7 +354,7 @@ test.describe('Menu - Route to Warehouse Transfers', () => {
       const home = new HomeScreen(driver);
       let driverDefaultRoute = '';
       await test.step('Log in', async () => {
-        // await loginAndEnsureRoute(driver, mobileConfig.vendingRoute);
+        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
         driverDefaultRoute = await home.getRouteBadgeText();
       });
       let warehouseName = '';
@@ -423,6 +417,13 @@ test.describe('Menu - Route to Warehouse Transfers', () => {
         await menu.openProductDetails(warehouseName);
         await menu.verifyRouteTransferTotalProducts(warehouseName, 1);
         await menu.verifyRouteTransferProduct(warehouseName, product, 599);
+
+        await menu.openProductDetails(warehouseName);
+        await transfers.openRtrDetails(warehouseName);
+        await menu.swipeAndDelete(menu.recordByHint(product));
+        await menu.tapBackArrow();
+
+
         // await transfers.pressKeyCode(4);
         // await transfers.deleteRoute('coffee', 'routeToRoute', routeLabel);
       });
@@ -450,6 +451,11 @@ test.describe('Menu - Route to Warehouse Transfers', () => {
         await menu.openProductDetails(warehouseName);
         await menu.verifyRouteTransferTotalProducts(warehouseName, 1);
         await menu.verifyRouteTransferProduct(warehouseName, product, 1);
+
+        await menu.openProductDetails(warehouseName);
+        await transfers.openRtrDetails(warehouseName);
+        await menu.swipeAndDelete(menu.recordByHint(product));
+        await menu.tapBackArrow();
       });
 
 
@@ -475,22 +481,28 @@ test.describe('Menu - Route to Warehouse Transfers', () => {
         await menu.openProductDetails(warehouseName);
         await menu.verifyRouteTransferTotalProducts(warehouseName, 1);
         await menu.verifyRouteTransferProduct(warehouseName, product, 1);
+
+        await menu.openProductDetails(warehouseName);
+        await transfers.openRtrDetails(warehouseName);
+        await menu.swipeAndDelete(menu.recordByHint(product));
+        await menu.tapBackArrow();
+
       });
     });
 });
 
 
 test.describe('Route Setup', () => {
-  test(
+  test.only(
     `change route to ${mobileConfig.defaultRoute.operationLabel} / ${mobileConfig.defaultRoute.routeLabel} and select ${mobileConfig.defaultRoute.day}`,
     { tag: ['@Menu-TC003'] },
     async ({ driver }) => {
       const routeSetup = new RouteSetupScreen(driver);
       const home = new HomeScreen(driver);
       const menu = new MenuScreen(driver);
-      // await test.step('Log in (lands on Dashboard - auto-handles the fresh-account gate if it appears)', async () => {
-      //   await loginAndWaitForMfa(driver);
-      // });
+      await test.step('Log in (lands on Dashboard - auto-handles the fresh-account gate if it appears)', async () => {
+        await loginAndWaitForMfa(driver);
+      });
 
       await test.step('Open Route Setup via Settings', async () => {
         await routeSetup.openFromHamburgerMenu();
@@ -500,12 +512,12 @@ test.describe('Route Setup', () => {
         // await routeSetup.selectOperation(mobileConfig.defaultRoute.operationSearch, mobileConfig.defaultRoute.operationLabel);
         // await routeSetup.selectRoute(mobileConfig.defaultRoute.routeSearch, mobileConfig.defaultRoute.routeLabel);
 
-          await routeSetup.selectOperation(mobileConfig.defaultRoute.operationSearch, mobileConfig.defaultRoute.operationLabel);
+        await routeSetup.selectOperation(mobileConfig.defaultRoute.operationSearch, mobileConfig.defaultRoute.operationLabel);
         await routeSetup.selectRoute(mobileConfig.defaultRoute.routeSearch, mobileConfig.defaultRoute.routeLabel);
 
-
-
         await menu.tap('~Change route');
+
+        
         await menu.verifyChangeRoutePopupContent();
         await menu.tap('~Cancel');
         expect(await menu.isRouteSetupHeaderDisplayed()).toBe(true);
@@ -561,111 +573,111 @@ test.describe('Truck Stock - Truck Returns', () => {
     // await new HomeScreen(driver).returnToHome().catch(() => {});
   });
 
-  test('open Truck returns, add a product under Coffee, then delete it',  
+  test('open Truck returns, add a product under Coffee, then delete it',
     { tag: ['@Menu-TC004', '@Menu-TC005'] },
     async ({ driver }) => {
-    
+
+      const truckReturns = new TruckStockTruckReturnsScreen(driver);
+      const menu = new MenuScreen(driver);
+      let coffeeProductName = '';
+      let marketProductName = '';
+
+      // let coffeeProductName = 'CanDry GingrAle CN 12oz';
+      // let marketProductName = 'CanDry GingrAle CN 12oz';
+
+      await test.step('Log in', async () => {
+        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+      });
+
+      await test.step('the hamburger menu lists Truck Stock (Truck returns/Route Inventory/Route shopping) and Transfers', async () => {
+        const menu = await truckReturns.isTruckStockMenuVisible();
+        expect(menu.truckStock).toBe(true);
+        expect(menu.truckReturns).toBe(true);
+        expect(menu.routeInventory).toBe(true);
+      });
+
+      await test.step('the Truck Returns screen shows its tabs, search controls, and info pane', async () => {
+        await truckReturns.open();
+        const tabs = await truckReturns.getVisibleLobTabs();
+        expect(await menu.isVisible(menu.lobTabs("Coffee"))).toBe(true);
+        expect(await menu.isVisible(menu.lobTabs("Market"))).toBe(true);
+        expect(await menu.isVisible(menu.lobTabs("Vending"))).toBe(true);
+        const search = await truckReturns.isSearchAreaVisible();
+        expect(search.searchField).toBe(true);
+        expect(search.infoHeading).toBe(true);
+        expect(search.infoBody).toBe(true);
+      });
+
+      await test.step('Add a product under Coffee', async () => {
+        coffeeProductName = await menu.addProductInTruckStock('Coffee', 'can', 1, 1);
+        await menu.verifyTruckReturnProduct(coffeeProductName, 2);
+
+      });
+
+      await test.step('Add a product under Market', async () => {
+        marketProductName = await menu.addProductInTruckStock('Market', 'Kit kat', 1, 1);
+        await menu.verifyTruckReturnProduct(marketProductName, 2);
+      });
+
+      await test.step('Delete a product under Coffee & Market', async () => {
+        await menu.deleteTruckReturnsProduct('Coffee', coffeeProductName);
+        await menu.verifyTruckReturnsProductDeleted(coffeeProductName);
+        await menu.deleteTruckReturnsProduct('Market', marketProductName);
+        await menu.verifyTruckReturnsProductDeleted(marketProductName);
+      });
+
+
+    });
+});
+
+
+
+
+test('open Route Inventory, add a product under Coffee, then delete it',
+  { tag: ['@Menu-TC004', '@Menu-TC005'] },
+  async ({ driver }) => {
     const truckReturns = new TruckStockTruckReturnsScreen(driver);
     const menu = new MenuScreen(driver);
     let coffeeProductName = '';
     let marketProductName = '';
 
-    // let coffeeProductName = 'CanDry GingrAle CN 12oz';
-    // let marketProductName = 'CanDry GingrAle CN 12oz';
+    // let coffeeProductName = 'CanDry GingrAle CN';
+    // let marketProductName = 'Kit Kat';
 
-    // await test.step('Log in', async () => {
-    //   await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
-    // });
+    await test.step('Log in', async () => {
+      await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+    });
+    await test.step('the Route Inventory screen shows tabs, inventory types, and search controls',
+      async () => {
+        await menu.openRouteInventory();
+        expect(await menu.isVisible(menu.lobTabs('Coffee'))).toBe(true);
+        expect(await menu.isVisible(menu.lobTabs('Market'))).toBe(true);
+        expect(await menu.isVisible(menu.lobTabs('Vending'))).toBe(true);
+        const controls = await menu.isRouteInventorySearchAreaVisible();
+      });
 
-    await test.step('TC298: the hamburger menu lists Truck Stock (Truck returns/Route Inventory/Route shopping) and Transfers', async () => {
-      const menu = await truckReturns.isTruckStockMenuVisible();
-      expect(menu.truckStock).toBe(true);
-      expect(menu.truckReturns).toBe(true);
-      expect(menu.routeInventory).toBe(true);
+
+    await test.step('Add a Coffee product under Audit inventory', async () => {
+      coffeeProductName = await menu.addProductInRouteInventory('Coffee', 'audit', { searchTerm: 'can' });
+      await menu.verifyProductQuantityInRouteInventory(coffeeProductName, 1)
     });
 
-    await test.step('TC299: the Truck Returns screen shows its tabs, search controls, and info pane', async () => {
-      await truckReturns.open();
-      const tabs = await truckReturns.getVisibleLobTabs();
-      expect(await menu.isVisible(menu.lobTabs("Coffee"))).toBe(true);
-      expect(await menu.isVisible(menu.lobTabs("Market"))).toBe(true);
-      expect(await menu.isVisible(menu.lobTabs("Vending"))).toBe(true);
-      const search = await truckReturns.isSearchAreaVisible();
-      expect(search.searchField).toBe(true);
-      expect(search.infoHeading).toBe(true);
-      expect(search.infoBody).toBe(true);
+
+    await test.step('Add a Market product under Audit inventory', async () => {
+      marketProductName = await menu.addProductInRouteInventory('Market', 'audit', { searchTerm: 'kit' });
+      await menu.verifyProductQuantityInRouteInventory(marketProductName, 1);
     });
 
-    await test.step('Add a product under Coffee', async () => {
-      coffeeProductName = await menu.addProductInTruckStock('Coffee', 'can', 1, 1);
-      await menu.verifyTruckReturnProduct(coffeeProductName, 2);
-
-    });
-
-    await test.step('Add a product under Market', async () => {
-      marketProductName = await menu.addProductInTruckStock('Market', 'Kit kat', 1, 1);
-      await menu.verifyTruckReturnProduct(marketProductName, 2);
-    });
 
     await test.step('Delete a product under Coffee & Market', async () => {
-      await menu.deleteTruckReturnsProduct('Coffee', coffeeProductName);
-      await menu.verifyTruckReturnsProductDeleted(coffeeProductName);
-      await menu.deleteTruckReturnsProduct('Market', marketProductName);
-      await menu.verifyTruckReturnsProductDeleted(marketProductName);
+      // //await menu.openTab('Coffee', 'audit');
+      await menu.deleteRouteInventoryProduct('Coffee', coffeeProductName);
+      await menu.tapBackArrow();
+      expect(await menu.verifyRouteInventoryProductDeleted(coffeeProductName)).toBe(true);
+      await menu.deleteRouteInventoryProduct('Market', marketProductName);
+      await menu.tapBackArrow();
+      expect(await menu.verifyRouteInventoryProductDeleted(marketProductName)).toBe(true);
     });
 
 
   });
-});
-
-
-
-
-test('open Route Inventory, add a product under Coffee, then delete it', 
-   { tag: ['@Menu-TC004', '@Menu-TC005'] },
-   async ({ driver }) => {
-  const truckReturns = new TruckStockTruckReturnsScreen(driver);
-  const menu = new MenuScreen(driver);
-  let coffeeProductName = '';
-  let marketProductName = '';
-
-  // let coffeeProductName = 'CanDry GingrAle CN';
-  // let marketProductName = 'Kit Kat';
-
-  // await test.step('Log in', async () => {
-  //   await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
-  // });
-  await test.step('the Route Inventory screen shows tabs, inventory types, and search controls',
-    async () => {
-      await menu.openRouteInventory();
-      expect(await menu.isVisible(menu.lobTabs('Coffee'))).toBe(true);
-      expect(await menu.isVisible(menu.lobTabs('Market'))).toBe(true);
-      expect(await menu.isVisible(menu.lobTabs('Vending'))).toBe(true);
-      const controls = await menu.isRouteInventorySearchAreaVisible();
-    });
-
-
-  await test.step('Add a Coffee product under Audit inventory', async () => {
-    coffeeProductName = await menu.addProductInRouteInventory('Coffee', 'audit', { searchTerm: 'can' });
-    await menu.verifyProductQuantityInRouteInventory(coffeeProductName, 1)
-  });
-
-
-  await test.step('Add a Market product under Audit inventory', async () => {
-    marketProductName = await menu.addProductInRouteInventory('Market', 'audit', { searchTerm: 'kit' });
-    await menu.verifyProductQuantityInRouteInventory(marketProductName, 1);
-  });
-
-
-  await test.step('Delete a product under Coffee & Market', async () => {
-    // //await menu.openTab('Coffee', 'audit');
-    await menu.deleteRouteInventoryProduct('Coffee', coffeeProductName);
-    await menu.tapBackArrow();
-    expect(await menu.verifyRouteInventoryProductDeleted(coffeeProductName)).toBe(true);
-    await menu.deleteRouteInventoryProduct('Market', marketProductName);
-    await menu.tapBackArrow();
-    expect(await menu.verifyRouteInventoryProductDeleted(marketProductName)).toBe(true);
-  });
-
-
-});

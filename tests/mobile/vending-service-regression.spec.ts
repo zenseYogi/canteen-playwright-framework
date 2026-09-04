@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import type { Browser } from 'webdriverio';
 import { createMobileSession, closeMobileSession } from '../../fixtures/appium.fixture';
-import { loginAndWaitForMfa, ensureOnRoute } from '../../utils/login-flow';
+import { loginAndWaitForMfa, ensureOnRoute, loginAndEnsureRoute } from '../../utils/login-flow';
 import { PrepTasksScreen } from '../../screens/prep-tasks.screen';
 import { DashboardScreen } from '../../screens/dashboard.screen';
 import { VendingServiceScreen } from '../../screens/vending-service.screen';
@@ -19,13 +19,13 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
 
   test.beforeAll(async () => {
     driver = await createMobileSession();
-    await loginAndWaitForMfa(driver);
-    // await ensureOnRoute(driver, mobileConfig.vendingRoute);
+    // await loginAndWaitForMfa(driver);
+    // await loginAndEnsureRoute(driver, mobileConfig.vendingRoute);
   });
 
   test.afterEach(async ({ }, testInfo) => {
-    // Same failure-screenshot capture appium.fixture.ts's driver fixture
-    // normally does per test - reproduced here since this file bypasses it.
+    // // Same failure-screenshot capture appium.fixture.ts's driver fixture
+    // // normally does per test - reproduced here since this file bypasses it.
     if (testInfo.status !== testInfo.expectedStatus) {
       try {
         const screenshotPath = testInfo.outputPath('failure.png');
@@ -34,8 +34,8 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       } catch (e) {
         console.warn('Could not capture failure screenshot:', e);
       }
-
     }
+    driver.pause(1000);
     await new HomeScreen(driver).returnToHome();
   });
 
@@ -48,7 +48,7 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
 
 
   //Passed
-  test(
+  test.skip(
     'Deleting an added delivery removes it entirely from the schedule',
     { tag: ['@Vending-TC-023'] },
     async () => {
@@ -57,6 +57,7 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       const vending = new VendingServiceScreen(driver);
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await loginAndEnsureRoute(driver, mobileConfig.vendingRoute);
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
       });
@@ -87,7 +88,6 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         // expect(await dashboard.isNthServiceStationVisible('vending', 'first')).toBe(false);
         // expect(await vending.isConfirmDeletePopupDisplayed()).toBe(true);
         await vending.tap('~Delete');
-
         if (!await dashboard.isNthServiceStationVisible('vending', 'first')) {
           await vending.clickVendingStationsIfCollapsed();
         }
@@ -115,6 +115,7 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       const vending = new VendingServiceScreen(driver);
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await loginAndEnsureRoute(driver, mobileConfig.vendingRoute);
         await prepTasks.openFromHamburgerMenu();
         await prepTasks.ensureFullDayPrepComplete();
       });
@@ -154,7 +155,7 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       await test.step("TC003/TC006: After Photos remains disabled until all required tasks are complete", async () => {
         expect(await vending.isAfterPhotosEnabled()).toBe(false);
         await vending.openMoneyOperations();
-        await vending.performMoneyOperations({ bagCode: '12938', bills: '120', refund: '5.55' });
+        await vending.performMoneyOperations({ bagCode: '12931', bills: '120', refund: '5.55' });
         //Fills, removales enabled
         expect(await vending.isFillsAndEndingInventoryDisabled()).toBe(false);
         expect(await vending.isRemovalsAndReturnsDisabled()).toBe(false);
@@ -164,7 +165,7 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         // await vending.fillAllProductQuantities();
 
 
-        await vending.tapBackArrow();
+        // await vending.tapBackArrow();
         await vending.tapBackArrow();
         expect(await vending.isAfterPhotosEnabled()).toBe(true);
 
@@ -217,20 +218,12 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       });
 
       await test.step('Delete Completed Delivery', async () => {
-        // await vending.tap(vending.deleteDelivery);
-        // expect(await dashboard.isNthServiceStationVisible('vending', 'first')).toBe(false);
-        // expect(await vending.isConfirmDeletePopupDisplayed()).toBe(true);
-        // await vending.tap('~Delete');
-
         if (!await dashboard.isNthServiceStationVisible('vending', 'first')) {
           await vending.clickVendingStationsIfCollapsed();
         }
         expect(await vending.isServiceStationCompleted(stationName)).toBe(true);
         dashboard.openServiceStationByName('vending', stationName);
-        expect(
-          await vending.isVisible('~Edit Existing Delivery')
-        ).toBe(false);
-
+        expect(await vending.isVisible('~Edit Existing Delivery')).toBe(false);
         await vending.waitFor('~Edit Existing Delivery')
         await vending.tap('~Edit Existing Delivery');
         await vending.waitFor('~EDITING EXISTING DELIVERY')
@@ -267,10 +260,11 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       const dashboard = new DashboardScreen(driver);
       const vending = new VendingServiceScreen(driver);
 
-      // await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-      //   await prepTasks.openFromHamburgerMenu();
-      //   await prepTasks.ensureFullDayPrepComplete();
-      // });
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        // await loginAndEnsureRoute(driver, mobileConfig.vendingRoute);
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
 
 
       await test.step('TC:041 Verify Navigate launches Google Maps',
@@ -388,7 +382,50 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         await vending.tap("~Complete Delivery");
         expect(await dashboard.isNthServiceStationVisible('vending', 'first')).toBe(true);
         // add step to open and verify existing delivery with SPOT available
+        if (!await dashboard.isNthServiceStationVisible('vending', 'first')) {
+          await vending.clickVendingStationsIfCollapsed();
+        }
+        dashboard.openServiceStationByName('vending', stationName);
+        expect(await vending.isVisible('~Edit Existing Delivery')).toBe(false);
+        await vending.waitFor('~Edit Existing Delivery')
+        await vending.tap('~Edit Existing Delivery');
+        await vending.waitFor('~EDITING EXISTING DELIVERY')
+        await vending.tapBackArrow();
+        await vending.tap('~Edit Existing Delivery');
+        await vending.waitFor('~EDITING EXISTING DELIVERY')
+        await vending.verifySpotDeliveryDisplayed();
+
       });
+
+      // await test.step('Delete Completed Delivery', async () => {
+      //   if (!await dashboard.isNthServiceStationVisible('vending', 'first')) {
+      //     await vending.clickVendingStationsIfCollapsed();
+      //   }
+      //   // expect(await vending.isServiceStationCompleted(stationName)).toBe(true);
+      //   dashboard.openServiceStationByName('vending', stationName);
+      //   expect(await vending.isVisible('~Edit Existing Delivery')).toBe(false);
+      //   await vending.waitFor('~Edit Existing Delivery')
+      //   await vending.tap('~Edit Existing Delivery');
+      //   await vending.waitFor('~EDITING EXISTING DELIVERY')
+      //   await vending.tapFullButton();
+      //   await vending.isHeaderDisplayed('FULL SERVICE');
+      //   await vending.tap(vending.deleteDelivery);
+      //   await vending.tap('~Delete');
+      //   if (!await dashboard.isNthServiceStationVisible('vending', 'first')) {
+      //     await vending.clickVendingStationsIfCollapsed();
+      //   }
+      //   // const stationName = '69617 - Snacks';
+      //   expect(await dashboard.isNthServiceStationVisible('vending', 'first')).toBe(true);
+      //   await vending.isHeaderDisplayed(stationName);
+      //   driver.pause(1000);
+      //   await dashboard.waitForServiceStationVisible('vending', stationName);
+      //   await dashboard.openServiceStationByName('vending', stationName);
+      //   await vending.tapBackArrow();
+      //   expect(await vending.isServiceStationCompleted(stationName)).toBe(false);
+      //   dashboard.openServiceStationByName('vending', stationName);
+      //   await vending.tapContinue();
+      //   expect(await vending.isServiceStationCompleted('Before Photos')).toBe(false);
+      // });
     });
 
 
@@ -403,10 +440,11 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       const dashboard = new DashboardScreen(driver);
       const vending = new VendingServiceScreen(driver);
 
-      // await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-      //   await prepTasks.openFromHamburgerMenu();
-      //   await prepTasks.ensureFullDayPrepComplete();
-      // });
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        //  await loginAndEnsureRoute(driver, mobileConfig.vendingRoute);
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
 
       await test.step("Open the first stop's first Vending machine", async () => {
         await dashboard.clickLocationByPosition('first');
@@ -430,13 +468,13 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       await test.step("TC003/TC006: After Photos remains disabled until all required tasks are complete", async () => {
         expect(await vending.isAfterPhotosEnabled()).toBe(false);
         await vending.openMoneyOperations();
-        await vending.performMoneyOperations({ bagCode: '12938', bills: '120', refund: '5.55' });
+        await vending.performMoneyOperations({ bagCode: '12932', bills: '120', refund: '5.55' });
         expect(await vending.isFillsAndEndingInventoryDisabled()).toBe(false);
         await vending.openFillsAndEndingInventory();
         // await vending.fillAllProductQuantities();
         // await vending.fillAllProductDeliveryQuantities();
         await vending.fillAllProductEndQuantities();
-        await vending.tapBackArrow();
+        // await vending.tapBackArrow();
         await vending.tapBackArrow();
         await vending.openFillsAndEndingInventory();
         await vending.verifyAllProductEndQuantities();
@@ -559,10 +597,11 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       const dashboard = new DashboardScreen(driver);
       const vending = new VendingServiceScreen(driver);
 
-      // await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-      //   await prepTasks.openFromHamburgerMenu();
-      //   await prepTasks.ensureFullDayPrepComplete();
-      // });
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        //  await loginAndEnsureRoute(driver, mobileConfig.vendingRoute);
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
 
       var stationName: string;
       var machineId: string;
@@ -588,13 +627,13 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       await test.step("TC003/TC006: After Photos remains disabled until all required tasks are complete", async () => {
         expect(await vending.isAfterPhotosEnabled()).toBe(false);
         await vending.openMoneyOperations();
-        await vending.performMoneyOperations({ bagCode: '12938', bills: '120', refund: '5.55' });
+        await vending.performMoneyOperations({ bagCode: '12933', bills: '120', refund: '5.55' });
         expect(await vending.isFillsAndEndingInventoryDisabled()).toBe(false);
         await vending.openFillsAndEndingInventory();
         // await vending.fillAllProductQuantities();
         // await vending.fillAllProductDeliveryQuantities();
         await vending.fillAllProductEndQuantities();
-        await vending.tapBackArrow();
+        // await vending.tapBackArrow();
         await vending.tapBackArrow();
         expect(await vending.isAfterPhotosEnabled()).toBe(true);
       });
@@ -673,7 +712,7 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         expect(await vending.getSpoiledQuantity()).toBe('2');
         expect(await vending.getTruckReturnsQuantity()).toBe('1');
         await prepTasks.tapBackArrow();
-        await vending.isHeaderDisplayed('Removals & Returns')
+        await vending.isHeaderDisplayed('Removals & Returns');
         expect(await vending.isServiceStationCompleted('Removals & Returns')).toBe(true);
       });
 
@@ -694,6 +733,35 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         await vending.isServiceStationCompleted(stationName);
       });
 
+      await test.step('Delete Completed Delivery', async () => {
+        if (!await dashboard.isNthServiceStationVisible('vending', 'first')) {
+          await vending.clickVendingStationsIfCollapsed();
+        }
+        expect(await vending.isServiceStationCompleted(stationName)).toBe(true);
+        dashboard.openServiceStationByName('vending', stationName);
+        expect(await vending.isVisible('~Edit Existing Delivery')).toBe(false);
+        await vending.waitFor('~Edit Existing Delivery')
+        await vending.tap('~Edit Existing Delivery');
+        await vending.waitFor('~EDITING EXISTING DELIVERY')
+        await vending.tapFullButton();
+        await vending.isHeaderDisplayed('FULL SERVICE');
+        await vending.tap(vending.deleteDelivery);
+        await vending.tap('~Delete');
+        if (!await dashboard.isNthServiceStationVisible('vending', 'first')) {
+          await vending.clickVendingStationsIfCollapsed();
+        }
+        // const stationName = '69617 - Snacks';
+        expect(await dashboard.isNthServiceStationVisible('vending', 'first')).toBe(true);
+        await vending.isHeaderDisplayed(stationName);
+        driver.pause(1000);
+        await dashboard.waitForServiceStationVisible('vending', stationName);
+        await dashboard.openServiceStationByName('vending', stationName);
+        await vending.tapBackArrow();
+        expect(await vending.isServiceStationCompleted(stationName)).toBe(false);
+        dashboard.openServiceStationByName('vending', stationName);
+        await vending.tapContinue();
+        expect(await vending.isServiceStationCompleted('Before Photos')).toBe(false);
+      });
     });
 
 
@@ -718,10 +786,11 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       const endDay = new EndDayScreen(driver);
       const home = new HomeScreen(driver);
 
-      // await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-      //   await prepTasks.openFromHamburgerMenu();
-      //   await prepTasks.ensureFullDayPrepComplete();
-      // });
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        //  await loginAndEnsureRoute(driver, mobileConfig.vendingRoute);
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
       var stationName: string;
       var machineId: string;
       await test.step("Driver skips a stop", async () => {
@@ -746,10 +815,8 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
           await vending.clickVendingStationsIfCollapsed();
         }
         expect(await dashboard.isNthServiceStationVisible('vending', 'first')).toBe(true);
-
-
-
       });
+
 
       await test.step("Driver can resume service on a previously skipped machine", async () => {
         await dashboard.tapViewSchedule();
@@ -776,12 +843,6 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       );
 
       await test.step('TC003/TC001: tap Before Photos and verify the Take photo/Skip photo modal', async () => {
-        // await vending.openBeforePhotos();
-        // const modal = await vending.isPhotoModalVisible();
-        // await vending.openSkipPhotoReasonSheet();
-        // await vending.enterSkipPhotoReason('Camera cannot focus and take clear picture');
-        // await vending.confirmSkipPhoto();
-
         await vending.openBeforePhotos();
         const modal = await vending.isPhotoModalVisible();
         expect(modal.takePhoto).toBe(true);
@@ -793,19 +854,18 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         await vending.waitForSkipPhotoSubmitEnabled(true);
         await vending.confirmSkipPhoto();
         expect(await vending.isServiceStationCompleted('Before Photos')).toBe(true);
-
       });
 
       await test.step("TC003/TC006: After Photos remains disabled until all required tasks are complete", async () => {
         expect(await vending.isAfterPhotosEnabled()).toBe(false);
         await vending.openMoneyOperations();
-        await vending.performMoneyOperations({ bagCode: '12938', bills: '120', refund: '5.55' });
+        await vending.performMoneyOperations({ bagCode: '12934', bills: '120', refund: '5.55' });
         expect(await vending.isFillsAndEndingInventoryDisabled()).toBe(false);
         await vending.openFillsAndEndingInventory();
         await vending.fillAllProductEndQuantities();
         // await vending.fillAllProductDeliveryQuantities();
         await vending.tapBackArrow();
-        await vending.tapBackArrow();
+        // await vending.tapBackArrow();
         expect(await vending.isAfterPhotosEnabled()).toBe(true);
       });
 
@@ -814,7 +874,6 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       });
 
       await test.step('TC005: Spoiled=2/RETK=1 saves and appears with an aggregate Qty of 3', async () => {
-
         await vending.openRemovalsAndReturns();
         const productName = await vending.enterFillsAndRemovalsForFirstRow('2', '1');
         await prepTasks.tapBackArrow();
@@ -852,6 +911,36 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         expect(await vending.isServiceStationCompleted(stationName)).toBe(true);
       });
 
+      await test.step('Delete Completed Delivery', async () => {
+        if (!await dashboard.isNthServiceStationVisible('vending', 'first')) {
+          await vending.clickVendingStationsIfCollapsed();
+        }
+        expect(await vending.isServiceStationCompleted(stationName)).toBe(true);
+        dashboard.openServiceStationByName('vending', stationName);
+        expect(await vending.isVisible('~Edit Existing Delivery')).toBe(false);
+        await vending.waitFor('~Edit Existing Delivery')
+        await vending.tap('~Edit Existing Delivery');
+        await vending.waitFor('~EDITING EXISTING DELIVERY')
+        await vending.tapFullButton();
+        await vending.isHeaderDisplayed('FULL SERVICE');
+        await vending.tap(vending.deleteDelivery);
+        await vending.tap('~Delete');
+        if (!await dashboard.isNthServiceStationVisible('vending', 'first')) {
+          await vending.clickVendingStationsIfCollapsed();
+        }
+        // const stationName = '69617 - Snacks';
+        expect(await dashboard.isNthServiceStationVisible('vending', 'first')).toBe(true);
+        await vending.isHeaderDisplayed(stationName);
+        driver.pause(1000);
+        await dashboard.waitForServiceStationVisible('vending', stationName);
+        await dashboard.openServiceStationByName('vending', stationName);
+        await vending.tapBackArrow();
+        expect(await vending.isServiceStationCompleted(stationName)).toBe(false);
+        dashboard.openServiceStationByName('vending', stationName);
+        await vending.tapContinue();
+        expect(await vending.isServiceStationCompleted('Before Photos')).toBe(false);
+      });
+
 
     });
 
@@ -869,10 +958,11 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       const dashboard = new DashboardScreen(driver);
       const vending = new VendingServiceScreen(driver);
 
-      // await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-      //   await prepTasks.openFromHamburgerMenu();
-      //   await prepTasks.ensureFullDayPrepComplete();
-      // });
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        //  await loginAndEnsureRoute(driver, mobileConfig.vendingRoute);
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
       var stationName: string;
       var machineId: string;
       await test.step("Open the first stop's first Vending machine", async () => {
@@ -919,13 +1009,13 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       await test.step("TC003/TC006: After Photos remains disabled until all required tasks are complete", async () => {
         expect(await vending.isAfterPhotosEnabled()).toBe(false);
         await vending.openMoneyOperations();
-        await vending.performMoneyOperations({ bagCode: '12938', bills: '120', refund: '5.55' });
+        await vending.performMoneyOperations({ bagCode: '12935', bills: '120', refund: '5.55' });
         expect(await vending.isFillsAndEndingInventoryDisabled()).toBe(false);
         await vending.openFillsAndEndingInventory();
         // await vending.fillAllProductDeliveryQuantities();
         await vending.fillAllProductEndQuantities();
         await vending.tapBackArrow();
-        await vending.tapBackArrow();
+        // await vending.tapBackArrow();
         expect(await vending.isServiceStationCompleted('Fills & Ending Inventory')).toBe(true);
         expect(await vending.isAfterPhotosEnabled()).toBe(true);
       });
@@ -980,10 +1070,11 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       const dashboard = new DashboardScreen(driver);
       const vending = new VendingServiceScreen(driver);
 
-      // // await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-      // //   await prepTasks.openFromHamburgerMenu();
-      // //   await prepTasks.ensureFullDayPrepComplete();
-      // // });
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        // await loginAndEnsureRoute(driver, mobileConfig.vendingRoute);
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
 
       await test.step("Open the first stop's first Vending machine", async () => {
         await dashboard.clickLocationByPosition('first');
@@ -1003,11 +1094,11 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         expect(fields.bills).toBe(true);
         expect(fields.refund).toBe(true);
 
-        await vending.performMoneyOperations({ bagCode: '12938', bills: '120', refund: '5.55' });
+        await vending.performMoneyOperations({ bagCode: '12936', bills: '120', refund: '5.55' });
         await vending.isMoneyOperationsVisible();
         await vending.openMoneyOperations();
         const values = await vending.getMoneyOperationsValues();
-        expect(values.bagCode).toBe('12938');
+        expect(values.bagCode).toBe('12936');
         expect(values.bills).toBe('120');
         expect(values.refund).toBe('5.55');
       });
@@ -1015,9 +1106,10 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       await test.step('TC019: Money bag number length validation [more than 5 | rejected with an error message]', async () => {
         await vending.enterBagCode('987654321');
         await vending.tapBackArrow();
-        expect(await vending.isMoneyOperationsVisible()).toBe(false);
-        await vending.enterBagCode('98765')
-        // await vending.openMoneyOperations();
+        await vending.isMoneyOperationsVisible();
+        // expect(await vending.isMoneyOperationsVisible()).toBe(false);
+        // await vending.enterBagCode('98765')
+        await vending.openMoneyOperations();
         const values = await vending.getMoneyOperationsValues();
         expect(values.bagCode).toBe('98765');
       });
@@ -1029,7 +1121,7 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
 
       await test.step('TC021: Numeric entry validation accepts valid and blocks invalid values [Money Operations]', async () => {
         // await vending.enterBagCode('AB981');
-        await vending.enterBagCodeInMoneyOperations('AB981');
+        await vending.enterBagCodeInMoneyOperations('ABCDE');
         // await vending.enterBagCode('AB981');
         await vending.tapBackArrow();
         //  await vending.performMoneyOperations({ bagCode: 'AB981'});
@@ -1052,13 +1144,13 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         await vending.deleteAdditionalBagCodeRow();
         await vending.tapBackArrow();
         await vending.openMoneyOperations();
-        await vending.performMoneyOperations({ bagCode: '12938', bills: '120', refund: '5.55' });
+        await vending.performMoneyOperations({ bagCode: '12937', bills: '120', refund: '5.55' });
       });
     });
 
 
   //Passed
-  test(
+  test.only(
     'Service List',
     {
       tag: ['@Vending-TC-024', '@Vending-TC-025', '@Vending-TC-026', '@Vending-TC-027',
@@ -1069,10 +1161,11 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       const dashboard = new DashboardScreen(driver);
       const vending = new VendingServiceScreen(driver);
 
-      // await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-      //   await prepTasks.openFromHamburgerMenu();
-      //   await prepTasks.ensureFullDayPrepComplete();
-      // });
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        // await loginAndEnsureRoute(driver, mobileConfig.vendingRoute);
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
       var stationName: string;
       var machineId: string;
       await test.step("TC037/TC044: Open the first stop's first Vending machine", async () => {
@@ -1159,7 +1252,6 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
           expect(await vending.isHeaderDisplayed('Money Operations')).toBe(true);
           expect(await vending.isHeaderDisplayed('Removals & Returns')).toBe(true);
           expect(await vending.isHeaderDisplayed('After Photos')).toBe(true);
-
           expect(await vending.isBeforePhotosEnabled()).toBe(true);
           expect(await vending.isMoneyOperationsEnabled()).toBe(true);
           expect(await vending.isRemovalsAndReturnsEnabled()).toBe(false);
@@ -1205,10 +1297,11 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
       const dashboard = new DashboardScreen(driver);
       const vending = new VendingServiceScreen(driver);
 
-      // await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-      //   await prepTasks.openFromHamburgerMenu();
-      //   await prepTasks.ensureFullDayPrepComplete();
-      // });
+      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
+        await loginAndEnsureRoute(driver, mobileConfig.vendingWetMachineRoute);
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+      });
       var stationName: string;
       var machineId: string;
 

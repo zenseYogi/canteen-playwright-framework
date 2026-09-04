@@ -1,4 +1,5 @@
 import { BaseScreen } from './base.screen';
+import { DashboardScreen } from './dashboard.screen';
 
 /**
  * Prep Tasks screen. Ported from prep_task_keywords.robot.
@@ -603,13 +604,75 @@ export class PrepTasksScreen extends BaseScreen {
    * of repeating a flow that has nothing left to do. Assumes Prep Tasks is
    * already open, same as completeFullDayPrep().
    */
+  // async ensureFullDayPrepComplete(): Promise<void> {
+  //   var button = await this.driver.$(this.startDayButton);
+  //   await button.waitForDisplayed({ timeout: 10000 });
+  //   await this.tap(this.startDayButton);
+  //   await this.isVisible(this.productCollection);
+  //   button = await this.driver.$(this.startDayButton);
+  //   const enabled = await button.getAttribute('enabled');
+  //   if(enabled){
+  //     await this.tap(this.startDayButton);
+  //     await new DashboardScreen(this.driver).isPendingActionTabVisible()
+  //     return;
+  //   }
+  //   // await this.completeFullDayPrep();
+
+  //   const alreadyDone = !(await this.isVisible(this.productCollection));
+  //   if (alreadyDone) {
+  //     await this.tap(this.startDayButton);
+  //     return;
+  //   }
+  //   await this.completeFullDayPrep();
+  // }
+
+  // async ensureFullDayPrepComplete(): Promise<void> {
+  //   // Screen 1 -> Screen 2
+  //   // await this.tap(this.startDayButton);
+  //   // Wait for Screen 2
+  //   await this.isVisible(this.productCollection);
+  //   const startDayBtn = await this.driver.$(this.startDayButton);
+
+  //   const enabledAttr = await startDayBtn.getAttribute('enabled');
+  //   const isEnabled = enabledAttr === 'true';
+
+  //   // const isEnabled = await startDayBtn.isEnabled();
+  //   if (!isEnabled) {
+  //     await this.completeFullDayPrep();
+  //     await startDayBtn.waitForEnabled({
+  //       timeout: 30000,
+  //       timeoutMsg: 'Start Day button did not become enabled'
+  //     });
+  //   }
+  //   await this.tap(this.startDayButton);
+  //   await new DashboardScreen(this.driver)
+  //     .isPendingActionTabVisible();
+  // }
+
+
   async ensureFullDayPrepComplete(): Promise<void> {
-    const alreadyDone = !(await this.isVisible(this.productCollection));
-    if (alreadyDone) {
+    // Screen 1 -> Screen 2
+    // await this.tap(this.startDayButton);
+    // Wait for Screen 2
+    await this.isVisible(this.productCollection);
+    const startDayBtn = await this.driver.$(this.startDayButton);
+    let enabledAttr = await startDayBtn.getAttribute('enabled');
+    if (enabledAttr !== 'true') {
+      await this.completeFullDayPrep();
+      // await this.driver.waitUntil(
+      //   async () => {
+      //     enabledAttr = await this.driver.$(this.startDayButton).getAttribute('enabled');
+      //     return enabledAttr === 'true';
+      //   },
+      //   {
+      //     timeout: 30000,
+      //     timeoutMsg: 'Start Day button did not become enabled'
+      //   }
+      // );
+    }else{
       await this.tap(this.startDayButton);
-      return;
     }
-    await this.completeFullDayPrep();
+    await new DashboardScreen(this.driver).isPendingActionTabVisible();
   }
 
   /**

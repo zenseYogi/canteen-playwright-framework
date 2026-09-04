@@ -29,7 +29,7 @@ export class TransfersScreen extends BaseScreen {
   // transfers.yaml declared route_to_click_on_to_modify and
   // route_to_warehouse_to_delete as the exact same xpath under two names -
   // collapsed into one template here.
-  private readonly routeRow = (label: string) => `//android.view.View[contains(@content-desc,"${label}")]`;
+  readonly routeRow = (label: string) => `//android.view.View[contains(@content-desc,"${label}")]`;
   private readonly firstAddedProduct = '(//android.widget.EditText[@text="1"])[1]';
   // Deliberately NOT the same as BaseScreen.backButton - transfers.yaml
   // declares this as a bare, generic //android.widget.Button (matches the
@@ -52,7 +52,9 @@ export class TransfersScreen extends BaseScreen {
   // not a custom in-app keypad - so "opens the alphabet keypad" is
   // satisfied simply by the system keyboard appearing on focus.
   private readonly searchProductSheetTitle = '~Search product';
-  private readonly noSearchResultsFoundMessage = '~No search results found';
+  // private readonly noSearchResultsFoundMessage = '~No search results found';
+  private readonly noSearchResultsFoundMessage =
+  '//android.view.View[@content-desc="No search results found" or @content-desc="No products recorded"]';
   // The barcode-scanner screen's only labeled element is its "Continue"
   // button - the camera preview itself carries no content-desc.
   private readonly scannerContinueButton = '~Continue';
@@ -281,6 +283,10 @@ export class TransfersScreen extends BaseScreen {
     await this.waitFor(this.rtrDetailsHeading(routeLabel));
   }
 
+
+
+
+  
   /** Excel TC103 - the RTR Details screen's heading (naming the route), search field, and search/scanner icons are all visible (assumes openRtrDetails() was already called). */
   async isRtrDetailsScreenVisible(routeLabel: string): Promise<{
     heading: boolean;

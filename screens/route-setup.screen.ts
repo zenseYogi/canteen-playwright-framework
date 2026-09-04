@@ -21,7 +21,9 @@ export class RouteSetupScreen extends BaseScreen {
   private readonly settingsExpandedMarker = '~Settings, Expanded';
   private readonly routeSetupMenuItem = '~Route setup';
   private readonly screenTitle = '~Route setup';
-  private readonly operationField = '(//android.view.View[@clickable="true"])[1]';
+  // private readonly operationField = '(//android.view.View[@clickable="true"])[1]';
+  private readonly operationField = '//android.view.View[contains(@hint,"Operation")]';
+  //android.widget.EditText[contains(@hint,"Add product")]
   private readonly routeField = '(//android.view.View[@clickable="true"])[2]';
   private readonly modalSearchField = '//android.widget.EditText';
   private readonly changeRouteButton = '~Change route';
@@ -39,18 +41,18 @@ export class RouteSetupScreen extends BaseScreen {
   // }
 
   /** Hamburger menu > Settings > Route setup */
-async openFromHamburgerMenu(): Promise<void> {
-  const routeSetupVisible = await this.isVisible(this.routeSetupMenuItem);
-  if (!routeSetupVisible) {
-    await this.tap(this.hamburgerIcon);
-    const settingsExpanded = await this.isVisible(this.settingsExpandedMarker);
-    if (!settingsExpanded) {
-      await this.tap(this.settingsMenuItem);
+  async openFromHamburgerMenu(): Promise<void> {
+    const routeSetupVisible = await this.isVisible(this.routeSetupMenuItem);
+    if (!routeSetupVisible) {
+      await this.tap(this.hamburgerIcon);
+      const settingsExpanded = await this.isVisible(this.settingsExpandedMarker);
+      if (!settingsExpanded) {
+        await this.tap(this.settingsMenuItem);
+      }
     }
+    await this.tap(this.routeSetupMenuItem);
+    await this.waitFor(this.screenTitle);
   }
-  await this.tap(this.routeSetupMenuItem);
-  await this.waitFor(this.screenTitle);
-}
 
   /**
    * Excel TC009 - opens the hamburger menu and expands Settings (without
@@ -96,7 +98,7 @@ async openFromHamburgerMenu(): Promise<void> {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       await this.tap(this.modalSearchField);
       const field = await this.driver.$(this.modalSearchField);
-      await field.clearValue().catch(() => {});
+      await field.clearValue().catch(() => { });
       await this.typeViaAdb(searchTerm);
       const resultEl = await this.driver.$(`~${resultLabel}`);
       const filtered = await resultEl.waitForDisplayed({ timeout: 5_000 }).catch(() => false);
@@ -116,10 +118,38 @@ async openFromHamburgerMenu(): Promise<void> {
    * option label, e.g. "Miami, FL"). See typeAndSelectFromModal for the
    * retry behavior.
    */
+  // async selectOperation(searchTerm: string, resultLabel: string): Promise<void> {
+  //   await this.tap(this.operationField);
+  //   await this.typeAndSelectFromModal(searchTerm, resultLabel);
+  // }
+
+
   async selectOperation(searchTerm: string, resultLabel: string): Promise<void> {
-    await this.tap(this.operationField);
+    const operationField = await this.driver.$(this.operationField);
+    await operationField.waitForDisplayed({ timeout: 10000 });
+    await this.driver.waitUntil(
+      async () => {
+        await operationField.click();
+        const sheet = await this.driver.$('~Select operation');
+        try {
+          await sheet.waitForDisplayed({ timeout: 10000 });
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      {
+        timeout: 30000,
+        interval: 5000,
+        timeoutMsg: 'Select operation sheet did not appear'
+      }
+    );
     await this.typeAndSelectFromModal(searchTerm, resultLabel);
   }
+
+
+
+
 
   /** Same pattern as selectOperation, for the "Select route" modal (e.g. "Route 010"). */
   async selectRoute(searchTerm: string, resultLabel: string): Promise<void> {
@@ -163,16 +193,16 @@ async openFromHamburgerMenu(): Promise<void> {
 
 
   async verifyStartDayRouteDisplayed(): Promise<void> {
-  const element = await this.driver.$(
-    `//android.view.View[contains(@content-desc,"Start day")]`
-  );
-  await element.waitForDisplayed({
-    timeout: 360_000,
-    timeoutMsg: `Start day header for route was not displayed`
-  });
-  const text =
-    (await element.getAttribute('content-desc')) ?? '';
-}
+    const element = await this.driver.$(
+      `//android.view.View[contains(@content-desc,"Start day")]`
+    );
+    await element.waitForDisplayed({
+      timeout: 360_000,
+      timeoutMsg: `Start day header for route was not displayed`
+    });
+    const text =
+      (await element.getAttribute('content-desc')) ?? '';
+  }
 
   /**
    * TC030 "view 'Select a day'" / TC035 "verify date-label mapping" -

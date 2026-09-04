@@ -3,6 +3,7 @@ import type { Lob } from '../utils/lob';
 import { expect } from '@playwright/test';
 import { pause } from 'node_modules/webdriverio/build/commands/browser';
 import { mobileConfig } from '../config/mobile.config';
+import { HomeScreen } from './home.screen';
 
 type InventoryType = 'audit' | 'cycle';
 
@@ -203,6 +204,9 @@ export class MenuScreen extends BaseScreen {
    * @returns {Promise<void>} Resolves once the menu is opened.
    */
   async openNavigationMenu(): Promise<void> {
+    if (!await this.isVisible(this.hamburgerMenu)) {
+      await new HomeScreen(this.driver).returnToHome().catch(() => { });
+    }
     const menu = await this.driver.$(this.hamburgerMenu);
     await menu.waitForDisplayed({ timeout: 10000 });
     await menu.click();
@@ -769,6 +773,7 @@ export class MenuScreen extends BaseScreen {
    */
   async getRouteWarehouseName(): Promise<string> {
     await this.openNavigationMenu();
+    await this.openSettings();
     await this.tap(this.routeSetupMenu);
     const header = await this.driver.$(this.routeWarehouseHeader);
     await header.waitForDisplayed({
@@ -1026,6 +1031,53 @@ export class MenuScreen extends BaseScreen {
   }
 
 
+
+  private readonly routeInSelectRouteSheet = (routeName: string) =>
+    `//android.view.View[@content-desc="${routeName}"]`;
+
+  async verifyRouteNotDisplayedInSelectRouteSheet(
+    routeName: string
+  ): Promise<void> {
+    let previousLastRoute = '';
+    let reachedEnd = false;
+
+    while (!reachedEnd) {
+      // Route found -> Fail
+      const routeElements = await this.driver.$$(
+        this.routeInSelectRouteSheet(routeName)
+      );
+      if (await routeElements.length > 0) {
+        throw new Error(
+          `Route "${routeName}" was unexpectedly found in the Select Route sheet`
+        );
+      }
+
+      // Get all currently visible routes
+      const visibleRoutes = await this.driver.$$(
+        '//android.widget.ScrollView//android.view.View[@content-desc]'
+      );
+      const routeNames: string[] = [];
+      for (const route of visibleRoutes) {
+        const name = await route.getAttribute('content-desc');
+        if (name && name !== 'Select Route' && name !== 'Scrim') {
+          routeNames.push(name);
+        }
+      }
+      const currentLastRoute =
+        routeNames[routeNames.length - 1] ?? '';
+
+      if (currentLastRoute === previousLastRoute) {
+        reachedEnd = true;
+        break;
+      }
+      previousLastRoute = currentLastRoute;
+      await this.swipe
+      await this.driver.pause(1000);
+    }
+    console.log(
+      `Verified route "${routeName}" is not displayed anywhere in the Select Route sheet`
+    );
+  }
 
 
   async isRouteInventorySearchAreaVisible(): Promise<{

@@ -16,8 +16,8 @@ export class HomeScreen extends BaseScreen {
   // against build 0.1.76 (Miami/010). The day badge's content-desc is the
   // whole string (e.g. "Yesterday, Thu 23 Jul") - matched by its one of
   // three fixed prefixes, since the day/date portion changes daily.
-  private readonly currentDateBadge =
-    '//android.view.View[starts-with(@content-desc,"Today") or starts-with(@content-desc,"Yesterday") or starts-with(@content-desc,"Tomorrow")]';
+  // private readonly currentDateBadge =
+  //   '//android.view.View[starts-with(@content-desc,"Today") or starts-with(@content-desc,"Yesterday") or starts-with(@content-desc,"Tomorrow")]';
   private readonly routeBadge = '//android.view.View[starts-with(@content-desc,"Route")]';
   // The "Select a day" bottom sheet's own TODAY card (content-desc packs
   // the label and date together, e.g. "TODAY\nAugust 7, 2026") - used by
@@ -71,23 +71,33 @@ export class HomeScreen extends BaseScreen {
   //   return (await el.getAttribute('content-desc')) ?? '';
   // }
 
-  async getCurrentDateText(): Promise<string> {
-    const todayText = this.formatAppDate(new Date());
-    const exactToday = await this.driver.$(
-      `//android.view.View[@content-desc="${todayText}"]`
-    );
-    if (await exactToday.isExisting()) {
-      const value = await exactToday.getAttribute('content-desc');
-      if (value) {
-        return value;
-      }
-    }
-    const el = await this.driver.$(this.currentDateBadge);
-    if (await el.isExisting()) {
-      return (await el.getAttribute('content-desc')) ?? '';
-    }
-    return '';
-  }
+  // async getCurrentDateText(): Promise<string> {
+  //   const todayText = this.formatAppDate(new Date());
+  //   const exactToday = await this.driver.$(
+  //     `//android.view.View[@content-desc="${todayText}"]`
+  //   );
+  //   if (await exactToday.isExisting()) {
+  //     const value = await exactToday.getAttribute('content-desc');
+  //     if (value) {
+  //       return value;
+  //     }
+  //   }
+  //   const el = await this.driver.$(this.currentDateBadge);
+  //   if (await el.isExisting()) {
+  //     return (await el.getAttribute('content-desc')) ?? '';
+  //   }
+  //   return '';
+  // }
+  
+
+  private readonly currentDateBadge =
+  '//android.widget.Button[@content-desc="Open navigation menu"]/following-sibling::android.view.View[1]';
+
+async getCurrentDateText(): Promise<string> {
+  const el = await this.driver.$(this.currentDateBadge);
+  await el.waitForDisplayed({ timeout: 10000 });
+  return (await el.getAttribute('content-desc')) ?? '';
+}
 
 
 
@@ -329,8 +339,7 @@ export class HomeScreen extends BaseScreen {
         }
       }else if(await this.isVisible('~Scrim')){
         await this.tap('~Scrim');
-      }
-      else {
+      }else {
         await this.pressKeyCode(4);
       }
       await this.driver.pause(700);

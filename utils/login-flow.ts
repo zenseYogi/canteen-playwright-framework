@@ -186,36 +186,27 @@ async function isOnRoute(
   // Route validation
   const currentRoute = routeNumber(routeText).trim();
   const targetRoute = routeNumber(route.routeLabel).trim();
-
   console.log(`Current Route: ${currentRoute}`);
   console.log(`Expected Route: ${targetRoute}`);
-
   if (currentRoute !== targetRoute) {
     return false;
   }
-
   // Day validation
   const appDate = new Date(dateText.replace(',', ', '));
-
   const expectedDate = new Date();
-
   switch (route.day) {
     case 'YESTERDAY':
       expectedDate.setDate(expectedDate.getDate() - 1);
       break;
-
     case 'TOMORROW':
       expectedDate.setDate(expectedDate.getDate() + 1);
       break;
-
     case 'TODAY':
     default:
       break;
   }
-
   console.log(`App Date: ${appDate.toDateString()}`);
   console.log(`Expected Date: ${expectedDate.toDateString()}`);
-
   return (
     appDate.getDate() === expectedDate.getDate() &&
     appDate.getMonth() === expectedDate.getMonth() &&

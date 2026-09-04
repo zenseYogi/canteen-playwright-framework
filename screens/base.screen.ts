@@ -56,8 +56,10 @@ export class BaseScreen {
   // must stay xpath, no accessibility-id shorthand available for these.
   readonly searchField = '//android.widget.EditText';
   // protected readonly searchList = '//android.widget.ScrollView/android.view.View/android.view.View';
-  protected readonly searchList =
-    '//android.view.View[@clickable="true" and @focusable="true" and @content-desc]';
+  // protected readonly searchList =
+  //   '//android.view.View[@clickable="true" and @focusable="true" and @content-desc]';
+    protected readonly searchList =
+  '//android.view.View[contains(@content-desc,"SKU:") and @clickable="true"]';
   protected readonly cameraPermissionAllowButton =
     '//android.widget.Button[@resource-id="com.android.permissioncontroller:id/permission_allow_foreground_only_button"]';
   // Product-list header controls (Sort/Filter/Planogram) - live-verified on
@@ -141,7 +143,7 @@ export class BaseScreen {
    * declared identically (down to the xpath itself) in both transfers.yaml
    * and truck_stock.yaml.
    */
-  protected recordByHint(name: string): string {
+  recordByHint(name: string): string {
     return `//android.widget.EditText[contains(@hint,"${name}")]`;
   }
   // FRAGILE: deeply nested structural path with no stable identifier, ported
@@ -774,17 +776,70 @@ export class BaseScreen {
     });
     const loc = await row.getLocation();
     const size = await row.getSize();
-    await this.swipe(
-      loc.x + size.width - 20,
-      loc.y + size.height / 2,
-      loc.x + 50,
-      loc.y + size.height / 2
-    );
+    // await this.swipe(
+    //   loc.x + size.width - 20,
+    //   loc.y + size.height / 2,
+    //   loc.x + 50,
+    //   loc.y + size.height / 2
+    // );
+
+//     await this.swipe(
+//   loc.x + size.width - 10,
+//   loc.y + size.height / 2,
+//   loc.x + 10,
+//   loc.y + size.height / 2
+// );
+
+ const startX = loc.x + size.width - 20;
+const endX = loc.x + 50;
+const y = loc.y + size.height / 2;
+
+await this.driver.performActions([
+  {
+    type: 'pointer',
+    id: 'finger1',
+    parameters: { pointerType: 'touch' },
+    actions: [
+      {
+        type: 'pointerMove',
+        duration: 0,
+        x: startX,
+        y,
+      },
+      {
+        type: 'pointerDown',
+        button: 0,
+      },
+      {
+        type: 'pause',
+        duration: 500,
+      },
+      {
+        type: 'pointerMove',
+        duration: 1200,
+        x: endX,
+        y,
+      },
+      {
+        type: 'pointerUp',
+        button: 0,
+      },
+    ],
+  },
+]);
+
+await this.driver.releaseActions();
+
+
     const deleteBtn = await this.driver.$(`${rowSelector}/android.widget.Button`);
-    await deleteBtn.waitForDisplayed({ timeout: 5000,});
+    await deleteBtn.waitForDisplayed({ timeout: 10000,});
     await deleteBtn.click();
     await this.tap(this.deleteButton);
   }
+
+
+ 
+
 
   /**
    * Swipe-left-to-reveal-delete when the row must first be found by

@@ -920,38 +920,77 @@ export class VendingServiceScreen extends BaseScreen {
    * @param {string} [spoil] - The spoil quantity to set.
    * @returns {Promise<string>} The product name from the first row.
    */
-  async enterFillsAndRemovalsForFirstRow(delivery?: string, spoil?: string): Promise<string> {
-    const row = '(//android.widget.ScrollView/android.view.View)[1]';
+  // async enterFillsAndRemovalsForFirstRow(delivery?: string, spoil?: string): Promise<string> {
+  //   const row = '(//android.widget.ScrollView/android.view.View)[1]';
+  //   const rowEl = await this.driver.$(row);
+  //   const contentDesc = (await rowEl.getAttribute('content-desc')) ?? '';
+  //   // content-desc format:
+  //   // "1\nDasani Wtr 20oz"
+  //   const productName = contentDesc.split('\n').slice(1).join(' ').trim();
+  //   if (delivery !== undefined) {
+  //     ////android.widget.EditText[@text="-"]
+  //     const spoiledField = await this.driver.$(
+  //       `${row}//android.widget.EditText[1]`
+  //     );
+  //     await spoiledField.click();
+  //     const existing = (await spoiledField.getText()).trim();
+  //     if (existing && existing !== '-') {
+  //       await spoiledField.clearValue();
+  //     }
+  //     await spoiledField.setValue(delivery);
+  //   }
+  //   if (spoil !== undefined) {
+  //     const retkField = await this.driver.$(
+  //       `${row}//android.widget.EditText[2]`
+  //     );
+  //     await retkField.click();
+  //     const existing = (await retkField.getText()).trim();
+  //     if (existing && existing !== '-') {
+  //       await retkField.clearValue();
+  //     }
+  //     await retkField.setValue(spoil);
+  //   }
+  //   return productName;
+  // }
+
+
+  async enterFillsAndRemovalsForFirstRow(
+    spoil?: string,
+    retToTrk?: string
+): Promise<string> {
+
+    const row = '(//android.view.View[@content-desc and android.widget.EditText])[1]';
     const rowEl = await this.driver.$(row);
-    const contentDesc = (await rowEl.getAttribute('content-desc')) ?? '';
-    // content-desc format:
+    await rowEl.waitForDisplayed({ timeout: 10000 });
+    const contentDesc =
+        (await rowEl.getAttribute('content-desc')) ?? '';
+
+    // Example:
     // "1\nDasani Wtr 20oz"
-    const productName = contentDesc.split('\n').slice(1).join(' ').trim();
-    if (delivery !== undefined) {
-      ////android.widget.EditText[@text="-"]
-      const spoiledField = await this.driver.$(
-        `${row}//android.widget.EditText[1]`
-      );
-      await spoiledField.click();
-      const existing = (await spoiledField.getText()).trim();
-      if (existing && existing !== '-') {
-        await spoiledField.clearValue();
-      }
-      await spoiledField.setValue(delivery);
-    }
+    const productName =
+        contentDesc.split('\n').slice(1).join(' ').trim();
+    const fields = await rowEl.$$('android.widget.EditText');
     if (spoil !== undefined) {
-      const retkField = await this.driver.$(
-        `${row}//android.widget.EditText[2]`
-      );
-      await retkField.click();
-      const existing = (await retkField.getText()).trim();
-      if (existing && existing !== '-') {
-        await retkField.clearValue();
-      }
-      await retkField.setValue(spoil);
+        const spoiledField = fields[0];
+        await spoiledField.click();
+        const existing = (await spoiledField.getText()).trim();
+        if (existing && existing !== '-') {
+            await spoiledField.clearValue();
+        }
+        await spoiledField.setValue(spoil);
+    }
+    if (retToTrk !== undefined) {
+        const retToTrkField = fields[1];
+        await retToTrkField.click();
+        const existing = (await retToTrkField.getText()).trim();
+        if (existing && existing !== '-') {
+            await retToTrkField.clearValue();
+        }
+        await retToTrkField.setValue(retToTrk);
     }
     return productName;
-  }
+}
+
 
 
   private async enterFieldValue(
@@ -1005,38 +1044,79 @@ export class VendingServiceScreen extends BaseScreen {
    * @param {string} [expectedRetk] - The expected RETK value.
    * @returns {Promise<void>} Resolves once the assertions pass.
    */
+  // async verifyRemovalReturnValues(
+  //   productName: string,
+  //   expectedSpoiled?: string,
+  //   expectedRetk?: string
+  // ): Promise<void> {
+
+  //   const row = `//android.view.View[contains(@content-desc,"${productName}")]`;
+
+  //   if (expectedSpoiled !== undefined) {
+  //     const spoiledField = await this.driver.$(
+  //       `${row}//android.widget.EditText[@hint="Spoiled"]`
+  //     );
+
+  //     const actualSpoiled =
+  //       (await spoiledField.getAttribute('text')) ||
+  //       (await spoiledField.getText());
+
+  //     expect(actualSpoiled.trim()).toBe(expectedSpoiled);
+  //   }
+
+  //   if (expectedRetk !== undefined) {
+  //     const retkField = await this.driver.$(
+  //       `${row}//android.widget.EditText[@hint="RETK"]`
+  //     );
+
+  //     const actualRetk =
+  //       (await retkField.getAttribute('text')) ||
+  //       (await retkField.getText());
+
+  //     expect(actualRetk.trim()).toBe(expectedRetk);
+  //   }
+  // }
+
   async verifyRemovalReturnValues(
     productName: string,
     expectedSpoiled?: string,
     expectedRetk?: string
-  ): Promise<void> {
+): Promise<void> {
 
-    const row = `//android.view.View[contains(@content-desc,"${productName}")]`;
+    const row =
+        `//android.view.View[contains(@content-desc,"${productName}") and android.widget.EditText]`;
+
+    const rowEl = await this.driver.$(row);
+    await rowEl.waitForDisplayed({ timeout: 10000 });
+
+    const fields = await rowEl.$$('android.widget.EditText');
 
     if (expectedSpoiled !== undefined) {
-      const spoiledField = await this.driver.$(
-        `${row}//android.widget.EditText[@hint="Spoiled"]`
-      );
+        const spoiledField = fields[0];
 
-      const actualSpoiled =
-        (await spoiledField.getAttribute('text')) ||
-        (await spoiledField.getText());
+        const actualSpoiled =
+            (await spoiledField.getAttribute('text')) ??
+            (await spoiledField.getText());
 
-      expect(actualSpoiled.trim()).toBe(expectedSpoiled);
+        expect(
+            actualSpoiled.trim(),
+            `Spoiled value mismatch for product "${productName}"`
+        ).toBe(expectedSpoiled);
     }
 
     if (expectedRetk !== undefined) {
-      const retkField = await this.driver.$(
-        `${row}//android.widget.EditText[@hint="RETK"]`
-      );
+        const retkField = fields[1];
 
-      const actualRetk =
-        (await retkField.getAttribute('text')) ||
-        (await retkField.getText());
+        const actualRetk =
+            (await retkField.getAttribute('text')) ??
+            (await retkField.getText());
 
-      expect(actualRetk.trim()).toBe(expectedRetk);
+        expect(
+            actualRetk.trim(),
+            `Ret To Trk value mismatch for product "${productName}"`
+        ).toBe(expectedRetk);
     }
-  }
+}
 
 
   /**
@@ -1130,28 +1210,28 @@ export class VendingServiceScreen extends BaseScreen {
    * @returns {Promise<string>} The destination value shown in the Maps UI.
    */
   async getMapsDestination(): Promise<string> {
-  const address = await this.driver.$(
-    '//android.widget.EditText[@resource-id="com.google.android.apps.maps:id/search_omnibox_text_box"]/android.widget.TextView'
-  );
+    const address = await this.driver.$(
+      '//android.widget.EditText[@resource-id="com.google.android.apps.maps:id/search_omnibox_text_box"]/android.widget.TextView'
+    );
 
-  await address.waitForDisplayed({
-    timeout: 30000,
-    timeoutMsg: 'Maps destination address was not displayed'
-  });
+    await address.waitForDisplayed({
+      timeout: 30000,
+      timeoutMsg: 'Maps destination address was not displayed'
+    });
 
-  await this.driver.waitUntil(
-    async () => {
-      const text = (await address.getText()).trim();
-      return text.length > 0;
-    }, {
+    await this.driver.waitUntil(
+      async () => {
+        const text = (await address.getText()).trim();
+        return text.length > 0;
+      }, {
       timeout: 30000,
       interval: 1000,
       timeoutMsg: 'Maps destination address was not loaded'
     }
-  );
+    );
 
-  return (await address.getText()).trim();
-}
+    return (await address.getText()).trim();
+  }
 
   /**
    * Counts the visible Par / Capacity rows.
@@ -1877,53 +1957,53 @@ export class VendingServiceScreen extends BaseScreen {
   // the DOM shifts once its keypad opens) - so maxRounds needs to cover
   // the largest catalog seen live (a "full service" snack machine ran to
   // 40+ products), not just a handful.
-  // async fillAllProductDeliveryQuantities(quantity = '5', maxRounds = 60): Promise<void> {
-  //   for (let round = 0; round < maxRounds; round++) {
-  //     const fields = [...(await this.driver.$$('//android.widget.EditText[2]'))];
-  //     let filledAny = false;
-  //     for (let i = 0; i < fields.length; i += 1) {
-  //       const text = await fields[i].getText().catch(() => '');
-  //       if (!text) {
-  //         // CORRECTED (live-verified): field.setValue() writes the
-  //         // widget's visible text directly without going through the
-  //         // custom keypad's own digit buttons - the row displays the
-  //         // right number, but the app's own internal delivery-quantity
-  //         // model never actually registers it (its validation is wired
-  //         // to the keypad's onClick handlers, not the EditText's
-  //         // text-changed listener), so Continue's later tap fails
-  //         // real submission with "Please fix validation errors before
-  //         // saving" even though every field LOOKS correctly filled.
-  //         // Tapping the real digit keys (same as a physical user) is
-  //         // required for the value to actually count.
-  //         await fields[i].click();
-  //         for (const digit of quantity) {
-  //           await (await this.driver.$(`~${digit}`)).click();
-  //         }
-  //         await this.dismissNumericKeypad();
-  //         filledAny = true;
-  //         break;
-  //       }
-  //     }
-  //     if (filledAny) {
-  //       continue;
-  //     }
-  //     const continueBtn = await this.driver.$(this.continueButton);
-  //     if (await continueBtn.isEnabled().catch(() => false)) {
-  //       await continueBtn.click();
-  //       if (!(await this.isVisible(this.productFillsTitle))) {
-  //         return;
-  //       }
-  //     }
-  //     await this.driver.execute('mobile: scrollGesture', {
-  //       left: 100,
-  //       top: 800,
-  //       width: 800,
-  //       height: 1200,
-  //       direction: 'down',
-  //       percent: 2.0
-  //     });
-  //   }
-  // }
+  async fillAllProductDeliveryQuantities(quantity = '5', maxRounds = 60): Promise<void> {
+    for (let round = 0; round < maxRounds; round++) {
+      const fields = [...(await this.driver.$$('//android.widget.EditText[2]'))];
+      let filledAny = false;
+      for (let i = 0; i < fields.length; i += 1) {
+        const text = await fields[i].getText().catch(() => '');
+        if (!text) {
+          // CORRECTED (live-verified): field.setValue() writes the
+          // widget's visible text directly without going through the
+          // custom keypad's own digit buttons - the row displays the
+          // right number, but the app's own internal delivery-quantity
+          // model never actually registers it (its validation is wired
+          // to the keypad's onClick handlers, not the EditText's
+          // text-changed listener), so Continue's later tap fails
+          // real submission with "Please fix validation errors before
+          // saving" even though every field LOOKS correctly filled.
+          // Tapping the real digit keys (same as a physical user) is
+          // required for the value to actually count.
+          await fields[i].click();
+          for (const digit of quantity) {
+            await (await this.driver.$(`~${digit}`)).click();
+          }
+          await this.dismissNumericKeypad();
+          filledAny = true;
+          break;
+        }
+      }
+      if (filledAny) {
+        continue;
+      }
+      const continueBtn = await this.driver.$(this.continueButton);
+      if (await continueBtn.isEnabled().catch(() => false)) {
+        await continueBtn.click();
+        if (!(await this.isVisible(this.productFillsTitle))) {
+          return;
+        }
+      }
+      await this.driver.execute('mobile: scrollGesture', {
+        left: 100,
+        top: 800,
+        width: 800,
+        height: 1200,
+        direction: 'down',
+        percent: 2.0
+      });
+    }
+  }
 
   // async fillAllProductDeliveryQuantities(
   //   quantity = '5',
@@ -2104,84 +2184,69 @@ export class VendingServiceScreen extends BaseScreen {
       });
       await this.driver.pause(500);
     }
-    await this.dismissNumericKeypad();
+    // await this.dismissNumericKeypad();
+    this.driver.pause(3000);
+    // await this.tapBackArrow();
   }
 
 
- private readonly endQtyFields = '//android.widget.EditText[@hint="End"]';
+  private readonly endQtyFields = '//android.widget.EditText[@hint="End"]';
+  async verifyAllProductEndQuantities(
+    expectedQuantity = '6',
+    maxScrolls = 50
+  ): Promise<void> {
+    const verifiedFields = new Set<string>();
+    let consecutiveNoChanges = 0;
+    for (
+      let scroll = 0;
+      scroll < maxScrolls && consecutiveNoChanges < 3;
+      scroll++
+    ) {
+      let newlyVerified = 0;
+      const endFields = await this.driver.$$(this.endQtyFields);
+      const productCards = await this.driver.$$('//android.view.View[contains(@content-desc,"More info")]');
+      for (let index = 0; index < await endFields.length; index++) {
+        const field = endFields[index];
+        if (!(await field.isDisplayed())) {
+          continue;
+        }
+        const location = await field.getLocation();
+        const uniqueKey = `${location.x}-${location.y}`;
+        if (verifiedFields.has(uniqueKey)) {
+          continue;
+        }
+        const actualValue = (await field.getText()).trim();
+        const productName = ((await productCards[index]?.getAttribute('content-desc')) ?? ''
+          ).split('\n')[1]?.trim() ?? 'Unknown Product';
 
-async verifyAllProductEndQuantities(
-  expectedQuantity = '6',
-  maxScrolls = 50
-): Promise<void> {
-  const verifiedFields = new Set<string>();
-  let consecutiveNoChanges = 0;
-
-  for (
-    let scroll = 0;
-    scroll < maxScrolls && consecutiveNoChanges < 3;
-    scroll++
-  ) {
-    let newlyVerified = 0;
-
-    const endFields = await this.driver.$$(this.endQtyFields);
-
-    const productCards = await this.driver.$$(
-      '//android.view.View[contains(@content-desc,"More info")]'
-    );
-
-    for (let index = 0; index < await endFields.length; index++) {
-      const field = endFields[index];
-
-      if (!(await field.isDisplayed())) {
-        continue;
+        expect(
+          actualValue,
+          `${productName} End quantity mismatch`
+        ).toBe(expectedQuantity);
+        verifiedFields.add(uniqueKey);
+        newlyVerified++;
       }
 
-      const location = await field.getLocation();
-      const uniqueKey = `${location.x}-${location.y}`;
-
-      if (verifiedFields.has(uniqueKey)) {
-        continue;
+      if (newlyVerified === 0) {
+        consecutiveNoChanges++;
+      } else {
+        consecutiveNoChanges = 0;
       }
 
-      const actualValue = (await field.getText()).trim();
-
-      const productName =
-        (
-          (await productCards[index]?.getAttribute('content-desc')) ?? ''
-        ).split('\n')[1]?.trim() ?? 'Unknown Product';
-
-      expect(
-        actualValue,
-        `${productName} End quantity mismatch`
-      ).toBe(expectedQuantity);
-
-      verifiedFields.add(uniqueKey);
-      newlyVerified++;
+      await this.scrollDown({
+        left: 100,
+        top: 1200,
+        width: 800,
+        height: 600,
+        percent: 0.7
+      });
+      await this.driver.pause(500);
     }
-
-    if (newlyVerified === 0) {
-      consecutiveNoChanges++;
-    } else {
-      consecutiveNoChanges = 0;
-    }
-
-    await this.scrollDown({
-      left: 100,
-      top: 1200,
-      width: 800,
-      height: 600,
-      percent: 0.7
-    });
-
-    await this.driver.pause(500);
+    expect(
+      verifiedFields.size,
+      'No End quantity fields were verified'
+    ).toBeGreaterThan(0);
   }
-
-  expect(
-    verifiedFields.size,
-    'No End quantity fields were verified'
-  ).toBeGreaterThan(0);
-}
 
 
 
@@ -2219,31 +2284,57 @@ async verifyAllProductEndQuantities(
     expect(header).toMatch(/^Machine \d+ POG$/);
   }
 
-  private getExpectedHeaderDate(
-    day: 'TODAY' | 'YESTERDAY' | 'TOMORROW'
-  ): string {
-    const date = new Date();
+  // private getExpectedHeaderDate(
+  //   day: 'TODAY' | 'YESTERDAY' | 'TOMORROW'
+  // ): string {
+  //   const date = new Date();
 
-    switch (day) {
-      case 'YESTERDAY':
-        date.setDate(date.getDate() - 1);
-        break;
+  //   switch (day) {
+  //     case 'YESTERDAY':
+  //       date.setDate(date.getDate() - 1);
+  //       break;
 
-      case 'TOMORROW':
-        date.setDate(date.getDate() + 1);
-        break;
+  //     case 'TOMORROW':
+  //       date.setDate(date.getDate() + 1);
+  //       break;
 
-      case 'TODAY':
-      default:
-        break;
-    }
+  //     case 'TODAY':
+  //     default:
+  //       break;
+  //   }
 
-    return date.toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric'
-    });
+  //   return date.toLocaleDateString('en-GB', {
+  //     day: 'numeric',
+  //     month: 'short',
+  //     year: 'numeric'
+  //   });
+  // }
+
+
+
+ private getExpectedHeaderDate(
+  day: 'TODAY' | 'YESTERDAY' | 'TOMORROW'
+): string {
+  const date = new Date();
+
+  switch (day) {
+    case 'YESTERDAY':
+      date.setDate(date.getDate() - 1);
+      break;
+
+    case 'TOMORROW':
+      date.setDate(date.getDate() + 1);
+      break;
   }
+  const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+  const dayValue = String(date.getDate()).padStart(2, '0');
+  return `${dayValue} ${months[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+
 
 
   protected readonly meterHeader =
@@ -2436,6 +2527,13 @@ async verifyAllProductEndQuantities(
     await fullButton.click();
   }
 
+  readonly spotDelivery = '//android.widget.Button[contains(@content-desc,"SPOT")]';
+  async verifySpotDeliveryDisplayed(): Promise<void> {
+    const spotDelivery = await this.driver.$(this.spotDelivery);
+    await spotDelivery.waitForDisplayed({ timeout: 15000 });
+    const contentDesc = await spotDelivery.getAttribute('content-desc');
+    expect(contentDesc).toMatch(/^SPOT,/);
+}
 
   async enterFirstEndValue(value: string): Promise<void> {
     const endField = await this.driver.$('(//android.widget.EditText)[2]');
@@ -2528,7 +2626,8 @@ async verifyAllProductEndQuantities(
 
   async openRemovalsAndReturns(): Promise<void> {
     await this.tap(this.removalsAndReturns);
-    await this.waitFor('~Removals & Returns');
+    // await this.waitFor('~Removals & Returns');
+    await this.waitFor('~Removals');
   }
 
   async isRemovalsEmptyStateVisible(): Promise<boolean> {
@@ -2579,7 +2678,8 @@ async verifyAllProductEndQuantities(
   /** Excel TC038 - cancels out of Document product without saving. */
   async cancelDocumentProduct(): Promise<void> {
     await this.tap(this.removalsCancelButton);
-    await this.waitFor('~Removals & Returns');
+    // await this.waitFor('~Removals & Returns');
+    await this.waitFor('~Removals');
   }
 
   /** Excel TC061/TC055 - count of saved rows on the Removals & Returns list. */

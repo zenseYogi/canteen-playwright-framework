@@ -45,7 +45,7 @@ export const mobileConfig = {
     operationLabel: process.env.ROUTE_OPERATION_LABEL || 'Charlotte, NC',
     routeSearch: process.env.ROUTE_SEARCH || 'Route 103',
     routeLabel: process.env.ROUTE_LABEL || 'Route 103',
-    day: (process.env.ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'TODAY'
+    day: (process.env.ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'YESTERDAY'
   },
 
   // defaultRoute: {
@@ -76,6 +76,14 @@ export const mobileConfig = {
     operationLabel: process.env.VENDING_OPERATION_LABEL || 'Miami, FL',
     routeSearch: process.env.VENDING_ROUTE_SEARCH || 'Route 990',
     routeLabel: process.env.VENDING_ROUTE_LABEL || 'Route 990',
+    day: (process.env.VENDING_ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'TODAY'
+  },
+
+  vendingWetMachineRoute: {
+    operationSearch: process.env.VENDING_OPERATION_SEARCH || 'Bloomington',
+    operationLabel: process.env.VENDING_OPERATION_LABEL || 'Bloomington, IL',
+    routeSearch: process.env.VENDING_ROUTE_SEARCH || 'Route 50',
+    routeLabel: process.env.VENDING_ROUTE_LABEL || 'Route 50',
     day: (process.env.VENDING_ROUTE_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'TODAY'
   },
   // PBI 850155 (Ad-hoc Scheduling, TC025/TC028) needs a genuinely zero-delivery
