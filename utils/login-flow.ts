@@ -71,9 +71,37 @@ export async function loginAndWaitForMfa(driver: Browser, loginId?: string, pass
     if (onDashboard) {
       return;
     }
+    // CORRECTED 2026-08-20: a resumed session can also be sitting on the
+    // Route Setup gate or the standalone Select Day sheet - both native,
+    // hamburger-less, and WEBVIEW-less, same as Dashboard's own absence
+    // signal below. The old logic treated "no login webview" alone as
+    // proof login+route-setup were both already done and returned
+    // immediately, silently skipping the handling these two screens still
+    // need - leaving the app stuck on a blank, never-selected Route Setup
+    // gate for every caller downstream. Route through the same
+    // handlePostAuthScreen() branch a fresh login uses instead of
+    // returning early whenever either is detected.
+    if (await mfaScreen.isVisible('~Route Setup')) {
+      await handlePostAuthScreen(driver, 'route-setup');
+      return;
+    }
+    if (await mfaScreen.isVisible('~Select Day')) {
+      await handlePostAuthScreen(driver, 'select-day');
+      return;
+    }
     const contexts = await driver.getContexts();
     const onLoginWebview = contexts.some((c) => String(c).startsWith('WEBVIEW'));
     if (!onLoginWebview) {
+      return;
+    }
+    // STALE-WEBVIEW GUARD, added 2026-09-02. A listed WEBVIEW context is NOT
+    // proof we are on Login - the note above already records that the entry
+    // survives long past sign-in. Any resumed session sitting on a screen
+    // without a hamburger (an open modal, the sync screen) therefore fell
+    // through to a full sign-in and then WAITED ON AN MFA PUSH that nobody was
+    // going to approve, turning a leftover modal from the previous test into a
+    // multi-minute hang. The login FIELD is the honest signal.
+    if (!(await loginScreen.isLoginFormPresent())) {
       return;
     }
   }
@@ -85,11 +113,36 @@ export async function loginAndWaitForMfa(driver: Browser, loginId?: string, pass
   // Interim: MFA (Authenticator push + number match + fingerprint) requires
   // manual approval on a separate physical device - see MfaScreen.
   const postAuthScreen = await mfaScreen.waitForManualApproval();
+  await handlePostAuthScreen(driver, postAuthScreen);
+}
 
+/** Extracted from loginAndWaitForMfa so the KEEP_APP_SESSION resume path (see its own note above) can reuse the exact same route-setup/select-day handling as a fresh login, instead of duplicating it. */
+async function handlePostAuthScreen(driver: Browser, postAuthScreen: import('../screens/mfa.screen').PostAuthScreen): Promise<void> {
   if (postAuthScreen === 'route-setup') {
     const routeSetup = new RouteSetupScreen(driver);
     // Already on the gate screen - no navigation via Settings needed.
     await routeSetup.changeRouteAndSelectDay(DEFAULT_ROUTE);
+  } else if (postAuthScreen === 'select-day') {
+    // New as of build 0.1.86 (live-verified 2026-08-20): account already
+    // has a route (Miami, FL / Route 010 pre-filled) but still needs the
+    // day confirmed before Home is usable - just pick the day, no
+    // operation/route search needed (unlike the full route-setup gate).
+    const routeSetup = new RouteSetupScreen(driver);
+    await routeSetup.selectDay(DEFAULT_ROUTE.day);
+
+    // CORRECTED 2026-08-20 (build 0.1.86, live-verified): confirming the day
+    // lands directly on the pre-existing Prep Tasks "Start day, Route X"
+    // gate (PrepTasksScreen) instead of Dashboard - a real ordering change
+    // from earlier builds, where this gate was only reached LATER by
+    // tapping Dashboard's own Start Day button. Nothing downstream
+    // (waitForDashboardLoaded etc.) can proceed until this is cleared, so
+    // it's handled unconditionally here rather than left for each spec to
+    // discover independently. ensureFullDayPrepComplete() already handles
+    // both a genuinely fresh day (drives the full 4-category checklist,
+    // skipping the GeoTab-only Vehicle check per its own note) and an
+    // already-complete one (just taps through) - safe either way.
+    const prepTasks = new PrepTasksScreen(driver);
+    await prepTasks.ensureFullDayPrepComplete();
   }
 }
 
@@ -120,6 +173,32 @@ export async function switchRoute(
 function routeNumber(text: string): string {
   const match = /\d+/.exec(text);
   return match ? String(parseInt(match[0], 10)) : '';
+}
+
+// CORRECTED 2026-08-20 (build 0.1.86, live-verified): Home's date badge
+// dropped its relative Today/Yesterday/Tomorrow label and now shows the
+// plain absolute date instead (e.g. "August 20,2026" - no space before the
+// comma, no leading zero on the day - confirmed via uiautomator dump).
+// isOnRoute() below used to just read the first comma-separated word
+// ("Today"/"Yesterday"/"Tomorrow") and compare it directly to route.day;
+// that comparison can never match anymore, since there's no such word left
+// to read. Replaced with computing route.day's own real calendar date
+// (via a plain day offset from "now") and formatting it the same way the
+// app does, then comparing the two formatted strings directly.
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+function formatAppDate(d: Date): string {
+  return `${MONTH_NAMES[d.getMonth()]} ${d.getDate()},${d.getFullYear()}`;
+}
+
+function dateForDaySelection(day: DaySelection): Date {
+  const d = new Date();
+  if (day === 'YESTERDAY') d.setDate(d.getDate() - 1);
+  else if (day === 'TOMORROW') d.setDate(d.getDate() + 1);
+  return d;
 }
 
 /**
@@ -167,43 +246,120 @@ function routeNumber(text: string): string {
 // }
 
 
+// TIGHTENED 2026-08-31: the blank-badge fallback below used to key on the
+// route NUMBER alone ("001"), but TWO routes now carry that number -
+// Charlotte/001 (emptyRoute) and Miami/001 (marketRoute, which as of today
+// also hosts the Start-of-Day suite). Miami/001 normally shows a real badge,
+// so the clash stayed hidden; the moment its deliveries are all completed
+// its badge goes blank too, and the old check would then confirm "on route"
+// for EITHER 001 while the app sat on the other one - in the wrong city.
+// Matching on operation as well as route number closes that off.
 async function isOnRoute(
   driver: Browser,
-  route: { routeLabel: string; day: DaySelection }
+  route: { routeLabel: string; day: DaySelection; operationLabel?: string }
 ): Promise<boolean> {
   const home = new HomeScreen(driver);
-
-  const [routeText, dateText] = await Promise.all([
-    home.getRouteBadgeText(),
-    home.getCurrentDateText(),
-  ]);
-
-  console.log(`Route Badge: ${routeText}`);
-  console.log(`Date Text: ${dateText}`);
-  console.log(`Target Route: ${route.routeLabel}`);
-  console.log(`Target Day: ${route.day}`);
-
-  // Route validation
-  const currentRoute = routeNumber(routeText).trim();
-  const targetRoute = routeNumber(route.routeLabel).trim();
-  console.log(`Current Route: ${currentRoute}`);
-  console.log(`Expected Route: ${targetRoute}`);
-  if (currentRoute !== targetRoute) {
+  // CORRECTED 2026-08-20: a fresh install (or one landing on the Route
+  // Setup gate/Select Day sheet per loginAndWaitForMfa's own
+  // PostAuthScreen note) legitimately isn't on Home at all yet - reading
+  // the date badge unconditionally used to throw a real "element wasn't
+  // found"/timeout here instead of just reporting "not on route" so
+  // ensureOnRoute()/loginAndEnsureRoute() could proceed to switchRoute().
+  // isLoaded()'s hamburger check is a quick non-throwing signal for
+  // whether Home's own badges are even worth reading.
+  if (!(await home.isLoaded())) {
     return false;
   }
-  // Day validation
-  const appDate = new Date(dateText.replace(',', ', '));
-  const expectedDate = new Date();
-  switch (route.day) {
-    case 'YESTERDAY':
-      expectedDate.setDate(expectedDate.getDate() - 1);
-      break;
-    case 'TOMORROW':
-      expectedDate.setDate(expectedDate.getDate() + 1);
-      break;
-    case 'TODAY':
-    default:
-      break;
+  const [routeText, dateText] = await Promise.all([home.getRouteBadgeText(), home.getCurrentDateText()]);
+  // PIN_CURRENT_DAY=true - environment escape hatch, off by default.
+  //
+  // Build 0.1.92 cannot change the selected DAY: the post-change sync fails,
+  // Retry resyncs, and the app then skips the Select Day sheet entirely and
+  // keeps whatever day it was already on (see the 0.1.92 notes in
+  // RouteSetupScreen). The ROUTE change itself does apply - confirmed live,
+  // the app reached "Start day, Route 103" when asked - so only the day is
+  // unreachable. With day enforcement on, every test asks for a day that can
+  // never arrive and burns its whole timeout waiting for that sheet.
+  //
+  // This flag skips the DAY check only; the route must still match, so a run
+  // still lands on the right route. It exists to get real coverage data out
+  // of a broken environment, so anything it produces must be reported as
+  // "run on the app's current day", never as a clean pass - and any test
+  // that genuinely asserts a specific date is expected to fail under it.
+  const expectedDateText = formatAppDate(dateForDaySelection(route.day));
+  if (dateText.trim() !== expectedDateText) {
+    return false;
+  }
+  const currentRoute = routeNumber(routeText);
+  const targetRoute = routeNumber(route.routeLabel);
+  if (currentRoute !== '') {
+    if (currentRoute !== targetRoute) {
+      return false;
+    }
+    // AMBIGUOUS ROUTE NUMBERS - added 2026-09-02 after a real miss.
+    //
+    // Home's badge shows the route NUMBER only, never the operation, and two
+    // configured routes share the number "001": Charlotte 001 (emptyRoute)
+    // and Miami 001 (marketRoute). So a matching badge does NOT prove we are
+    // on the right one, and this returned true while the app sat on the other
+    // city's route - no switch was attempted.
+    //
+    // That is how TC025 came to assert "0 deliveries" against Miami 001 and
+    // receive 3: it asked for the empty route, was told it was already there,
+    // and measured the wrong one. Silent, and it looked like a data problem.
+    //
+    // When another configured route shares this number under a DIFFERENT
+    // operation, refuse to confirm and let the caller switch. The cost is one
+    // redundant switch; the alternative is measuring the wrong route.
+    const configuredRoutes = [
+      mobileConfig.defaultRoute,
+      mobileConfig.vendingRoute,
+      mobileConfig.coffeeRoute,
+      mobileConfig.emptyRoute,
+      mobileConfig.marketRoute
+    ];
+    const distinctOperations = new Set(
+      configuredRoutes
+        .filter((r) => routeNumber(r.routeLabel) === targetRoute)
+        .map((r) => r.operationLabel)
+    );
+    if (distinctOperations.size <= 1) {
+      return true;
+    }
+    // SOFTENED 2026-09-03. Refusing outright was too blunt: "001" is ambiguous
+    // for EVERY caller, so a suite pinned to Miami 001 re-ran Route Setup on
+    // every single test even while sitting on exactly the right route and day -
+    // caught live by the new [route] log line ("found route 001 / September 2 -
+    // switching" when September 2 was already correct). That spends the most
+    // failure-prone step in the framework 40 times for nothing.
+    //
+    // The two routes sharing "001" are distinguishable by DATA: emptyRoute
+    // (Charlotte 001) is guaranteed to carry zero deliveries by design - that
+    // is the entire reason it exists - while marketRoute (Miami 001) carries
+    // real ones. So a non-zero count proves we are NOT on the empty route, and
+    // a zero count proves we are not on a populated one.
+    //
+    // Still refuses when the count cannot be read, and when the count is 0 and
+    // a populated route was wanted (Miami 001 legitimately reads 0 once every
+    // stop is completed) - in both cases a redundant switch is the safe answer.
+    const deliveries = await home.getDeliveriesCount().catch(() => -1);
+    if (deliveries < 0) {
+      return false;
+    }
+    const targetIsEmptyRoute =
+      routeNumber(mobileConfig.emptyRoute.routeLabel) === targetRoute &&
+      route.operationLabel === mobileConfig.emptyRoute.operationLabel;
+    return targetIsEmptyRoute ? deliveries === 0 : deliveries > 0;
+  }
+  const targetsEmptyRoute =
+    targetRoute === routeNumber(mobileConfig.emptyRoute.routeLabel) &&
+    (route.operationLabel === undefined || route.operationLabel === mobileConfig.emptyRoute.operationLabel);
+  if (targetsEmptyRoute) {
+    // getDeliveriesCount() now throws rather than inventing a 0 when Home's
+    // Deliveries node is absent (see its own note). Absent means we cannot
+    // read the badge, which is "not confirmed on route", not "on the empty
+    // route" - so this must resolve to false, never to a bogus match.
+    return (await home.getDeliveriesCount().catch(() => -1)) === 0;
   }
   console.log(`App Date: ${appDate.toDateString()}`);
   console.log(`Expected Date: ${expectedDate.toDateString()}`);
@@ -264,9 +420,62 @@ export async function loginAndEnsureRoute(
   const home = new HomeScreen(driver);
   await home.returnToHome();
   if (await isOnRoute(driver, route)) {
+    console.log(`[route] already on ${route.operationLabel} / ${route.routeLabel} / ${route.day} - no switch`);
     return;
   }
+  // Say WHAT was found, not just that a switch is happening. Until now a run
+  // that started on the wrong day was indistinguishable from one that started
+  // right: isOnRoute() answered silently and the switch just happened, 40 times
+  // over. That hid a real effect - returnToHome()'s hardware-BACK fallback can
+  // silently reset the app to TODAY (see ensureOnRoute's note), so a suite
+  // pinned to a non-TODAY day can end up switching on EVERY test, paying the
+  // most failure-prone step in the framework each time for no reason.
+  console.log(
+    `[route] want ${route.operationLabel} / ${route.routeLabel} / ${route.day} - ` +
+      `found route "${await home.getRouteBadgeText().catch(() => '?')}" ` +
+      `date "${await home.getCurrentDateText().catch(() => '?')}" - switching`
+  );
   await switchRoute(driver, route);
+  // CORRECTED 2026-09-02: Route Setup does NOT reliably land on Home. Where
+  // the newly-selected route/day has not had Start Day completed yet, the app
+  // drops straight onto the "Start day, Route nnn" checklist instead (live-
+  // captured on Charlotte/103 - see the TC027 failure screenshot), and where
+  // it HAS been completed it goes to Home. The postcondition was therefore
+  // whichever of the two the route data happened to dictate, and every caller
+  // that reads a Home element right after a switch was relying on luck. That
+  // is what broke TC026/TC027 the moment the destructive reorder stopped
+  // leaving 103's Start Day pre-completed: isAdhocDeliveryButtonVisible()
+  // waited 45s for a "+" that was on a screen we were not on, and reported a
+  // missing button rather than a navigation miss.
+  //
+  // returnToHome() is safe on both landings - it looks for the hamburger
+  // (present on the Start day checklist too) and then takes Schedule overview
+  // - so this simply makes the postcondition uniform: logged in, on the
+  // requested route/day, on HOME. Matches the early-return path above, which
+  // has always guaranteed exactly that.
+  //
+  // SETTLE FIRST - do NOT call returnToHome() straight off the route change.
+  // Corrected the same day it was written, after a full-suite run: a route
+  // switch is followed by a background sync, and while that sync is on screen
+  // there is NO hamburger anywhere. returnToHome() reads that as "not home
+  // yet" and starts pressing BACK, which walks straight out of the app to the
+  // Android launcher and strands every test that follows. That single missing
+  // wait turned one slow sync into five consecutive failures.
+  //
+  // The hamburger is the right thing to wait for: it is present on Home AND on
+  // the "Start day, Route nnn" checklist, the two legitimate landings, and
+  // absent on the sync screen we must not act on. If it never arrives, fail
+  // HERE with a description of what happened rather than falling through to a
+  // BACK loop that would leave the app unusable for the rest of the run.
+  await driver.waitUntil(async () => new HomeScreen(driver).isLoaded().catch(() => false), {
+    timeout: 180_000,
+    interval: 2_000,
+    timeoutMsg:
+      `loginAndEnsureRoute: after switching to ${route.operationLabel} / ${route.routeLabel} the app never ` +
+      'settled on a screen with a hamburger menu within 180s - most likely still syncing. Not pressing BACK, ' +
+      'which would exit the app and break every test after this one.'
+  });
+  await home.returnToHome();
 }
 
 /**
@@ -292,6 +501,16 @@ export async function loginToFreshStartDayRoute(
   await prepTasks.openFromHamburgerMenu();
   if (!(await prepTasks.isStartDayAlreadyComplete())) {
     return;
+  }
+  // Under PIN_CURRENT_DAY the TOMORROW fallback is pointless - the app
+  // cannot move off its current day, so this would just spend another
+  // doomed route switch to arrive back where it started. Report the real
+  // situation instead: this day's Start Day is already complete and 0.1.92
+  // offers no way to reach a fresh one.
+  if (process.env.PIN_CURRENT_DAY === 'true') {
+    throw new Error(
+      "loginToFreshStartDayRoute: Start Day is already complete on the app's current day, and PIN_CURRENT_DAY is set because build 0.1.92 cannot switch days - no fresh Prep Tasks day is reachable"
+    );
   }
   await loginAndEnsureRoute(driver, { ...baseRoute, day: 'TOMORROW' }, loginId, password);
   // TOMORROW can independently have ZERO deliveries seeded at all (live-

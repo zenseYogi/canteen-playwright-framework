@@ -108,6 +108,21 @@ export class TransfersScreen extends BaseScreen {
   // own lowercase "market" LOB card). Not reusing the shared helper here.
   private readonly lowercaseLobTab = (lob: 'Coffee' | 'Market' | 'Vending') =>
     `//android.view.View[@content-desc="${lob}"]`;
+  // CASE-INSENSITIVE, corrected 2026-08-28. These tabs were live-verified
+  // LOWERCASE on 2026-08-03 ("coffee"/"market"/"vending"); on build 0.1.90
+  // they render CAPITALISED ("Coffee"/"Market"/"Vending"). The exact-match
+  // locator therefore found none of them, and isLandingPageVisible() reported
+  // all three ABSENT - which silently broke transfers.spec.ts's TC085, whose
+  // whole assertion is that they are present. Found incidentally by End Day's
+  // ED-TC-008, which needed the same landing page.
+  //
+  // Third instance of this exact class of bug in this repo (see
+  // CoffeeServiceScreen.isChecklistTileComplete for "Equipment audit" vs
+  // "Equipment Audit", and the login/route-setup casing note). Matching
+  // case-insensitively rather than re-pinning to the new capitalisation, so
+  // the next flip does not break it again.
+  private readonly lobTab = (lob: 'coffee' | 'market' | 'vending') =>
+    `//android.view.View[translate(@content-desc,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="${lob}"]`;
 
   /** Excel TC085 - the Transfers landing page's per-LOB tabs and Route to Route/Route to Warehouse tab pair, live-verified 2026-08-03. */
   async isLandingPageVisible(): Promise<{

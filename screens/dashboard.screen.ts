@@ -64,10 +64,56 @@ export class DashboardScreen extends BaseScreen {
   // instead of relying on the row's own text.
   private nthServiceStationUnder(lob: Lob, position: Position): string {
     // +1: the card header's immediate first View sibling is a non-clickable
-    // numeric badge (content-desc "0", live-verified) - not a service
-    // station row at all. Actual station rows start at the second sibling.
+    // numeric badge - not a service station row at all. Actual station rows
+    // start at the second sibling.
+    //
+    // CORRECTED 2026-08-22 (M-TC-008, live-verified): this badge isn't a
+    // fixed "0" - it's the LOB card's real completion progress as a plain
+    // integer percentage (content-desc "0" before any station is actioned,
+    // "100" once fully complete). See serviceStationProgress()/
+    // getServiceStationProgress() below, which read this same node
+    // properly instead of just skipping past it.
     const index = positionToIndex(position, 1) + 1;
     return `//android.widget.ImageView[starts-with(@content-desc,"${lob}")]/following-sibling::android.view.View[${index}]`;
+  }
+
+  /** M-TC-008 "updated progress bar" - the LOB card's completion-progress node, immediately following its header (see nthServiceStationUnder's own corrected note). */
+  private serviceStationProgress(lob: Lob): string {
+    return `//android.widget.ImageView[starts-with(@content-desc,"${lob}")]/following-sibling::android.view.View[1]`;
+  }
+
+  /** M-TC-008 "updated progress bar" - reads the LOB card's completion percentage (0-100). Assumes the card is already expanded (see openFirstServiceStation/openNthServiceStation). */
+  async getServiceStationProgress(lob: Lob): Promise<number> {
+    const el = await this.driver.$(this.serviceStationProgress(lob));
+    const text = (await el.getAttribute('content-desc')) ?? '0';
+    return parseInt(text, 10) || 0;
+  }
+
+  /**
+   * M-TC-008 / C-TC-049 "green tick" - whether a given service station row
+   * shows its completed state. Same "no accessibility signal, the state exists
+   * only in the rendered bitmap" situation BaseScreen's pixel helpers already
+   * solve for the Prep Tasks checkboxes. Assumes the card is already expanded.
+   *
+   * CORRECTED 2026-08-28 (build 0.1.90, live-verified on Coffee/Charlotte 103):
+   * this used isChecklistIconChecked, which samples only the row's top-left
+   * 140x140. That is right for a checkbox and wrong here - the tick sits at the
+   * row's TRAILING edge, so the scan never reached it. The note it carried
+   * ("the light-green tinted background registers the same way") does not hold
+   * either: the tint is far too pale to satisfy isCompletionGreen's
+   * g > r + 30 test, so on a genuinely completed station this returned false
+   * while the screenshot plainly showed the tick. BaseScreen.hasCompletionGreen
+   * scans the WHOLE element, which is the case its own docstring was written
+   * for.
+   *
+   * Because the pale tint does not register, what this effectively detects is
+   * the saturated tick itself. Both callers assert it AFTER a completion
+   * action, so treat a bare true here as corroboration of a transition the
+   * caller has already driven, not as a standalone claim about the row.
+   */
+  async isNthServiceStationComplete(lob: Lob, position: Position): Promise<boolean> {
+    const el = await this.driver.$(this.nthServiceStationUnder(lob, position));
+    return this.hasCompletionGreen(el);
   }
 
   /** Like openFirstServiceStation, but for LOBs with more than one service station per stop (confirmed needed for Vending, and for Market stops like FedEx's "Breakroom" + "Homestead Warehouse"). */
@@ -298,6 +344,89 @@ async waitForServiceStationVisible(
   );
 }
 
+  /**
+   * The name of the first stop currently listed under Pending action.
+   *
+   * Added 2026-08-31 so specs can state a PRECONDITION ("a pending stop")
+   * instead of naming an account. stop-preview.spec.ts hardcoded "CureLeaf",
+   * a Miami/010 account, and broke the moment that suite moved to Miami/001
+   * (whose stops are Teva Pharmaceutical and United Collection Bureau) - the
+   * same class of breakage this suite already avoids elsewhere via runtime
+   * stop discovery. Returns '' when the schedule is empty, so callers can
+   * report "no data" rather than failing on a missing element.
+   */
+  /** Every stop name currently listed under Pending action, in order. */
+  async getPendingLocationNames(): Promise<string[]> {
+    await this.ensurePendingActionTabSelected();
+    const rows = await this.driver.$$(
+      '//android.view.View[contains(@content-desc,"Pending action")]/following-sibling::android.view.View//*[@clickable="true" and @content-desc!=""]'
+    );
+    const names: string[] = [];
+    for (const row of rows) {
+      const desc = String(await row.getAttribute('content-desc').catch(() => ''));
+      if (desc && desc !== 'null' && !/^(Pending action|Completed)/.test(desc)) {
+        names.push(desc);
+      }
+    }
+    return names;
+  }
+
+  async getFirstPendingLocationName(): Promise<string> {
+    await this.ensurePendingActionTabSelected();
+    const rows = await this.driver.$$(
+      '//android.view.View[contains(@content-desc,"Pending action")]/following-sibling::android.view.View//*[@clickable="true" and @content-desc!=""]'
+    );
+    for (const row of rows) {
+      const desc = String(await row.getAttribute('content-desc').catch(() => ''));
+      // Skip the tab chips themselves, which match the same clickable filter.
+      if (desc && desc !== 'null' && !/^(Pending action|Completed)/.test(desc)) {
+        return desc;
+      }
+    }
+    return '';
+  }
+
+  /**
+   * Like clickLocationByName(), but SCROLLS the schedule list to bring the row
+   * into view first.
+   *
+   * clickLocationByName() only ever sees what Home currently renders, which is
+   * a handful of rows - live-confirmed 2026-08-25 that Charlotte 103 carries
+   * 49 stops, so any stop past the first few is simply unreachable by name
+   * without this. Checks both tabs, since a stop moves to "Completed" once
+   * serviced. Returns false rather than throwing when the stop genuinely is
+   * not on the schedule, so callers can treat that as "does not qualify".
+   */
+  async scrollToAndClickLocationByName(name: string, maxScrolls = 25): Promise<boolean> {
+    // NOT the tab-anchored following-sibling path clickLocationByName() uses:
+    // the "Pending action" header itself scrolls out of the accessibility tree
+    // as soon as the list moves, so that path can never match a scrolled-to
+    // row. Live-confirmed 2026-08-25. A plain clickable+content-desc match is
+    // what actually resolves; stop names are distinctive enough to be safe.
+    const rowFor = (_tab: string) => `//*[@clickable="true" and @content-desc="${name}"]`;
+    for (const tab of ['Pending action', 'Completed']) {
+      await this.tap(`//android.view.View[contains(@content-desc,"${tab}")]`);
+      await this.driver.pause(1_200);
+      for (let i = 0; i < maxScrolls; i++) {
+        if (await this.isVisible(rowFor(tab))) {
+          await this.tap(rowFor(tab));
+          return true;
+        }
+        await this.driver.executeScript('mobile: scrollGesture', [
+          { left: 100, top: 600, width: 800, height: 1200, direction: 'down', percent: 0.8 }
+        ]);
+        await this.driver.pause(500);
+      }
+      // Restore the list to the top before trying the other tab - Home's own
+      // "Deliveries" title scrolls off, and returnToHome() waits on it.
+      for (let i = 0; i < maxScrolls; i++) {
+        await this.driver.executeScript('mobile: scrollGesture', [
+          { left: 100, top: 600, width: 800, height: 1200, direction: 'up', percent: 1.0 }
+        ]);
+      }
+    }
+    return false;
+  }
 
   /** Market TC001 "view the list of market stops" - same row locator as clickLocationByName(), without tapping it. */
   async isLocationVisible(name: string): Promise<boolean> {
@@ -328,6 +457,15 @@ async waitForServiceStationVisible(
   // separate element directly above the address (see getStopHeaderText's
   // own note) - this is that name-only element, one level up.
   private readonly stopLocationName = `${this.stopOverviewBadge}/following-sibling::android.view.View[1]`;
+  // Market TC003/M-TC-003 "view the delivery address" - CORRECTED
+  // 2026-08-21: getStopHeaderText() below actually reads the "Stop N of M"
+  // badge, not "location name + full address" as its own comment claims
+  // (no assertion had ever checked its actual string content, only
+  // length>0, so the mismatch went uncaught) - there was no real address
+  // getter at all until now. Live-verified (Route 010/CureLeaf): the
+  // address is a separate plain View immediately below stopLocationName
+  // (e.g. "19000 SW 192nd St Miami Florida 33187-1908").
+  private readonly stopLocationAddress = `${this.stopLocationName}/following-sibling::android.view.View[1]`;
 
   /** TC039 "view stop details" - the "Stop N of M" badge is the most reliable signal this screen (not some other) is showing. */
   async isStopOverviewVisible(): Promise<boolean> {
@@ -348,6 +486,12 @@ async waitForServiceStationVisible(
   /** Market TC004 "view the service location name" - assumes the Stop Overview screen is already open. */
   async getStopLocationName(): Promise<string> {
     const el = await this.driver.$(this.stopLocationName);
+    return (await el.getAttribute('content-desc')) ?? '';
+  }
+
+  /** Market TC003/M-TC-003 "view the delivery address" - assumes the Stop Overview screen is already open. */
+  async getStopLocationAddress(): Promise<string> {
+    const el = await this.driver.$(this.stopLocationAddress);
     return (await el.getAttribute('content-desc')) ?? '';
   }
 
@@ -440,6 +584,28 @@ async waitForServiceStationVisible(
     await this.tap(this.pendingActionTab);
   }
 
+  /**
+   * The number in a schedule tab pill - "Pending action (N)" / "Completed (N)".
+   *
+   * M-TC-035 needs these to check a SCHEDULE INVARIANT: the header's delivery
+   * count should equal pending + completed. The sheet records that invariant
+   * breaking after a skip-then-complete ("showing Deliveries as 3, but only 1
+   * Pending & 1 Completed"), which is the defect that case exists to catch.
+   */
+  private async tabCount(label: 'Pending action' | 'Completed'): Promise<number> {
+    const el = await this.driver.$(`//android.view.View[starts-with(@content-desc,"${label} (")]`);
+    const desc = (await el.getAttribute('content-desc').catch(() => '')) ?? '';
+    return Number(/\((\d+)\)/.exec(desc)?.[1] ?? NaN);
+  }
+
+  async getPendingActionCount(): Promise<number> {
+    return this.tabCount('Pending action');
+  }
+
+  async getCompletedCount(): Promise<number> {
+    return this.tabCount('Completed');
+  }
+
   /** TC021 "view Pending action tab" - the tab pill itself is present regardless of which one is currently selected. */
   async isPendingActionTabVisible(): Promise<boolean> {
     return this.isVisible(this.pendingActionTab);
@@ -528,6 +694,139 @@ async waitForServiceStationVisible(
     await this.tap(`${row}/android.widget.Button`);
   }
 
+  /**
+   * Removes the Nth service station - and with it its delivery - from the
+   * currently-open stop overview. Returns false when there is no such row, so
+   * callers can use it as a "clean up if a previous run left this behind"
+   * precondition rather than having to probe first.
+   *
+   * SAME swipe-reveals-an-unlabelled-Button mechanic as
+   * swipeAndSkipServiceStation() above, but NOT the same outcome, and the two
+   * must not be merged on that resemblance. Live-verified 2026-08-27 against
+   * an ad-hoc Coffee delivery (American Airlines / Josh Birmingham Pkwy on
+   * Charlotte 103): tapping this Button DELETES immediately - no "Skip stop"
+   * bottom sheet, no confirmation dialog of any kind - Home's delivery count
+   * drops by one, and the emptied stop itself disappears on a later refresh.
+   * Whether a row's Button skips or deletes is therefore contextual, so assert
+   * the outcome you expect instead of trusting the gesture.
+   *
+   * Uses revealRowDeleteResilient() rather than swipeAndSkipServiceStation's
+   * single fast swipe: this row needed the SLOW gesture when driven by hand,
+   * and which rows need which is not predictable per screen (see that
+   * helper's own note).
+   *
+   * PROVEN 2026-08-27 by SD-TC-024's cleanup step, which creates an ad-hoc
+   * delivery and then deletes it, asserting the route returns to 0
+   * deliveries. Works reliably in the SAME session that created the stop.
+   */
+  async deleteNthServiceStation(lob: Lob, position: Position): Promise<boolean> {
+    await this.clickLob(lob);
+    const row = this.nthServiceStationUnder(lob, position);
+    if (!(await this.isVisible(row))) {
+      return false;
+    }
+    if (!(await this.revealRowDeleteResilient(row))) {
+      return false;
+    }
+    await this.tapRowDeleteIcon(row);
+    return true;
+  }
+
+  // The "No Service" bottom sheet raised by tapping the skip control on a
+  // service station row. Live-captured 2026-08-27 on Miami 001 / United
+  // Collection Bureau:
+  //   "No Service" / account+address / "Reason for skipping stop | Select
+  //   reason" / "Select order option" / (o) Leave on truck / (o) Return to
+  //   warehouse / [Skip stop] DISABLED
+  private readonly skipSheetTitle = '~No Service';
+  private readonly skipReasonRow = '//android.view.View[starts-with(@content-desc,"Reason for skipping stop")]';
+  private readonly skipDispositionLeaveOnTruck = '//android.widget.RadioButton[@content-desc="Leave on truck"]';
+  private readonly skipDispositionReturnToWarehouse =
+    '//android.widget.RadioButton[@content-desc="Return to warehouse"]';
+  private readonly skipStopButton = '//android.widget.Button[@content-desc="Skip stop"]';
+
+  /**
+   * Opens the skip sheet for a service station WITHOUT skipping anything -
+   * swipe the row, tap the revealed control, stop there. Lets M-TC-023 assert
+   * the sheet's defaults and its disabled-until-complete gating without
+   * actually taking a stop out of service.
+   *
+   * Distinct from swipeAndSkipServiceStation() above, which commits. Note the
+   * same swipe reveals a control that DELETES rather than skips in other
+   * contexts (see deleteNthServiceStation) - the outcome is contextual, so
+   * assert what you expect rather than trusting the gesture.
+   */
+  /**
+   * ED-TC-008 - whether swiping the Nth service station row reveals ANY
+   * control at all (skip on Market, delete in other contexts).
+   *
+   * Exists to assert an ABSENCE safely. A swipe that reveals nothing looks
+   * identical to a swipe that did not take, so this goes through
+   * revealRowDeleteResilient, which escalates from the fast gesture to the
+   * slow one before giving up. A false from here therefore means the control
+   * is not there, rather than that the gesture missed - which is the whole
+   * claim ED-TC-008 rests on.
+   */
+  async revealsServiceStationRowControl(lob: Lob, position: Position): Promise<boolean> {
+    await this.clickLob(lob);
+    return this.revealRowDeleteResilient(this.nthServiceStationUnder(lob, position));
+  }
+
+  async openSkipStopSheet(lob: Lob, position: Position): Promise<void> {
+    await this.clickLob(lob);
+    const row = this.nthServiceStationUnder(lob, position);
+    await this.revealRowDelete(row, { slow: true });
+    await this.tap(`${row}/android.widget.Button`);
+    await this.waitFor(this.skipSheetTitle);
+  }
+
+  async isSkipStopSheetVisible(): Promise<boolean> {
+    return this.isVisible(this.skipSheetTitle);
+  }
+
+  /** The reason row's full label - M-TC-023 expects it to still read "Select reason" with nothing chosen. */
+  async getSkipReasonText(): Promise<string> {
+    const el = await this.driver.$(this.skipReasonRow);
+    return ((await el.getAttribute('content-desc')) ?? '').replace(/\n/g, ' | ');
+  }
+
+  /** Whether EITHER disposition radio is selected - M-TC-023 expects neither to be, initially. */
+  async isAnySkipDispositionSelected(): Promise<boolean> {
+    for (const sel of [this.skipDispositionLeaveOnTruck, this.skipDispositionReturnToWarehouse]) {
+      const el = await this.driver.$(sel);
+      if ((await el.getAttribute('checked').catch(() => 'false')) === 'true') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async isSkipStopButtonEnabled(): Promise<boolean> {
+    return this.isEnabled(this.skipStopButton);
+  }
+
+  /** Opens the reason picker and chooses one. Options live-captured 2026-08-27: Serviced Using Client App, Driver Skipped, Holiday-Vacation, Inaccessible-Closed, Acct Request-No Serv, Out of Order, Removed, Vehicle Issue, Weather. */
+  async selectSkipReason(reason: string): Promise<void> {
+    await this.tap(this.skipReasonRow);
+    await this.tap(`//*[@content-desc="${reason}"]`);
+  }
+
+  async selectSkipDisposition(which: 'leaveOnTruck' | 'returnToWarehouse'): Promise<void> {
+    await this.tap(
+      which === 'leaveOnTruck' ? this.skipDispositionLeaveOnTruck : this.skipDispositionReturnToWarehouse
+    );
+  }
+
+  /** Commits the skip. Separate from openSkipStopSheet() so a test can assert the sheet's gating without ever taking a stop out of service. */
+  async tapSkipStop(): Promise<void> {
+    await this.tap(this.skipStopButton);
+  }
+
+  /** Backs out of the skip sheet without skipping. */
+  async dismissSkipStopSheet(): Promise<void> {
+    await this.pressKeyCode(4);
+  }
+
   /** Whether "Complete Stop" is available on the current location-detail screen (present once every checklist tile - including any just-skipped station - is done). */
   async isCompleteStopVisible(): Promise<boolean> {
     return this.isVisible(this.completeStopButton);
@@ -543,6 +842,56 @@ async waitForServiceStationVisible(
    */
   async isCompleteStopEnabled(): Promise<boolean> {
     return this.isEnabled(this.completeStopButton);
+  }
+
+  // Reuses completedTab declared above. Its sibling has no declaration yet -
+  // each tab also carries its own live count ("Pending action (3)").
+  private readonly pendingTab = '//android.view.View[contains(@content-desc,"Pending action")]';
+
+  async openCompletedTab(): Promise<void> {
+    await this.tap(this.completedTab);
+    await this.driver.pause(1_500);
+  }
+
+  async openPendingTab(): Promise<void> {
+    await this.tap(this.pendingTab);
+    await this.driver.pause(1_500);
+  }
+
+  /**
+   * Whether a stop with this name is listed on whichever Home tab is showing -
+   * the evidence that a stop really did complete, as opposed to a button
+   * having been tapped.
+   *
+   * Scrolls, because Home renders only a few rows at a time, and ALWAYS
+   * restores the scroll position afterwards: "Deliveries" is the title
+   * returnToHome() anchors on, and it scrolls off the top, so leaving the list
+   * scrolled breaks every later navigation. That has bitten this suite before
+   * - see enumerateAllStops in coffee-service.spec.ts.
+   */
+  async isStopListedOnCurrentTab(name: string): Promise<boolean> {
+    let found = false;
+    for (let i = 0; i < 12 && !found; i++) {
+      for (const row of [...(await this.driver.$$('//*[@clickable="true" and @content-desc!=""]'))]) {
+        const desc = ((await row.getAttribute('content-desc')) ?? '').split('\n')[0].trim();
+        if (desc === name) {
+          found = true;
+          break;
+        }
+      }
+      if (found) break;
+      await this.driver.executeScript('mobile: scrollGesture', [
+        { left: 100, top: 600, width: 800, height: 1200, direction: 'down', percent: 0.8 }
+      ]);
+      await this.driver.pause(500);
+    }
+    for (let i = 0; i < 14; i++) {
+      await this.driver.executeScript('mobile: scrollGesture', [
+        { left: 100, top: 600, width: 800, height: 1200, direction: 'up', percent: 1.0 }
+      ]);
+    }
+    await this.driver.pause(500);
+    return found;
   }
 
   /** Taps "Complete Stop" on the current location-detail screen. */

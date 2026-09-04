@@ -206,9 +206,131 @@ export class BaseScreen {
     return el.getText();
   }
 
+  /**
+   * Taps an element only once its position has STOPPED MOVING.
+   *
+   * For anything that slides in - the navigation drawer above all - waiting
+   * for the element to exist is not enough: it reports its FINAL bounds while
+   * still animating, so a click aimed at that centre can land on whatever is
+   * currently under those coordinates. With the drawer that is the scrim,
+   * which closes it again, and the app is left exactly where it started with
+   * no error raised.
+   *
+   * Diagnosed 2026-08-28: EndDayScreen.openFromHamburgerMenu appeared to open
+   * End Day and silently stayed on Home, while the identical navigation done
+   * by hand - with a human-sized pause between taps - worked every time.
+   *
+   * Polls the location instead of sleeping a fixed amount, so it costs only
+   * what the animation actually takes.
+   */
+  async tapWhenSettled(selector: string, timeoutMs = 15_000): Promise<void> {
+    const el = await this.driver.$(selector);
+    await el.waitForDisplayed({ timeout: timeoutMs });
+    let previous = { x: -1, y: -1 };
+    await this.driver
+      .waitUntil(
+        async () => {
+          const current = await el.getLocation();
+          const settled = current.x === previous.x && current.y === previous.y;
+          previous = { x: current.x, y: current.y };
+          return settled;
+        },
+        { timeout: timeoutMs, interval: 250 }
+      )
+      .catch(() => undefined);
+    await el.click();
+  }
+
   async isVisible(selector: string): Promise<boolean> {
     const el = await this.driver.$(selector);
     return el.isDisplayed().catch(() => false);
+  }
+
+  // ---- Build 0.1.92 sync-failure recovery ----
+  //
+  // New in build 0.1.92 (live-verified 2026-08-31): route syncing now fails
+  // intermittently, replacing whatever screen was expected with a card
+  // reading "Syncing failed" / "Syncing routes failed" over a stalled
+  // progress bar, offering Retry and Change route. Seen twice within an
+  // hour - at 21% on the first launch after installing 92, and at 0%
+  // immediately after a Route Setup change - and BOTH recovered on the
+  // first Retry tap, so this is a transient sync fault rather than a dead
+  // end.
+  //
+  // Nothing in the framework could see it before: every wait watches only
+  // for its own target element, so the failure card just sat there burning
+  // the full 120s and surfaced as "element still not displayed", pointing
+  // at the wrong cause entirely (that is exactly how it presented as
+  // "Select Day never appeared").
+  //
+  // Keyed on the Retry button PLUS a node containing "failed", not on the
+  // message text: the wording differs between the two places this appears,
+  // and "Retry" alone is too generic to be safe as a sole signal.
+  private readonly syncRetryButton = '~Retry';
+  private readonly syncFailedText = '//*[contains(@content-desc, "failed")]';
+
+  async isSyncFailureVisible(): Promise<boolean> {
+    if (!(await this.isVisible(this.syncRetryButton))) {
+      return false;
+    }
+    return this.isVisible(this.syncFailedText);
+  }
+
+  /** Taps Retry if the sync-failure card is up. Returns whether it was. */
+  async recoverFromSyncFailure(): Promise<boolean> {
+    if (!(await this.isSyncFailureVisible())) {
+      return false;
+    }
+    await this.tap(this.syncRetryButton);
+    return true;
+  }
+
+  /**
+   * Waits for `selector`, tapping Retry each time the sync-failure card
+   * appears instead of the expected screen.
+   *
+   * Bounded by maxRetries rather than looping until the deadline: a sync
+   * that fails repeatedly is a real environment problem the run should
+   * surface, not something to paper over silently. On giving up it throws
+   * naming the sync failure, so the cause is not misreported as a missing
+   * element the way it was before this existed.
+   */
+  async waitForWithSyncRecovery(selector: string, timeoutMs = 120_000, maxRetries = 3): Promise<void> {
+    let deadline = Date.now() + timeoutMs;
+    let retries = 0;
+    while (Date.now() < deadline) {
+      if (await this.isVisible(selector)) {
+        return;
+      }
+      if (await this.isSyncFailureVisible()) {
+        if (retries >= maxRetries) {
+          throw new Error(
+            `waitForWithSyncRecovery: sync kept failing after ${retries} Retry taps while waiting for ${selector} (build 0.1.92 sync fault)`
+          );
+        }
+        retries += 1;
+        await this.tap(this.syncRetryButton);
+        // Let the card actually go away before resuming the poll. It stays
+        // on screen for a beat after the tap, and this loop comes back
+        // around every 2s - without this it would read the SAME failure as
+        // a fresh one and spend the whole retry budget double-tapping a
+        // sync that had already restarted.
+        await this.driver
+          .waitUntil(async () => !(await this.isSyncFailureVisible()), { timeout: 30_000, interval: 1000 })
+          .catch(() => undefined);
+        // A Retry restarts the sync from scratch, and a full sync runs
+        // 60-90s. Without granting it a fresh window it inherits whatever
+        // is left of the original budget and gets cut off mid-resync -
+        // which is exactly how this first presented: Retry was tapped,
+        // the sync WAS recovering, and the wait expired underneath it,
+        // making a working Retry look like a failed one.
+        deadline = Date.now() + timeoutMs;
+      }
+      await this.driver.pause(2000);
+    }
+    throw new Error(
+      `waitForWithSyncRecovery: ${selector} still not displayed after ${timeoutMs}ms (${retries} sync Retry taps along the way)`
+    );
   }
 
   /** Element's enabled/disabled state - distinct from isVisible/isDisplayed. Needed for the Excel test suite's many "Continue/Add disabled until X" assertions, which RF never tested. */
@@ -234,9 +356,9 @@ export class BaseScreen {
     return null;
   }
 
-  async waitFor(selector: string): Promise<void> {
+  async waitFor(selector: string, timeoutMs = mobileConfig.timeouts.element): Promise<void> {
     const el = await this.driver.$(selector);
-    await el.waitForDisplayed({ timeout: mobileConfig.timeouts.element });
+    await el.waitForDisplayed({ timeout: timeoutMs });
   }
 
   /**
@@ -669,10 +791,54 @@ export class BaseScreen {
         const x = Math.round(rect.x + dx);
         const y = Math.round(rect.y + dy);
         const idx = (png.width * y + x) << 2;
-        const r = png.data[idx];
-        const g = png.data[idx + 1];
-        const b = png.data[idx + 2];
-        if (g > r + 30 && g > b + 20) {
+        if (this.isCompletionGreen(png.data[idx], png.data[idx + 1], png.data[idx + 2])) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * The green this app paints a completed/checked state in, as distinct from
+   * the surrounding neutral UI.
+   *
+   * Extracted so every pixel-based completion check shares ONE definition and
+   * they cannot drift apart - the threshold was tuned live against the Prep
+   * Tasks checkboxes and is the only thing standing in for an accessibility
+   * signal that does not exist.
+   */
+  private isCompletionGreen(r: number, g: number, b: number): boolean {
+    return g > r + 30 && g > b + 20;
+  }
+
+  /**
+   * Whether a completion green is rendered anywhere inside an element's own
+   * bounds - the tile-level counterpart to isChecklistIconChecked().
+   *
+   * Scans the WHOLE element rather than a corner: isChecklistIconCheckedEl
+   * samples only the top-left 140x140, which is right for a checkbox but wrong
+   * for a checklist TILE, where the tick sits at the row's trailing edge and
+   * would be missed entirely.
+   *
+   * Use this DIFFERENTIALLY - assert no green before the action and green
+   * after. An absolute "is it green" check is not trustworthy on its own: any
+   * incidental green in the row would satisfy it, and a tile already completed
+   * by an earlier run would pass without the test having done anything. The
+   * before/after pair proves the transition, which is what the case is about.
+   */
+  async hasCompletionGreen(el: any): Promise<boolean> {
+    const [location, size] = await Promise.all([el.getLocation(), el.getSize()]);
+    const base64 = await this.driver.takeScreenshot();
+    const png = PNG.sync.read(Buffer.from(base64, 'base64'));
+    const startX = Math.round(location.x) + 4;
+    const endX = Math.min(png.width - 1, Math.round(location.x + size.width) - 4);
+    const startY = Math.round(location.y) + 4;
+    const endY = Math.min(png.height - 1, Math.round(location.y + size.height) - 4);
+    for (let y = startY; y < endY; y += 4) {
+      for (let x = startX; x < endX; x += 4) {
+        const idx = (png.width * y + x) << 2;
+        if (this.isCompletionGreen(png.data[idx], png.data[idx + 1], png.data[idx + 2])) {
           return true;
         }
       }
@@ -693,10 +859,30 @@ export class BaseScreen {
     }
   }
 
-  /** Checks every checklist icon currently matched by `selector` via pixel sampling (see isChecklistIconChecked) - skips any already checked, so a repeat call against a partially-completed screen is idempotent instead of unchecking already-done items. */
+  /**
+   * Checks every checklist icon currently matched by `selector` via pixel
+   * sampling (see isChecklistIconChecked) - skips any already checked, so a
+   * repeat call against a partially-completed screen is idempotent instead
+   * of unchecking already-done items.
+   *
+   * CORRECTED 2026-08-25 (build 0.1.90): re-resolves the match list on every
+   * iteration instead of holding the one `$$` snapshot taken up front.
+   * Clicking one icon can re-render the list and change how many nodes match
+   * (live-observed on Prep Tasks' Product collection, where the snapshot's
+   * element 2 then resolved against a 2-element list and threw "Index out of
+   * bounds! ... returned only 2 elements", failing Start Day outright). The
+   * loop is still bounded by the ORIGINAL count so a list that grows can't
+   * spin forever, and stops early if the list shrinks below the cursor.
+   */
   async selectAllChecklistIcons(selector: string): Promise<void> {
-    const elements = await this.driver.$$(selector);
-    for (const el of elements) {
+    const initial = [...(await this.driver.$$(selector))];
+    const total = initial.length;
+    for (let i = 0; i < total; i++) {
+      const current = [...(await this.driver.$$(selector))];
+      if (i >= current.length) {
+        break;
+      }
+      const el = current[i];
       if (!(await this.isChecklistIconCheckedEl(el))) {
         await el.click();
       }
@@ -715,7 +901,11 @@ export class BaseScreen {
    * presence detection, not a specific icon match.
    */
   async hasNonWhiteIconNearRightEdge(el: any): Promise<boolean> {
-    const rect = await el.getElementRect(el.elementId);
+    // Same fix as isChecklistIconCheckedEl's own note - getElementRect
+    // isn't meant to be called directly on an element; use getLocation()/
+    // getSize() instead.
+    const [location, size] = await Promise.all([el.getLocation(), el.getSize()]);
+    const rect = { x: location.x, y: location.y, width: size.width, height: size.height };
     const base64 = await this.driver.takeScreenshot();
     const png = PNG.sync.read(Buffer.from(base64, 'base64'));
     const stripStartX = rect.x + Math.round(rect.width * 0.85);
@@ -732,6 +922,134 @@ export class BaseScreen {
       }
     }
     return false;
+  }
+
+  /**
+   * C-TC-019 - relaunches the app WITHOUT tearing down the Appium session or
+   * clearing app data.
+   *
+   * terminateApp + activateApp, not `adb shell am force-stop`: the adb route
+   * kills the process out from under the session, so the next command fails
+   * and the test has to rebuild everything. This pair is the supported
+   * in-session restart and leaves the driver usable.
+   *
+   * It also deliberately does NOT clear data (no `pm clear`) - that is the
+   * fixture's cold-start path and would wipe the login. "After app relaunch"
+   * means restarted, not reinstalled.
+   *
+   * Worth having beyond C-TC-019: a test that fails mid-flow has repeatedly
+   * left this app on a screen BACK cannot escape (the in-app camera, the
+   * Equipment audit's "complete audit?" loop), which then breaks the NEXT run
+   * before it starts.
+   */
+  async relaunchApp(): Promise<void> {
+    const appId = mobileConfig.capabilities['appium:appPackage'];
+    await this.driver.execute('mobile: terminateApp', { appId });
+    await this.driver.pause(1_500);
+    await this.driver.execute('mobile: activateApp', { appId });
+    await this.driver.pause(4_000);
+  }
+
+  /** C-TC-045 - the package currently in the foreground. Used to detect the app handing off to an EXTERNAL app. */
+  async getForegroundPackage(): Promise<string> {
+    return (await this.driver.getCurrentPackage()) ?? '';
+  }
+
+  /**
+   * C-TC-045 - brings THIS app back to the foreground after an external app
+   * has taken over.
+   *
+   * Needed because a test that leaves the app would otherwise strand every
+   * test after it on someone else's screen - the same class of breakage that
+   * the in-app camera and the Equipment audit BACK-loop caused earlier. Uses
+   * activateApp rather than BACK: the external app's back stack is not ours to
+   * reason about.
+   */
+  async returnToThisApp(): Promise<void> {
+    const appId = mobileConfig.capabilities['appium:appPackage'];
+    await this.driver.execute('mobile: activateApp', { appId });
+    await this.driver.pause(3_000);
+  }
+
+  // ==== Shared swipe-to-reveal-delete primitives ====
+  //
+  // swipeAndDelete() below does this whole flow in one call, which fits a
+  // CLEANUP step but not a TEST of the delete itself: a test needs to assert
+  // the icon appeared, assert the confirmation appeared, and exercise the
+  // decline path before confirming. These three primitives are that same
+  // mechanic decomposed so those assertions can sit between the steps.
+  //
+  // Used by Coffee's C-TC-011 (Deliveries product) and C-TC-012 (saved
+  // presale); TransfersScreen's swipeRouteCardToRevealDelete/isDeleteIconVisible/
+  // tapDeleteIcon are the same three steps written out longhand and can be
+  // collapsed onto these when that suite is next touched.
+  //
+  // The CONFIRMATION is deliberately NOT part of these - it is not consistent
+  // across screens. Deliveries' "Delete Product" dialog answers No/Yes, while
+  // the Pre-sales one answers Cancel/Delete (BaseScreen.deleteButton) despite
+  // carrying the same title. Callers tap their own.
+
+  /**
+   * Swipes a row left to reveal its unlabelled delete Button.
+   *
+   * `slow` is for rows the default 300ms gesture does not register on.
+   * Live-verified 2026-08-25 (build 0.1.90, Coffee Pre-sales): the fast swipe
+   * produced NO reveal on the saved-presale row - the tree came back
+   * byte-identical, which reads exactly like "this row has no delete
+   * affordance" and nearly got C-TC-012 written off as a missing feature. A
+   * 900ms move bracketed by press/release pauses reveals it reliably.
+   * Deliveries' rows tolerate the fast version, so this stays opt-in.
+   */
+  async revealRowDelete(rowSelector: string, opts: { slow?: boolean } = {}): Promise<void> {
+    const row = await this.driver.$(rowSelector);
+    await row.waitForDisplayed({ timeout: mobileConfig.timeouts.element });
+    const loc = await row.getLocation();
+    const size = await row.getSize();
+    if (!opts.slow) {
+      await this.swipe(loc.x + size.width - 10, loc.y + size.height / 2, loc.x + 10, loc.y + size.height / 2);
+      return;
+    }
+    await this.driver
+      .action('pointer', { parameters: { pointerType: 'touch' } })
+      .move({ x: loc.x + size.width - 15, y: loc.y + size.height / 2 })
+      .down()
+      .pause(300)
+      .move({ duration: 900, x: loc.x + 15, y: loc.y + size.height / 2 })
+      .pause(300)
+      .up()
+      .perform();
+  }
+
+  /** Whether the delete Button revealed by revealRowDelete() is showing. Unlabelled everywhere, so addressed as the row's own Button child. */
+  async isRowDeleteIconVisible(rowSelector: string): Promise<boolean> {
+    return this.isVisible(`${rowSelector}/android.widget.Button`);
+  }
+
+  /**
+   * Reveals a row's delete control, escalating from the fast gesture to the
+   * slow one if the fast one did not take. Returns whether anything was
+   * actually revealed.
+   *
+   * Which rows need which gesture is NOT predictable from the screen: Coffee's
+   * Deliveries rows respond to the fast swipe, the saved-presale row responds
+   * ONLY to the slow one, and the Equipment audit CARD - which the fast swipe
+   * used to clear successfully - was live-observed on 2026-08-26 failing it
+   * too, leaving the Button unrevealed and the tap timing out 15s later.
+   * Rather than keep rediscovering this per screen (it has now cost three
+   * separate investigations), try fast, verify, and fall back to slow.
+   */
+  async revealRowDeleteResilient(rowSelector: string): Promise<boolean> {
+    await this.revealRowDelete(rowSelector);
+    if (await this.isRowDeleteIconVisible(rowSelector)) {
+      return true;
+    }
+    await this.revealRowDelete(rowSelector, { slow: true });
+    return this.isRowDeleteIconVisible(rowSelector);
+  }
+
+  /** Taps the delete Button revealed by revealRowDelete(), opening that screen's own confirmation. */
+  async tapRowDeleteIcon(rowSelector: string): Promise<void> {
+    await this.tap(`${rowSelector}/android.widget.Button`);
   }
 
   /** Straight-line swipe via the W3C pointer Actions API (same primitive `tapAt` uses, extended with a move). */
@@ -911,6 +1229,370 @@ await this.driver.releaseActions();
     await this.waitFor(this.skipPhotoModalTitle);
   }
 
+  // The photo REVIEW screen, reached by tapping the camera's shutter.
+  // Live-mapped 2026-08-27 on Market/Teva: unlike the camera itself (12 nodes,
+  // zero labels), this screen IS labelled - "Photos" heading, a label picker,
+  // a description EditText, and Delete photo / Take photo / Attach Photo.
+  //
+  // "Take photo" appears on BOTH the pre-capture sheet and here. It was
+  // recorded as meaning RETAKE on this screen; that is WRONG, corrected
+  // 2026-08-28 by counting deletes. This screen edits a LIST of captures one
+  // at a time (note the thumbnail beside the label picker) and "Take photo"
+  // ADDS a further capture rather than replacing the current one: capture,
+  // then "Take photo" and capture again, and it takes TWO deletes to get back
+  // to the camera. Deleting the last capture is what returns you there.
+  //
+  // So there is no replace affordance here at all - replacing means deleting
+  // and capturing again. C-TC-044 guards this explicitly by asserting the
+  // delete count.
+  protected readonly photoReviewTitle = '~Photos';
+  protected readonly deletePhotoButton = '//android.widget.Button[@content-desc="Delete photo"]';
+  protected readonly retakePhotoButton = '//android.widget.Button[@content-desc="Take photo"]';
+  // Positional: neither carries a content-desc of its own. The picker is the
+  // clickable View above the description field, and the description is the
+  // only EditText on the screen.
+  // Anchored on the description EditText rather than on a container: the
+  // review screen has no reliable ScrollView wrapper, and a ScrollView-scoped
+  // path found nothing. The picker is the nearest clickable View BEFORE the
+  // description field, which holds whatever the layout nests them in.
+  protected readonly photoLabelPicker =
+    '//android.widget.EditText/preceding::android.view.View[@clickable="true"][1]';
+  protected readonly photoDescriptionField = '//android.widget.EditText';
+
+  /** Whether the post-capture review screen is showing, with its retake/delete/attach controls. */
+  async isPhotoReviewVisible(): Promise<{ review: boolean; retake: boolean; delete: boolean; attach: boolean }> {
+    return {
+      review: await this.isVisible(this.photoReviewTitle),
+      retake: await this.isVisible(this.retakePhotoButton),
+      delete: await this.isVisible(this.deletePhotoButton),
+      attach: await this.isVisible(this.attachPhotoButton)
+    };
+  }
+
+  /**
+   * Taps the camera's shutter. The camera screen carries NO labels at all, so
+   * the shutter is addressed by capturePhotoButton's structural path - see its
+   * own declaration for why that is unavoidable here.
+   */
+  /**
+   * CORRECTED 2026-09-01 (build 0.1.92, live-verified via uiautomator dump):
+   * capturePhotoButton's 6-level structural path no longer matches. The real
+   * camera tree is FrameLayout > LinearLayout > FrameLayout > FrameLayout >
+   * View x4 > controls - an extra LinearLayout the ported path does not
+   * account for - so the tap hit nothing, the review screen never opened,
+   * and the failure surfaced as "~Photos still not displayed after 15000ms",
+   * which read as a missing review screen rather than a missed shutter. That
+   * locator was always flagged FRAGILE with "re-verify against the current
+   * build"; this is that re-verification.
+   *
+   * Selects by GEOMETRY instead. The camera screen carries no labels at all,
+   * but it has exactly three clickable controls in a fixed arrangement:
+   * flash (left), shutter (centre, clearly the largest), flip (right). The
+   * shutter is the one nearest the horizontal centre, which survives the
+   * hierarchy changing again.
+   */
+  async tapCameraShutter(): Promise<void> {
+    const controls = await this.getCameraControls();
+    if (controls.length === 0) {
+      // No camera controls at all: fall back to the legacy path so this
+      // reports the original failure rather than a confusing "no controls".
+      await this.tap(this.capturePhotoButton);
+      await this.waitFor(this.photoReviewTitle, 60_000);
+      return;
+    }
+    const { width: screenWidth } = await this.driver.getWindowSize();
+    const centre = screenWidth / 2;
+    const shutter = controls.reduce((best, c) =>
+      Math.abs(c.x + c.width / 2 - centre) < Math.abs(best.x + best.width / 2 - centre) ? c : best
+    );
+    await shutter.el.click();
+    // 60s, not the 15s default: capture plus review-screen render is slower
+    // than an ordinary screen transition on an emulator.
+    await this.waitFor(this.photoReviewTitle, 60_000);
+  }
+
+  /** Discards the captured image and returns to the camera. */
+  async deleteCapturedPhoto(): Promise<void> {
+    await this.tap(this.deletePhotoButton);
+  }
+
+  /**
+   * Taps the review screen's "Take photo", which ADDS a further capture -
+   * it does NOT retake/replace the current one. Named for the button, since
+   * naming it for the behaviour previously encoded an assumption that turned
+   * out to be false (see the note on retakePhotoButton).
+   */
+  async tapRetakePhoto(): Promise<void> {
+    await this.tap(this.retakePhotoButton);
+  }
+
+  async tapAttachPhoto(): Promise<void> {
+    await this.tap(this.attachPhotoButton);
+  }
+
+  // ---- In-app camera controls (C-TC-046) ----
+  //
+  // The camera screen carries ZERO content-descs - 12 nodes, not one labelled.
+  // Live-mapped 2026-08-27 on Coffee/Charlotte 103 and found identical to
+  // Market/Miami 001's, so this is one shared component and the mapping holds
+  // for both LOBs.
+  //
+  // It exposes exactly three clickable nodes along the bottom edge, left to
+  // right: an android.widget.Button, a larger android.view.View (the shutter),
+  // and an android.widget.ImageView.
+  //
+  // Naming them by POSITION alone would be a guess presented as a fact - such
+  // a test keeps passing if flash and flip are swapped, or if one is replaced
+  // by something else entirely. So each is identified by what tapping it
+  // demonstrably DOES, which is what tapCameraControlAndMeasure() exists for.
+  // Live-measured on the emulator: tapping the left control repaints 3% of its
+  // OWN bounds and restores them exactly on a second tap (a two-state icon
+  // toggle - the live preview could never round-trip to zero); tapping the
+  // right control changes 98% of the preview against 14.5% idle feed jitter (a
+  // camera switch, and nothing else can do that).
+  protected readonly anyClickable = '//*[@clickable="true"]';
+
+  /**
+   * The camera's clickable controls, ordered left to right, each with the
+   * bounds needed to sample its own region.
+   */
+  async getCameraControls(): Promise<
+    { el: any; className: string; x: number; y: number; width: number; height: number }[]
+  > {
+    const found: { el: any; className: string; x: number; y: number; width: number; height: number }[] = [];
+    for (const el of [...(await this.driver.$$(this.anyClickable))]) {
+      const [location, size] = await Promise.all([el.getLocation(), el.getSize()]);
+      found.push({
+        el,
+        className: (await el.getAttribute('class')) ?? '',
+        x: location.x,
+        y: location.y,
+        width: size.width,
+        height: size.height
+      });
+    }
+    return found.sort((a, b) => a.x - b.x);
+  }
+
+  /**
+   * Whether the unlabelled in-app camera is the screen currently showing.
+   *
+   * Its signature is exactly three clickable controls, none of which carries a
+   * content-desc. Both halves matter: the photo REVIEW screen also has a
+   * handful of clickable nodes, but they are labelled ("Delete photo",
+   * "Attach Photo"), so the absence of labels is what tells the two apart.
+   */
+  async isCameraScreen(): Promise<boolean> {
+    const controls = await this.getCameraControls();
+    if (controls.length !== 3) return false;
+    for (const c of controls) {
+      const desc = ((await c.el.getAttribute('content-desc')) ?? '').trim();
+      if (desc && desc !== 'null') return false;
+    }
+    return true;
+  }
+
+  /**
+   * Leaves the caller on the in-app CAMERA, whatever state the photo tile was
+   * already in.
+   *
+   * Tapping "Take photo" opens the camera on a tile carrying no photo yet -
+   * but on one that ALREADY has a photo attached it opens THAT photo's review
+   * screen instead. Live-verified 2026-08-27, and the reason C-TC-046 and
+   * C-TC-056 both passed in isolation and then both failed on their next run
+   * against the same stop: one found the review screen's labelled controls
+   * where it expected the camera's unlabelled three, the other found the
+   * previous run's label already filled in.
+   *
+   * Deleting from the review screen drops back to the camera, so discarding
+   * whatever is there is what makes this idempotent - and that matters more
+   * than it sounds, because Charlotte 103 carried a single Coffee stop on
+   * 2026-08-27. Without this, every run would need a fresh stop.
+   */
+  async reachCamera(): Promise<void> {
+    await this.tap('//android.widget.Button[@content-desc="Take photo"]');
+    await this.driver.pause(4_000);
+    // Bounded rather than while(true): if deleting ever stops returning to the
+    // camera, this must fail with waitForCameraScreen's message rather than
+    // spin.
+    for (let i = 0; i < 3; i++) {
+      if (!(await this.isPhotoReviewVisible()).review) break;
+      await this.deleteCapturedPhoto();
+      await this.driver.pause(3_000);
+    }
+    await this.waitForCameraScreen();
+  }
+
+  async waitForCameraScreen(): Promise<void> {
+    await this.driver.waitUntil(async () => this.isCameraScreen(), {
+      timeout: 30_000,
+      interval: 1_000,
+      timeoutMsg: 'The in-app camera never appeared (expected three unlabelled controls)'
+    });
+  }
+
+  /** The screen as a decoded PNG. Shared by every pixel-based check here. */
+  protected async screenshotPng(): Promise<PNG> {
+    return PNG.sync.read(Buffer.from(await this.driver.takeScreenshot(), 'base64'));
+  }
+
+  /**
+   * Share (0-100) of sampled pixels inside `rect` that differ between two
+   * screenshots. Sampled every `step` pixels rather than exhaustively - the
+   * signals this separates are 3% vs 0% and 98% vs 14%, nowhere near fine
+   * enough to need every pixel, and a full scan of a 1080x2400 frame in JS is
+   * slow enough to matter when it runs four times in one test.
+   */
+  protected diffPercent(
+    before: PNG,
+    after: PNG,
+    rect: { x: number; y: number; width: number; height: number },
+    step = 3,
+    threshold = 40
+  ): number {
+    const endX = Math.min(before.width, after.width, Math.round(rect.x + rect.width));
+    const endY = Math.min(before.height, after.height, Math.round(rect.y + rect.height));
+    let sampled = 0;
+    let changed = 0;
+    for (let y = Math.max(0, Math.round(rect.y)); y < endY; y += step) {
+      for (let x = Math.max(0, Math.round(rect.x)); x < endX; x += step) {
+        const idx = (before.width * y + x) << 2;
+        const jdx = (after.width * y + x) << 2;
+        sampled++;
+        const delta =
+          Math.abs(before.data[idx] - after.data[jdx]) +
+          Math.abs(before.data[idx + 1] - after.data[jdx + 1]) +
+          Math.abs(before.data[idx + 2] - after.data[jdx + 2]);
+        if (delta > threshold) changed++;
+      }
+    }
+    return sampled === 0 ? 0 : Math.round((1000 * changed) / sampled) / 10;
+  }
+
+  /**
+   * Taps a camera control and reports how much changed - separately inside the
+   * control's OWN bounds and across the live preview above it.
+   *
+   * That split is the entire discriminator between the two unlabelled
+   * controls, so it is reported rather than judged here: a flash toggle
+   * repaints its own icon and leaves the scene alone, while a camera flip
+   * replaces the whole feed.
+   *
+   * `reference` lets the caller measure against the state BEFORE an earlier
+   * tap instead of the state right before this one, which is how the flash
+   * round-trip is proven.
+   */
+  async tapCameraControlAndMeasure(
+    control: { el: any; x: number; y: number; width: number; height: number },
+    reference?: PNG
+  ): Promise<{ own: number; preview: number; before: PNG; after: PNG }> {
+    const before = reference ?? (await this.screenshotPng());
+    await control.el.click();
+    await this.driver.pause(2_500);
+    const after = await this.screenshotPng();
+    // The preview band, kept clear of the status bar at the top and of the
+    // control strip itself at the bottom, so "the feed changed" cannot be
+    // satisfied by a control's own icon repainting.
+    const preview = {
+      x: 0,
+      y: Math.round(after.height * 0.15),
+      width: after.width,
+      height: Math.round(after.height * 0.6)
+    };
+    return {
+      own: this.diffPercent(before, after, control),
+      preview: this.diffPercent(before, after, preview),
+      before,
+      after
+    };
+  }
+
+  /**
+   * How much the live preview drifts on its own between two reads, with
+   * nothing tapped. The camera feed is never pixel-identical frame to frame,
+   * so "the feed changed" has to be judged against this floor rather than
+   * against zero - measured at ~14% on the emulator, against the ~98% a real
+   * camera switch produces.
+   */
+  async measureCameraPreviewJitter(): Promise<number> {
+    const first = await this.screenshotPng();
+    await this.driver.pause(2_000);
+    const second = await this.screenshotPng();
+    return this.diffPercent(first, second, {
+      x: 0,
+      y: Math.round(first.height * 0.15),
+      width: first.width,
+      height: Math.round(first.height * 0.6)
+    });
+  }
+
+  /**
+   * The label currently chosen on the photo review screen, or '' if none.
+   *
+   * Reads content-desc AND text: the picker exposes its selection as `text` on
+   * Coffee and the two LOBs have not been seen to agree on which attribute
+   * carries it, so relying on either alone silently returns '' on the other.
+   */
+  async getSelectedPhotoLabel(): Promise<string> {
+    const el = await this.driver.$(this.photoLabelPicker);
+    if (!(await el.isExisting())) return '';
+    // Appium hands back the literal STRING "null" for an attribute the node
+    // does not carry, not null - so `?? ''` never fires and an unlabelled
+    // picker reads as the four characters n-u-l-l. Both are normalised to ''.
+    const read = async (name: string): Promise<string> => {
+      const raw = ((await el.getAttribute(name)) ?? '').trim();
+      return raw === 'null' ? '' : raw;
+    };
+    return (await read('content-desc')) || (await read('text'));
+  }
+
+  /** The "Select Label" sheet opened by tapping the review screen's label picker. */
+  protected readonly selectLabelTitle = '~Select Label';
+
+  async isSelectLabelSheetVisible(): Promise<boolean> {
+    return this.isVisible(this.selectLabelTitle);
+  }
+
+  /** Every label the "Select Label" sheet offers, in the order it lists them. */
+  async getPhotoLabelOptions(): Promise<{ el: any; label: string }[]> {
+    const options: { el: any; label: string }[] = [];
+    for (const el of [
+      ...(await this.driver.$$('//android.view.View[@clickable="true" and string-length(@content-desc)>2]'))
+    ]) {
+      const label = ((await el.getAttribute('content-desc')) ?? '').trim();
+      if (label && label !== 'Select Label') options.push({ el, label });
+    }
+    return options;
+  }
+
+  /**
+   * Every content-desc currently on screen, joined. Used to EVIDENCE what a
+   * screen actually shows rather than asserting blind against a field that may
+   * not exist - e.g. proving "Equipped Date & Time" is absent (C-TC-021), or
+   * that a chosen photo label survived an attach (M-TC-041).
+   *
+   * Moved here from CoffeeServiceScreen 2026-08-27: it is LOB-agnostic and
+   * Market needed it too.
+   */
+  async getVisibleScreenText(): Promise<string> {
+    const parts: string[] = [];
+    for (const e of [...(await this.driver.$$('//*[@content-desc!=""]'))]) {
+      parts.push(((await e.getAttribute('content-desc')) ?? '').replace(/\n/g, ' | '));
+    }
+    return parts.join('  //  ');
+  }
+
+  /** Opens the photo's label picker on the review screen. */
+  async tapPhotoLabelPicker(): Promise<void> {
+    await this.tap(this.photoLabelPicker);
+  }
+
+  async enterPhotoDescription(text: string): Promise<void> {
+    const el = await this.driver.$(this.photoDescriptionField);
+    await el.click();
+    await el.setValue(text);
+  }
+
   async isPhotoModalVisible(): Promise<{ takePhoto: boolean; skipPhoto: boolean }> {
     return {
       takePhoto: await this.isVisible(this.takePhotoButton),
@@ -1087,8 +1769,30 @@ await this.driver.releaseActions();
     await this.fillRemovalsField(this.removalsTheftField, values.theft ?? '0');
     await this.fillRemovalsField(this.removalsTruckReturnsField, values.truckReturns ?? '0');
     await this.tap(this.removalsSaveButton);
-    await this.waitFor(this.removalsDoneButton);
-    await this.tap(this.removalsDoneButton);
+    // CORRECTED 2026-08-25 (build 0.1.90, live-verified by dumping the modal):
+    // the Document product modal's ONLY buttons are Cancel and Save - there is
+    // no "Done" button on it, nor on the Removals & Returns list it returns to
+    // (whose only controls are the sort/filter CTAs plus the saved rows). The
+    // unconditional Done wait+tap here was ported from RF and never verified
+    // live - see vending-service.screen.ts's own note flagging exactly these
+    // removals locators as unverified ports - and it failed M-TC-013 on a save
+    // that had actually SUCCEEDED (the row was persisted; only this step
+    // threw). Tapping Done only when one really appears keeps any build that
+    // does have it working, while a build without it just confirms the modal
+    // closed.
+    const done = await this.driver.$(this.removalsDoneButton);
+    const hasDone = await done.waitForDisplayed({ timeout: 5_000 }).catch(() => false);
+    if (hasDone) {
+      await done.click();
+      return;
+    }
+    await this.waitForGone(this.documentProductTitle);
+  }
+
+  /** Waits until `selector` is no longer displayed - the inverse of waitFor(), for confirming a modal/overlay has actually closed rather than guessing with a fixed pause. */
+  protected async waitForGone(selector: string, timeoutMs = mobileConfig.timeouts.element): Promise<void> {
+    const el = await this.driver.$(selector);
+    await el.waitForDisplayed({ timeout: timeoutMs, reverse: true });
   }
 
   /** Clicks then sets a value on one of Removals & Returns' custom-keypad-driven quantity fields - see performRemovalsAndReturns's own note on why a bare setValue() isn't enough. */

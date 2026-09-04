@@ -1,4 +1,5 @@
 import { BaseScreen } from './base.screen';
+import { mobileConfig } from '../config/mobile.config';
 import type { Lob } from '../utils/lob';
 
 /**
@@ -18,11 +19,31 @@ export class HomeScreen extends BaseScreen {
   // three fixed prefixes, since the day/date portion changes daily.
   // private readonly currentDateBadge =
   //   '//android.view.View[starts-with(@content-desc,"Today") or starts-with(@content-desc,"Yesterday") or starts-with(@content-desc,"Tomorrow")]';
+  // against build 0.1.76 (Miami/010). The day badge's content-desc used to
+  // be a relative label (e.g. "Yesterday, Thu 23 Jul").
+  //
+  // CORRECTED 2026-08-20 (build 0.1.86, live-verified via uiautomator dump):
+  // this badge now shows the plain absolute date instead (e.g.
+  // "August 20,2026" - no space before the comma, no leading zero on the
+  // day) - the relative Today/Yesterday/Tomorrow label is gone entirely.
+  // Matched by month-name prefix instead, since the day/date portion still
+  // changes daily. isOnRoute() in utils/login-flow.ts had to change its
+  // comparison logic to match (formats and compares an absolute date rather
+  // than reading a relative-day prefix).
+  private readonly currentDateBadge =
+    '//android.view.View[starts-with(@content-desc,"January") or starts-with(@content-desc,"February") or starts-with(@content-desc,"March") or starts-with(@content-desc,"April") or starts-with(@content-desc,"May") or starts-with(@content-desc,"June") or starts-with(@content-desc,"July") or starts-with(@content-desc,"August") or starts-with(@content-desc,"September") or starts-with(@content-desc,"October") or starts-with(@content-desc,"November") or starts-with(@content-desc,"December")]';
   private readonly routeBadge = '//android.view.View[starts-with(@content-desc,"Route")]';
   // The "Select a day" bottom sheet's own TODAY card (content-desc packs
   // the label and date together, e.g. "TODAY\nAugust 7, 2026") - used by
   // returnToHome() to dismiss this sheet if left open.
   private readonly selectADaySheetTodayOption = '//android.view.View[starts-with(@content-desc,"TODAY")]';
+  // New as of build 0.1.86 (live-verified 2026-08-20): tapping a day option
+  // now raises a "Confirm Date!" dialog needing an extra tap before the
+  // sheet actually closes - see RouteSetupScreen.selectDay's matching fix.
+  // Without this, returnToHome()'s loop below just re-taps TODAY forever
+  // against a dialog that's still sitting on top, burning the whole
+  // maxBackPresses budget without ever reaching the hamburger.
+  private readonly confirmDateButton = '~Confirm';
   // Live-verified: each LOB's "X/Y" count badge and its name label are
   // siblings in two separate groups under the same parent (all counts
   // first, then all labels), in the SAME per-LOB order - e.g. Market's
@@ -41,9 +62,26 @@ export class HomeScreen extends BaseScreen {
     return this.isVisible(this.hamburgerIcon);
   }
 
-  /** Ported from dashboard_keywords.robot's "Validate user is on the dashboard page". */
-  async waitForDashboardLoaded(): Promise<void> {
-    await this.waitFor(this.deliveriesTitle);
+  /**
+   * Ported from dashboard_keywords.robot's "Validate user is on the dashboard page".
+   *
+   * CORRECTED 2026-08-20 (build 0.1.86, live-verified): right after the new
+   * post-MFA "Select Day" sheet is dismissed (see MfaScreen.waitForManualApproval),
+   * the app briefly renders an interim "Start day, Route NNN" checklist screen
+   * (Product collection/Money operations/Additional prep/Checks) while a
+   * background sync settles, before this real Dashboard appears - the same
+   * 60-90s class of sync delay RouteSetupScreen.waitForSyncAndDaySheet already
+   * accounts for. BaseScreen's default 15s element timeout isn't enough here;
+   * this is a real settle delay, not a broken locator - deliveriesTitle itself
+   * was confirmed correct (content-desc "1 Delivery") once given time.
+   */
+  // Sync-failure aware as of build 0.1.92 (2026-08-31): the same "Syncing
+  // failed" card that interrupts Route Setup also appears on launch, before
+  // Dashboard is ever reached - hit at 21% on the first launch after
+  // installing 92. Every spec funnels through here, so recovering at this
+  // one point covers the whole suite. See BaseScreen.waitForWithSyncRecovery.
+  async waitForDashboardLoaded(timeoutMs = 120_000): Promise<void> {
+    await this.waitForWithSyncRecovery(this.deliveriesTitle, timeoutMs);
   }
 
   async tapStartDay(): Promise<void> {
@@ -93,11 +131,11 @@ export class HomeScreen extends BaseScreen {
   private readonly currentDateBadge =
   '//android.widget.Button[@content-desc="Open navigation menu"]/following-sibling::android.view.View[1]';
 
-async getCurrentDateText(): Promise<string> {
-  const el = await this.driver.$(this.currentDateBadge);
-  await el.waitForDisplayed({ timeout: 10000 });
-  return (await el.getAttribute('content-desc')) ?? '';
-}
+// async getCurrentDateText(): Promise<string> {
+//   const el = await this.driver.$(this.currentDateBadge);
+//   await el.waitForDisplayed({ timeout: 10000 });
+//   return (await el.getAttribute('content-desc')) ?? '';
+// }
 
 
 
@@ -107,19 +145,73 @@ async getCurrentDateText(): Promise<string> {
     const day = date.getDate();
     const year = date.getFullYear();
     return `${month} ${day},${year}`;
+    
   }
-
-  /** TC012 "view route badge" - e.g. "Route 103". */
-  async getRouteBadgeText(): Promise<string> {
-    const el = await this.driver.$(this.routeBadge);
+  /**
+   * TC007 "view the System Date" - the day/date badge in the navigation bar
+   * (e.g. "Yesterday, Thu 23 Jul").
+   *
+   * CORRECTED 2026-08-20: callers landing on Home right after
+   * returnToHome()/loginAndEnsureRoute() can beat the same background-sync
+   * settle delay documented on waitForDashboardLoaded - the badge isn't in
+   * the tree yet, and a bare $().getAttribute() throws "element wasn't
+   * found" instead of returning ''. Waits for it first, same pattern as
+   * waitForDashboardLoaded.
+   */
+  async getCurrentDateText(): Promise<string> {
+    await this.waitFor(this.currentDateBadge, 120_000);
+    const el = await this.driver.$(this.currentDateBadge);
     return (await el.getAttribute('content-desc')) ?? '';
   }
 
+  /**
+   * TC012 "view route badge" - e.g. "Route 103".
+   *
+   * CORRECTED 2026-08-20: the earlier "deliberately not waitFor'd" reasoning
+   * below was too broad - live-verified a REAL route's badge can just as
+   * easily lose the same Home-settle race as the date badge (getAttribute()
+   * throwing "element wasn't found" moments after isLoaded()'s hamburger
+   * check passed), not only the guaranteed-empty test route this note
+   * originally had in mind. A short bounded wait (much less than
+   * getCurrentDateText's 120s - this route legitimately has none to wait
+   * for) that swallows its own timeout instead of throwing covers both
+   * cases: a real route's badge gets the brief settle time it needs, and
+   * the empty route still resolves to '' quickly rather than hanging.
+   * isOnRoute() already treats '' as "check the deliveries count instead".
+   */
+  async getRouteBadgeText(): Promise<string> {
+    await this.waitFor(this.routeBadge, 20_000).catch(() => {});
+    const el = await this.driver.$(this.routeBadge);
+    return (await el.getAttribute('content-desc').catch(() => '')) ?? '';
+  }
+
   /** TC013 "view Deliveries" / TC014 "view remaining deliveries" (PBI 622025) - parsed from the shared "N Delivery/Deliveries" text. */
-  async getDeliveriesCount(): Promise<number> {
+  async getDeliveriesCount(timeoutMs = 30_000): Promise<number> {
+    // Bounded wait, added 2026-09-02. This read used to be completely
+    // unguarded - $() straight into getAttribute() - so any caller arriving a
+    // moment before Home painted got a raw "Can't call getAttribute on
+    // element ... element wasn't found" rather than a count, or a diagnosis.
+    // Same Home-settle race getRouteBadgeText() already allows for. It is how
+    // TC025 reported a missing element when the real problem was that the app
+    // was still on the Start day checklist after a route switch (fixed at
+    // source in loginAndEnsureRoute), and the message pointed nowhere useful.
+    //
+    // Deliberately does NOT swallow an absent node into 0. isOnRoute() reads a
+    // 0 here as proof we are on emptyRoute, so inventing a zero would confirm
+    // the WRONG route - exactly the class of silent mis-navigation the
+    // ambiguous-route-number fix in login-flow.ts was written to close off.
+    // Callers that can legitimately be off Home catch this instead.
+    await this.waitFor(this.deliveriesTitle, timeoutMs).catch(() => {});
     const el = await this.driver.$(this.deliveriesTitle);
-    const desc = (await el.getAttribute('content-desc')) ?? '';
-    return Number(/(\d+)/.exec(desc)?.[1]);
+    const desc = (await el.getAttribute('content-desc').catch(() => '')) ?? '';
+    const digits = /(\d+)/.exec(desc)?.[1];
+    if (digits === undefined) {
+      throw new Error(
+        `getDeliveriesCount: no "N Delivery/Deliveries" node on Home after ${timeoutMs}ms ` +
+          `(read "${desc}") - the app is most likely not on Home at all`
+      );
+    }
+    return Number(digits);
   }
 
   /**
@@ -233,18 +325,54 @@ async getCurrentDateText(): Promise<string> {
   }
 
   /** TC025 "Start day button should be display as inactive" when there are no deliveries. */
+  /**
+   * Whether Home is still offering its own "Start day" CTA at all - the
+   * signal that this route/day has NOT had Start Day performed yet. Live-
+   * verified 2026-08-27 on Charlotte 103 / 26 Aug: the button is present
+   * (enabled or not) beforehand and disappears from Home entirely once Start
+   * Day completes.
+   *
+   * Distinct from isStartDayDisabled(), which cannot be used as a presence
+   * check - isEnabled() swallows a missing element into `false`, so a
+   * DISAPPEARED button and a DISABLED one both report "disabled".
+   */
+  async isStartDayVisible(): Promise<boolean> {
+    return this.isVisible(this.startDayButton);
+  }
+
   async isStartDayDisabled(): Promise<boolean> {
     return !(await this.isEnabled(this.startDayButton));
   }
 
-  /** TC026 - the "+" icon (Schedule Ad-hoc Delivery's own primary CTA) is visible before it's tapped. */
-  async isAdhocDeliveryButtonVisible(): Promise<boolean> {
-    return this.isVisible(this.addAdhocDeliveryButton);
+  /**
+   * TC026 - the "+" icon (Schedule Ad-hoc Delivery's own primary CTA) is
+   * visible before it's tapped.
+   *
+   * CORRECTED 2026-08-31: this used a bare isVisible(), which checks
+   * isDisplayed() ONCE with no wait, and so reported false on any route whose
+   * Schedule section had not painted yet. It passed on Miami/001 (2
+   * deliveries, renders instantly) and failed on Charlotte/103 (154
+   * deliveries) - diagnosed by dumping 103's live tree while the "+" was
+   * plainly on screen: the icon was present and exactly where the locator
+   * expects it (clickable View at index 8, immediately after "Schedule"), so
+   * the locator was never wrong, the check just ran too early. The 15s
+   * default was not enough for 103 either - SD-TC-031 timed out on this same
+   * element at 15s - so heavy routes get a longer allowance.
+   */
+  async isAdhocDeliveryButtonVisible(timeoutMs = 45_000): Promise<boolean> {
+    const el = await this.driver.$(this.addAdhocDeliveryButton);
+    return el.waitForDisplayed({ timeout: timeoutMs }).then(
+      () => true,
+      () => false
+    );
   }
 
   /** TC027/TC028 - opens the Ad-hoc delivery creation screen via the "+" icon. */
   async openAdhocDeliveryCreation(): Promise<void> {
-    await this.tap(this.addAdhocDeliveryButton);
+    // Same slow-render allowance as isAdhocDeliveryButtonVisible above - on a
+    // 154-delivery route the default 15s tap timeout expires before the
+    // Schedule row exists.
+    await this.tap(this.addAdhocDeliveryButton, 45_000);
   }
 
   // Live-verified 2026-07-24: pressing BACK from a screen with unsaved
@@ -254,6 +382,10 @@ async getCurrentDateText(): Promise<string> {
   // dialog, which just dismisses it back to the SAME screen - the very next
   // press re-triggers the identical dialog, looping forever and never
   // making progress. Must tap "Discard" explicitly instead.
+  // Coffee's signature-discard prompt - see returnToHome's own note on why
+  // this loop must tap "Go Back" explicitly rather than pressing BACK again.
+  private readonly signatureDiscardPrompt = '//*[starts-with(@content-desc,"Are you sure?")]';
+  private readonly signatureDiscardGoBack = '//android.widget.Button[@content-desc="Go Back"]';
   private readonly discardChangesButton = '~Discard';
   // A SECOND, differently-worded variant of the same dialog class - live-
   // verified 2026-08-05 on Market's Removals & Returns "Document product"
@@ -306,6 +438,24 @@ async getCurrentDateText(): Promise<string> {
         reachedHamburger = true;
         break;
       }
+      // FOREGROUND GUARD, added 2026-09-02 after this loop walked the whole
+      // suite out of the app. BACK from Home EXITS to the Android launcher,
+      // and every further BACK is then pressed against the launcher, which
+      // obviously never grows a hamburger. The loop burns its budget, the
+      // relaunch fallback below runs while the app is already gone, and the
+      // test dies leaving the LAUNCHER on screen - so every following test
+      // fails at its own first returnToHome(). Live-captured: one such exit
+      // cascaded into 5 consecutive failures, screenshot showing the Pixel
+      // home screen with our icon sitting in the dock.
+      //
+      // Reactivating is the correct move rather than another BACK: once we
+      // are outside the app its back stack is not ours to reason about. Same
+      // reasoning as returnToThisApp()'s own note about external apps.
+      if ((await this.getForegroundPackage()) !== mobileConfig.capabilities['appium:appPackage']) {
+        await this.returnToThisApp();
+        await this.driver.pause(2_000);
+        continue;
+      }
       if (await this.isVisible(this.discardChangesButton)) {
         await this.tap(this.discardChangesButton);
       } else if (await this.isVisible(this.saveChangesNoButton)) {
@@ -322,6 +472,17 @@ async getCurrentDateText(): Promise<string> {
         // maxBackPresses budget, never reaching the hamburger). Skip is
         // the same "leave without completing" semantics this loop wants.
         await this.tap(this.skipButton);
+      } else if (await this.isVisible(this.signatureDiscardPrompt)) {
+        // Coffee's Customer Signature screen raises "Are you sure? / Your
+        // signature will be lost if you go back without saving." (Cancel /
+        // "Go Back") on BACK, but ONLY once a signature has actually been
+        // drawn - live-verified 2026-08-25 (build 0.1.90). A blind BACK loop
+        // can never escape it: BACK on the prompt just dismisses it back to
+        // the signature screen, and the next BACK re-raises it, oscillating
+        // for the full maxBackPresses budget. Same trap as the Discard-changes
+        // and Prep-Tasks Skip popups handled above. "Go Back" is the leave-
+        // without-saving path this loop wants; Cancel would keep us here.
+        await this.tap(this.signatureDiscardGoBack);
       } else if (await this.isVisible(this.selectADaySheetTodayOption)) {
         // The date badge's own "Select a day" bottom sheet (TODAY/
         // YESTERDAY/TOMORROW cards) - live-verified 2026-08-07: hardware
@@ -332,6 +493,9 @@ async getCurrentDateText(): Promise<string> {
         // caller actually wanted (a real day switch, if needed, happens
         // separately via RouteSetupScreen/switchRoute).
         await this.tap(this.selectADaySheetTodayOption);
+        if (await this.isVisible(this.confirmDateButton)) {
+          await this.tap(this.confirmDateButton);
+        }
       } else if (await this.isVisible(this.backButton)) {
         await this.tap(this.backButton);
         if (await this.isVisible('~Yes')) {
@@ -346,10 +510,73 @@ async getCurrentDateText(): Promise<string> {
       // await this.tap('~Yes');
     }
     if (!reachedHamburger) {
-      throw new Error(`returnToHome: no screen with the hamburger menu appeared after ${maxBackPresses} BACK presses`);
+      // LAST-RESORT RECOVERY. BACK cannot always get us home, and when it
+      // cannot, the failure lands on the NEXT run rather than the one that
+      // caused it - which makes it read as an unrelated login failure. Seen
+      // three times: the in-app camera (which traps BACK entirely), the
+      // Equipment audit's "complete audit?" loop, and - after a test that hands
+      // off to Google Maps - backing out of our own last screen surfacing MAPS,
+      // because the external app stays in the activity stack even once
+      // activateApp has brought ours to the front.
+      //
+      // Relaunching is safe here: it terminates and reactivates the app WITHOUT
+      // clearing data, so the login survives (see BaseScreen.relaunchApp).
+      await this.relaunchApp();
+      for (let i = 0; i < maxBackPresses; i++) {
+        if (await this.isVisible(this.hamburgerIcon)) {
+          reachedHamburger = true;
+          break;
+        }
+        await this.pressKeyCode(4);
+        await this.driver.pause(700);
+      }
     }
-    await this.tap(this.hamburgerIcon);
+    if (!reachedHamburger) {
+      throw new Error(
+        `returnToHome: no screen with the hamburger menu appeared after ${maxBackPresses} BACK presses, ` +
+          'and the app could not be recovered by relaunching either'
+      );
+    }
+    // Do NOT tap the hamburger unconditionally. If the drawer is ALREADY open,
+    // that tap CLOSES it and the "Schedule overview" tap below then times out
+    // against a drawer that is no longer there - which is exactly how this
+    // failed on 2026-08-28, in the shared login/Start Day step rather than in
+    // any test's own logic. Same non-idempotent-navigation family as the
+    // Settings-expanded bug. The drawer's own item is the reliable tell that
+    // it is open.
+    if (!(await this.isVisible('~Schedule overview'))) {
+      await this.tap(this.hamburgerIcon);
+    }
     await this.tap('~Schedule overview');
+    await this.scrollScheduleToTop();
     await this.waitFor(this.deliveriesTitle);
+  }
+
+  /**
+   * Scrolls Home's schedule list back to the top.
+   *
+   * Necessary because the "Deliveries" title this method waits on is part of
+   * the SCROLLING content, not a fixed header - it scrolls out of the
+   * accessibility tree entirely once the list moves. Any caller that scrolled
+   * looking for a stop (see DashboardScreen.scrollToAndClickLocationByName,
+   * needed at all because a route can carry 150+ stops) would otherwise leave
+   * every subsequent returnToHome() failing with "Deliver... still not
+   * displayed" - live-hit twice on 2026-08-25, each time presenting as a
+   * login failure several tests later rather than at its real cause.
+   *
+   * Cheap and idempotent: scrolling up on an already-top list is a no-op, so
+   * this runs unconditionally rather than trying to detect whether it is
+   * needed.
+   */
+  private async scrollScheduleToTop(maxScrolls = 15): Promise<void> {
+    for (let i = 0; i < maxScrolls; i++) {
+      if (await this.isVisible(this.deliveriesTitle)) {
+        return;
+      }
+      await this.driver.executeScript('mobile: scrollGesture', [
+        { left: 100, top: 600, width: 800, height: 1200, direction: 'up', percent: 1.0 }
+      ]);
+      await this.driver.pause(300);
+    }
   }
 }

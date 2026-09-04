@@ -2,6 +2,7 @@ import { test as base, expect } from '@playwright/test';
 import { remote, type Browser } from 'webdriverio';
 import { execSync } from 'child_process';
 import { mobileConfig } from '../config/mobile.config';
+import { HomeScreen } from '../screens/home.screen';
 
 type MobileFixtures = {
   driver: Browser;
@@ -160,6 +161,24 @@ export const test = base.extend<MobileFixtures>({
         console.warn('Could not capture failure screenshot:', e);
       }
     }
+
+    // RETURN-TO-HOME LIVES HERE, NOT IN A SPEC-LEVEL afterEach - moved
+    // 2026-09-03 because the old arrangement destroyed its own evidence.
+    //
+    // Playwright runs afterEach hooks BEFORE fixture teardown, so a spec whose
+    // afterEach called returnToHome() had already walked the app back to the
+    // dashboard by the time the screenshot above was taken. Every failure
+    // artifact showed Home - the aftermath - rather than the screen the test
+    // actually failed on, which is the one piece of information the screenshot
+    // exists to provide. Diagnosing anything meant ignoring the report and
+    // re-running by hand with a uiautomator dump.
+    //
+    // Ordering it after the capture keeps both properties: the artifact shows
+    // the real failure state, and the next test still starts from a clean
+    // dashboard rather than inheriting a mid-flow screen. Tolerant by design -
+    // a test that ends somewhere returnToHome() cannot escape must not turn
+    // into a second, misleading failure on top of the real one.
+    await new HomeScreen(driver).returnToHome().catch(() => {});
 
     await driver.deleteSession();
   }

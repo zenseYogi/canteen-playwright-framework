@@ -570,9 +570,56 @@ export class PrepTasksScreen extends BaseScreen {
     return descs;
   }
 
-  /** Closes the checklist bottom sheet by tapping the scrim above it, without completing/skipping anything. */
+  /**
+   * Closes the checklist bottom sheet without completing or skipping anything.
+   *
+   * CORRECTED 2026-09-02 (build 0.1.92, probed live). This was a bare
+   * tap(~Scrim) and it silently did NOTHING: page-source dumps taken either
+   * side of the call came back BYTE-IDENTICAL, the CANDY sheet still up and no
+   * Continue node anywhere in the tree.
+   *
+   * That is what failed TC122. isContinueEnabled() reported false because the
+   * button was ABSENT behind the still-open sheet, not because the app had
+   * disabled it - isEnabled() folds a missing element into false, so the
+   * assertion could not tell "disabled" from "not there", and the failure read
+   * as an app behaviour change when it was ours.
+   *
+   * Why the tap missed: the scrim is only the thin strip left visible above a
+   * nearly full-height sheet - bounds [0,0][1080,227] - so its CENTRE, where
+   * element.click() aims, is y=113, inside the status bar's own touch region.
+   * The system consumes the tap and the app never sees it. Aiming near the
+   * strip's BOTTOM edge keeps the same target, clear of the status bar.
+   *
+   * BACK is the fallback rather than the primary: it dismisses the sheet too,
+   * but a BACK that misses raises Prep Tasks' own Skip/Complete popup, which is
+   * a worse state to be stranded in than a sheet that is merely still open.
+   */
   async closeCategoryChecklist(): Promise<void> {
-    await this.tap(this.scrimOverlay);
+    const scrim = await this.driver.$(this.scrimOverlay);
+    if (await scrim.isDisplayed().catch(() => false)) {
+      const [loc, size] = await Promise.all([scrim.getLocation(), scrim.getSize()]);
+      await this.tapAt(Math.round(loc.x + size.width / 2), Math.round(loc.y + size.height - 20));
+    }
+    if (await this.waitForChecklistSheetClosed()) {
+      return;
+    }
+    await this.pressKeyCode(4);
+    if (await this.waitForChecklistSheetClosed()) {
+      return;
+    }
+    throw new Error(
+      'closeCategoryChecklist: the category checklist sheet is still open after a scrim tap and a BACK press - ' +
+        'the Product Collection Continue button never came back into the tree'
+    );
+  }
+
+  /** The sheet covers Continue while it is up, so Continue reappearing IS the "sheet closed" signal. */
+  private async waitForChecklistSheetClosed(timeoutMs = 8_000): Promise<boolean> {
+    const el = await this.driver.$(this.continueButton);
+    return el.waitForDisplayed({ timeout: timeoutMs }).then(
+      () => true,
+      () => false
+    );
   }
 
   /**

@@ -52,7 +52,7 @@ test.describe('Home / Dashboard - dynamic data (PBI 622025)', () => {
       const dashboard = new DashboardScreen(driver);
 
       await test.step('Log in', async () => {
-        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+        await loginAndEnsureRoute(driver, mobileConfig.marketRoute);
       });
 
       // TC007 "view the System Date" - the badge shows one of
@@ -130,7 +130,7 @@ test.describe('Home / Dashboard - dynamic data (PBI 622025)', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in', async () => {
-        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
+        await loginAndEnsureRoute(driver, mobileConfig.marketRoute);
       });
 
       // TC018 "view Schedule" / TC020 "navigate to Edit schedule order

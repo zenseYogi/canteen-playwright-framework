@@ -21,6 +21,13 @@ export default defineConfig({
     {
       name: 'generated',
       testDir: './tests/generated'
+    },
+    // Regression super-set: one file per area, each runnable as a unit.
+    // Same Appium fixture and timeouts as `mobile` - this only narrows the
+    // directory, so a file can be run without a --grep.
+    {
+      name: 'regression',
+      testDir: './tests/regression'
     }
   ]
 });

@@ -21,7 +21,7 @@ import { mobileConfig } from '../../config/mobile.config';
 // every other spec's shared login helper does NOT cover.
 test.describe('Route Setup', () => {
   test(
-    `change route to ${mobileConfig.defaultRoute.operationLabel} / ${mobileConfig.defaultRoute.routeLabel} and select ${mobileConfig.defaultRoute.day}`,
+    `change route to ${mobileConfig.marketRoute.operationLabel} / ${mobileConfig.marketRoute.routeLabel} and select ${mobileConfig.marketRoute.day}`,
     { tag: ['@StartOfDay-TC030', '@StartOfDay-TC035'] },
     async ({ driver }) => {
       const routeSetup = new RouteSetupScreen(driver);
@@ -36,10 +36,24 @@ test.describe('Route Setup', () => {
       });
 
       await test.step('Change route, wait for the post-confirm resync', async () => {
-        await routeSetup.selectOperation(mobileConfig.defaultRoute.operationSearch, mobileConfig.defaultRoute.operationLabel);
-        await routeSetup.selectRoute(mobileConfig.defaultRoute.routeSearch, mobileConfig.defaultRoute.routeLabel);
+        await routeSetup.selectOperation(mobileConfig.marketRoute.operationSearch, mobileConfig.marketRoute.operationLabel);
+        await routeSetup.selectRoute(mobileConfig.marketRoute.routeSearch, mobileConfig.marketRoute.routeLabel);
         await routeSetup.confirmChangeRoute();
-        await routeSetup.waitForSyncAndDaySheet();
+        // Build 0.1.92: a failed-then-recovered sync skips the Select Day
+        // sheet outright (see RouteSetupScreen.waitForSyncAndDaySheet). This
+        // test exists to ASSERT that sheet, so a skip is not something to
+        // work around silently - retry the change once (a same-route setup
+        // clears the local DB and resyncs clean), then insist on the sheet.
+        if (!(await routeSetup.waitForSyncAndDaySheet())) {
+          await routeSetup.openFromHamburgerMenu();
+          await routeSetup.selectOperation(mobileConfig.marketRoute.operationSearch, mobileConfig.marketRoute.operationLabel);
+          await routeSetup.selectRoute(mobileConfig.marketRoute.routeSearch, mobileConfig.marketRoute.routeLabel);
+          await routeSetup.confirmChangeRoute();
+          expect(
+            await routeSetup.waitForSyncAndDaySheet(),
+            'Select Day sheet never appeared - the 0.1.92 sync failure recovered but skipped day selection on both attempts'
+          ).toBe(true);
+        }
       });
 
       // TC030 "view 'Select a day'" / TC035 "verify date-label mapping" -
@@ -60,7 +74,7 @@ test.describe('Route Setup', () => {
       });
 
       await test.step('Select the configured day', async () => {
-        await routeSetup.selectDay(mobileConfig.defaultRoute.day);
+        await routeSetup.selectDay(mobileConfig.marketRoute.day);
       });
 
       await test.step('Verify Dashboard reloaded with the selected day', async () => {

@@ -6,20 +6,55 @@ import { DashboardScreen } from '../../screens/dashboard.screen';
 import { HomeScreen } from '../../screens/home.screen';
 import { MarketServiceScreen } from '../../screens/market-service.screen';
 import { mobileConfig } from '../../config/mobile.config';
+import type { Position } from '../../utils/position';
 
-// Traceability to Optimized_TCs_V_2.0.xlsx: TC numbers cited per assertion
-// below are from the "Market" area's Delivery / Delivery-Add Product /
-// Money Operation - Multiple POS sub-areas. Every locator used here was
-// live-verified against build 0.1.73 - see docs/rf-to-playwright-reuse.md's
-// "Live verification session" section.
+// ROUTE/DAY FOR THE WHOLE FILE - Miami 001, YESTERDAY.
 //
-// Scope note: these assert field/screen PRESENCE and reachability, not
-// validation BEHAVIOR (reject negative/alphabetic input, decimal handling,
-// max length etc.) - that hasn't been tested live yet.
+// Pinned to YESTERDAY on instruction (2026-09-03), and it matters: Market runs
+// CONSUME a day's orders permanently. Route Setup re-pulls server truth rather
+// than restoring them, and the day selector only offers yesterday/today/
+// tomorrow - so a day burnt today becomes unreachable in 24 hours. Spending
+// yesterday keeps TODAY intact for the next run.
+//
+// Pinned HERE rather than in config/mobile.config.ts on purpose: mobileConfig.
+// marketRoute (day TODAY) is also what the Start of Day suite uses for Miami
+// 001, and that suite is green. Changing the shared default to move Market
+// would silently re-point 20-odd Start of Day call sites at a different day.
+const MARKET_DAY = (process.env.MARKET_DAY as 'TODAY' | 'YESTERDAY' | 'TOMORROW') || 'YESTERDAY';
+const MARKET_ROUTE = { ...mobileConfig.marketRoute, day: MARKET_DAY };
+
+
+/**
+ * REGRESSION SUPER-SET - Market
+ *
+ * Every execution-ready Market regression case, in one file so the area runs
+ * as a single unit. Consolidated 2026-09-03 from tests/mobile/market-service.
+ * spec.ts, which keeps its legacy-numbered cases and is unaffected.
+ *
+ * TAGS: M-TC-xxx ONLY. The legacy @Market-TCnnn numbering (the 827-row
+ * workbook) is stripped here on purpose - the 224-TC regression sheet is the
+ * authoritative one, and two schemes over the same cases is what made status
+ * reporting ambiguous. The five legacy-only tests that carry NO M-TC id at all
+ * were left behind in tests/mobile rather than dragged in untagged:
+ * Before Photos skip-flow, Add Product search/quantity/submit, the Sort-by
+ * sheet, the Audit scanner icon + After Photos skip-reason, and the Product
+ * fills entry screen.
+ *
+ * ROUTE: Miami 001 (marketRoute) - see [[per_lob_routes]].
+ *
+ * DESTRUCTIVE. Market runs CONSUME a day's orders permanently and Route Setup
+ * cannot restore them, so prefer YESTERDAY for a run you expect to repeat.
+ *
+ * Run:  KEEP_APP_SESSION=true npx playwright test --project=regression tests/regression/market.spec.ts
+ */
+
+// Traceability: TC numbers cited inside individual assertions below are from
+// the older Optimized_TCs_V_2.0.xlsx "Market" area (Delivery / Delivery-Add
+// Product / Money Operation - Multiple POS). They are kept as PROSE for
+// traceability only - none of them is a tag any more.
 //
 // Data note: navigating to a Market location assumes this environment's
-// seeded route data is stable across sessions (confirmed across this
-// session's app relaunches) - the second dashboard location is a Market stop.
+// seeded route data is stable across sessions.
 
 /**
  * M-TC-005/008/013/014/015/016 (build 0.1.90) navigate to a named Miami/
@@ -48,6 +83,57 @@ async function reachMarketAccount(driver: any, accountName: string): Promise<voi
   throw new Error(`${accountName} not found under either Pending action or Completed`);
 }
 
+
+/**
+ * Opens the account's Market station that actually OFFERS Money Operations,
+ * rather than assuming it is the first one.
+ *
+ * CORRECTED 2026-09-03 (build 0.1.93, probed live). This used
+ * openFirstServiceStation('market'), and that assumption is simply wrong for
+ * a multi-station account. Teva Pharmaceutical has TWO Market stations, and
+ * only the second carries the tile:
+ *
+ *   1. "Actavis Weston Break room" - Before Photos / Removals & Returns /
+ *      Delivery / Market Physical / After Photos / Market Transfers /
+ *      Complete Delivery.  NO Money Operations.
+ *   2. "Actavis/Teva - Orange Dr"  - has Money Operations.
+ *
+ * Every Money Operations case therefore opened a checklist that could never
+ * satisfy it, and failed with "Money Operations still not displayed" - which
+ * reads as a missing feature rather than as opening the wrong station. Seven
+ * failures in one run traced to this. Same family as the Vending
+ * nthServiceStationUnder bug.
+ *
+ * Selects by CAPABILITY, not position: station ordering is route data and has
+ * already moved once, so pinning "second" would just re-break the next time it
+ * changes. The error names what it tried so a future move is self-evident.
+ */
+const openMarketStationWithMoneyOps = async (
+  driver: any
+): Promise<{ market: MarketServiceScreen; position: Position }> => {
+  const dashboard = new DashboardScreen(driver);
+  const market = new MarketServiceScreen(driver);
+  const tried: string[] = [];
+  for (const position of ['first', 'second', 'third', 'fourth'] as const) {
+    if (!(await dashboard.isNthServiceStationVisible('market', position).catch(() => false))) {
+      break;
+    }
+    await dashboard.openNthServiceStation('market', position);
+    if (await market.isMoneyOperationsVisible()) {
+      console.log(`[money-ops] using the ${position} Market station`);
+      return { market, position };
+    }
+    tried.push(position);
+    // Nothing was edited, so BACK returns cleanly to the stop overview.
+    await market.pressKeyCode(4);
+    await driver.pause(1_500);
+  }
+  throw new Error(
+    `openMarketStationWithMoneyOps: no Market station offers Money Operations ` +
+      `(opened and checked: ${tried.join(', ') || 'none visible'})`
+  );
+};
+
 /**
  * Start Day (Prep Tasks) is a per-route/per-DAY server-tracked gate: until
  * it is completed, a stop's Market checklist tiles are unreachable, so every
@@ -61,7 +147,7 @@ async function reachMarketAccount(driver: any, accountName: string): Promise<voi
  * taps through), so this is unconditional rather than state-detecting.
  */
 async function loginAndStartDay(driver: any): Promise<void> {
-  await loginAndEnsureRoute(driver, mobileConfig.marketRoute);
+  await loginAndEnsureRoute(driver, MARKET_ROUTE);
   const prepTasks = new PrepTasksScreen(driver);
   await prepTasks.openFromHamburgerMenu();
   await prepTasks.ensureFullDayPrepComplete();
@@ -202,104 +288,12 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // the last, means any test here can be run standalone or reordered
   // without inheriting a stale mid-flow screen from whichever ran before
   // it - same reasoning as vending-service.spec.ts's own afterEach.
-  test.afterEach(async ({ driver }) => {
-    await new HomeScreen(driver).returnToHome().catch(() => {});
-  });
+  // afterEach removed 2026-09-03 - the return-to-home now happens in the
+  // appium fixture AFTER the failure screenshot is captured. Doing it here ran
+  // before the capture (Playwright orders afterEach ahead of fixture teardown)
+  // and made every failure artifact show Home instead of the failing screen.
 
-  test('reach a Market location and verify the Money Collection screen fields', async ({ driver }) => {
-    const prepTasks = new PrepTasksScreen(driver);
-    const dashboard = new DashboardScreen(driver);
-    const market = new MarketServiceScreen(driver);
-
-    await test.step('Log in', async () => {
-      await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
-    });
-
-    await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-      await prepTasks.openFromHamburgerMenu();
-      await prepTasks.ensureFullDayPrepComplete();
-    });
-
-    await test.step("Open a Market location's service station", async () => {
-      await dashboard.clickLocationByPosition('second');
-      await dashboard.openFirstServiceStation('market');
-    });
-
-    // NOT tagged to any Excel TC: the Excel's only Market money-handling
-    // sub-area is "Money Operation - Multiple POS" (TC308-TC327), which
-    // describes a POS LIST screen (TC308 "view POS list", TC310 "view
-    // multiple POS entries") - this location's Money Operations opened
-    // straight to a single bag-code/coins/bills/refund form with no POS
-    // list at all. Unclear whether Multiple POS is a genuinely different
-    // screen (more registers at a location) or this single-entry form is
-    // its one-POS state - unconfirmed either way, so no TC is claimed here.
-    // This still verifies real, useful screen structure - just not
-    // provably the Excel's documented scenario.
-    await test.step('Verify Money Collection screen fields are present', async () => {
-      await market.openMoneyOperations();
-      const fields = await market.isMoneyCollectionScreenVisible();
-      expect(fields.title).toBe(true);
-      expect(fields.skipMoneyBag).toBe(true);
-      expect(fields.bagCode).toBe(true);
-      expect(fields.coins).toBe(true);
-      expect(fields.bills).toBe(true);
-      expect(fields.refund).toBe(true);
-    });
-  });
-
-  test(
-    'reach Product fills and verify the Add Product entry screen',
-    { tag: ['@Market-TC147', '@Market-TC148', '@Market-TC149', '@Market-TC153'] },
-    async ({ driver }) => {
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const market = new MarketServiceScreen(driver);
-
-      await test.step('Log in', async () => {
-        await loginAndEnsureRoute(driver, mobileConfig.defaultRoute);
-      });
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      await test.step("Open a Market location's service station", async () => {
-        await dashboard.clickLocationByPosition('second');
-        await dashboard.openFirstServiceStation('market');
-      });
-
-      // TC147 "open Add Product flow from top" / TC149 "view screen heading
-      // and title" / TC153 "view Cancel and Add buttons disabled (no input)".
-      // TC153 nuance: live-verified only Add is actually disabled
-      // (enabled="false") - Cancel is enabled="true" throughout (makes UX
-      // sense: you can always back out, only submitting requires input).
-      // The assertions below reflect the real behavior, not TC153's
-      // possibly-ambiguous "Cancel and Add buttons disabled" wording taken
-      // literally as "both disabled".
-      await test.step('TC147/TC149: open Product fills, then Add Product, and verify its title', async () => {
-        await market.openAddProductFromFills();
-        expect(await market.isAddProductScreenVisible()).toBe(true);
-      });
-
-      // TC148 "view date and route in the header" - same shared date/route
-      // pill as every other screen (BaseScreen.isDateRouteHeaderVisible),
-      // live-verified 2026-08-03 present on the Add product screen too.
-      await test.step('TC148: the Add product screen shows the date/route header', async () => {
-        const header = await market.isDateRouteHeaderVisible();
-        expect(header.date).toBe(true);
-        expect(header.route).toBe(true);
-      });
-
-      await test.step('TC153: verify Cancel is enabled and Add is disabled with no input', async () => {
-        const buttons = await market.addProductButtonStates();
-        expect(buttons.cancelEnabled).toBe(true);
-        expect(buttons.addEnabled).toBe(false);
-      });
-    }
-  );
-
-  // Sub Area "Header". Uses Route 10/TODAY + position 'first' explicitly -
+      // Sub Area "Header". Uses Route 10/TODAY + position 'first' explicitly -
   // live-verified 2026-07-27 that on this day the Market stop ("CuraLeaf")
   // is the FIRST dashboard location, not the second (Coffee's "Nova
   // Innovation" is second) - the reverse of the assumption the tests above
@@ -309,7 +303,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // 'second' is always Market.
   test(
     'TC010/M-TC-002: view the account location name as the delivery header, and whether it persists into Product fills',
-    { tag: ['@Market-TC010', '@Market-TC002', '@Market-M-TC-002'] },
+    { tag: ['@Market-M-TC-002'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
@@ -322,12 +316,12 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
       // 'YESTERDAY' default is the stable choice already used elsewhere
       // (e.g. stop-preview.spec.ts's M-TC-001), so just use it directly
       // instead of re-pinning a day that will drift again.
-      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
+      await test.step('Log in, ensure Miami 001 / YESTERDAY', async () => {
       // MIGRATED 2026-09-01 off defaultRoute (Miami 010, retired) to
       // marketRoute (Miami 001) - Market's own route. Miami 010 no longer
       // carries Market data, so this failed with "Pending action not
       // displayed": the schedule it was waiting for does not exist there.
-        await loginAndEnsureRoute(driver, mobileConfig.marketRoute);
+        await loginAndEnsureRoute(driver, MARKET_ROUTE);
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -381,18 +375,18 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // documented in the TC010/M-TC-002 test above (getServiceStopLocationHeaderText).
   test(
     'M-TC-004: order number displays for a real stop; "No Orders" for an ad-hoc one with no backend order',
-    { tag: ['@Market-TC004', '@Market-M-TC-004'] },
+    { tag: ['@Market-M-TC-004'] },
     async ({ driver }) => {
       const prepTasks = new PrepTasksScreen(driver);
       const dashboard = new DashboardScreen(driver);
       const market = new MarketServiceScreen(driver);
 
-      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
+      await test.step('Log in, ensure Miami 001 / YESTERDAY', async () => {
       // MIGRATED 2026-09-01 off defaultRoute (Miami 010, retired) to
       // marketRoute (Miami 001) - Market's own route. Miami 010 no longer
       // carries Market data, so this failed with "Pending action not
       // displayed": the schedule it was waiting for does not exist there.
-        await loginAndEnsureRoute(driver, mobileConfig.marketRoute);
+        await loginAndEnsureRoute(driver, MARKET_ROUTE);
       });
 
       await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
@@ -523,7 +517,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // not a script gap).
   test(
     'M-TC-005: scheduled markets display immediately under the LOB card, no extra dropdown needed',
-    { tag: ['@Market-TC005', '@Market-M-TC-005'] },
+    { tag: ['@Market-M-TC-005'] },
     async ({ driver }) => {
       const dashboard = new DashboardScreen(driver);
       const home = new HomeScreen(driver);
@@ -573,7 +567,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // and then fail on every re-run.
   test(
     'M-TC-015: Audit offers Cycle count/Full audit and saves editable count pills',
-    { tag: ['@Market-TC015', '@Market-M-TC-015'] },
+    { tag: ['@Market-M-TC-015'] },
     async ({ driver }) => {
       const dashboard = new DashboardScreen(driver);
       const home = new HomeScreen(driver);
@@ -659,7 +653,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // product-selection path a scan result feeds into.
   test(
     'M-TC-016: re-selecting an already-counted product increments its count instead of duplicating the row',
-    { tag: ['@Market-TC016', '@Market-M-TC-016'] },
+    { tag: ['@Market-M-TC-016'] },
     async ({ driver }) => {
       const dashboard = new DashboardScreen(driver);
       const home = new HomeScreen(driver);
@@ -722,7 +716,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // combination of prerequisites than the ad-hoc AETNA order suggested.
   test(
     'M-TC-014: driver can proceed without recording any removal',
-    { tag: ['@Market-TC014', '@Market-M-TC-014'] },
+    { tag: ['@Market-M-TC-014'] },
     async ({ driver }) => {
       const dashboard = new DashboardScreen(driver);
       const home = new HomeScreen(driver);
@@ -805,68 +799,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // M-TC-014's own note below, confirmed on United Collection Bureau) - a
   // real backend order behaves differently here than the ad-hoc-created
   // AETNA order the original session tested this against.
-  test(
-    'M-TC-008: a completed service station shows a green tick and a fully-updated progress bar',
-    { tag: ['@Market-TC008', '@Market-M-TC-008'] },
-    async ({ driver }) => {
-      const dashboard = new DashboardScreen(driver);
-      const home = new HomeScreen(driver);
-      const market = new MarketServiceScreen(driver);
-
-      await test.step('Log in, ensure Miami/Route 001, complete Start Day', async () => {
-        await loginAndStartDay(driver);
-      });
-
-      await test.step("Reach Teva Pharmaceutical's checklist (Stop 1)", async () => {
-        await home.returnToHome();
-        await reachMarketAccount(driver, 'Teva Pharmaceutical');
-        await dashboard.openFirstServiceStation('market');
-      });
-
-      // Before Photos, Delivery, and Market Physical/Audit are all
-      // idempotent no-ops if a previous test already completed them on
-      // this same account (isChecklistIconChecked-backed helpers below
-      // just skip re-doing work that's already checked).
-      await test.step('Ensure Before Photos and Delivery are complete (Audit\'s prerequisites)', async () => {
-        await ensureAuditPrerequisites(market);
-      });
-
-      await test.step('Ensure Market Physical/Audit is complete (count one product)', async () => {
-        const auditTileChecked = await market.isChecklistIconChecked(
-          '//android.view.View[starts-with(@content-desc,"Audit") or starts-with(@content-desc,"Market Physical")]'
-        );
-        if (!auditTileChecked) {
-          await market.tapAuditTile();
-          // The Count Type modal is a once-per-account, server-tracked event
-          // (see tapAuditTile's own note) - on an account that has already
-          // picked one, the tile lands straight on the Audit screen.
-          if (await market.isCountTypeModalVisible()) {
-            await market.selectCountType('cycle');
-          }
-          await market.searchAndSelectAuditProduct('Balance C', 'Balance CkieDough1.76oz - pkg: 1', 'Balance CkieDough1.76oz');
-          await market.tap('~Continue');
-        }
-      });
-
-      await test.step('Complete Money Operations (skip money bag, save)', async () => {
-        await market.skipMoneyOperations();
-      });
-
-      await test.step('M-TC-008: Complete Delivery is now enabled - tap it', async () => {
-        expect(await market.isCompleteDeliveryEnabled()).toBe(true);
-        await market.tap('~Complete Delivery');
-      });
-
-      await test.step('M-TC-008: the location detail screen shows a green tick and 100% progress', async () => {
-        const progress = await dashboard.getServiceStationProgress('market');
-        expect(progress).toBe(100);
-        const isComplete = await dashboard.isNthServiceStationComplete('market', 'first');
-        expect(isComplete).toBe(true);
-      });
-    }
-  );
-
-  // ==== M-TC-009 / M-TC-010 / M-TC-011 (Delivery numeric validation) ====
+    // ==== M-TC-009 / M-TC-010 / M-TC-011 (Delivery numeric validation) ====
   //
   // REWRITTEN 2026-08-27, for two reasons.
   //
@@ -890,7 +823,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // entry is made at all.
   test(
     'M-TC-011: the Delivery quantity field accepts a valid positive number',
-    { tag: ['@Market-TC011', '@Market-M-TC-011'] },
+    { tag: ['@Market-M-TC-011'] },
     async ({ driver }) => {
       test.setTimeout(900_000);
       const market = await reachMoneyOpsChecklist(driver);
@@ -914,7 +847,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // M-TC-009's intended behaviour: malformed text REJECTED.
   test(
     'M-TC-009 (gap): the Delivery quantity field accepts malformed text',
-    { tag: ['@Market-TC009', '@Market-M-TC-009'] },
+    { tag: ['@Market-M-TC-009'] },
     async ({ driver }) => {
       test.setTimeout(900_000);
       test.fail();
@@ -936,7 +869,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // M-TC-010's intended behaviour: a negative value REJECTED.
   test(
     'M-TC-010 (gap): the Delivery quantity field accepts a negative value',
-    { tag: ['@Market-TC010', '@Market-M-TC-010'] },
+    { tag: ['@Market-M-TC-010'] },
     async ({ driver }) => {
       test.setTimeout(900_000);
       test.fail();
@@ -979,7 +912,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
 
   test(
     'M-TC-013: Removals & Returns saves a product quantity and displays it on reopen',
-    { tag: ['@Market-TC013', '@Market-M-TC-013'] },
+    { tag: ['@Market-M-TC-013'] },
     async ({ driver }) => {
       const dashboard = new DashboardScreen(driver);
       const home = new HomeScreen(driver);
@@ -1052,74 +985,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // Delivery) day for Route 10 - same fixed-date-seed staleness flagged
   // elsewhere (mobile.config.ts's own note). YESTERDAY still resolves to
   // Jul 27, confirmed live to have real data.
-  test(
-    'TC015/TC021/TC022/TC024/TC025: Before Photos Skip-photo flow',
-    { tag: ['@Market-TC015-legacy-before-photos', '@Market-TC021', '@Market-TC022', '@Market-TC024', '@Market-TC025'] },
-    async ({ driver }, testInfo) => {
-      // Full Start Day + LOB navigation + multi-step skip-photo flow in one
-      // session - same reasoning as coffee-service.spec.ts's own timeout bump.
-      testInfo.setTimeout(240_000);
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const market = new MarketServiceScreen(driver);
-
-      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
-      });
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      await test.step("Open the day's Market service stop", async () => {
-        // 'first' (AMEX) is Coffee-only as of 2026-08-03 - CureLeaf, the
-        // real Market stop, is 'second' (see TC112's own note elsewhere in
-        // this file for the same correction).
-        await dashboard.clickLocationByPosition('second');
-        await dashboard.openFirstServiceStation('market');
-      });
-
-      // TC015 "open the Before Photos screen"
-      await test.step('TC015: tap Before Photos and verify the Take photo/Skip photo modal', async () => {
-        await market.openBeforePhotos();
-        const modal = await market.isPhotoModalVisible();
-        expect(modal.takePhoto).toBe(true);
-        expect(modal.skipPhoto).toBe(true);
-      });
-
-      // TC021 "open skip reason sheet" - bottom sheet with a Reason field
-      // and a disabled submit button.
-      await test.step('TC021: tap Skip photo and verify the reason sheet, disabled by default', async () => {
-        await market.openSkipPhotoReasonSheet();
-        expect(await market.isSkipPhotoReasonSheetVisible()).toBe(true);
-        expect(await market.isSkipPhotoSubmitEnabled()).toBe(false);
-      });
-
-      // TC022 "verify blank reason is not allowed" - type then clear,
-      // confirm it goes back to disabled rather than assuming it always was.
-      // TC024 "type skip reason -> reason text & Skip enabled" is the same
-      // real assertion as the first two lines below (entering a non-blank
-      // reason enables Skip photo) - not a separate mechanism.
-      await test.step('TC022/TC024: a blank reason keeps Skip photo disabled, a non-blank reason enables it', async () => {
-        await market.enterSkipPhotoReason("Camera can't focus and take clear picture");
-        await market.waitForSkipPhotoSubmitEnabled(true);
-        await market.enterSkipPhotoReason('');
-        await market.waitForSkipPhotoSubmitEnabled(false);
-      });
-
-      // TC025 "submit skip reason" - re-enter the reason, submit, and land
-      // back on the service stop checklist without a photo being saved.
-      await test.step('TC025: submit a non-blank reason and return to the service stop screen', async () => {
-        await market.enterSkipPhotoReason("Camera can't focus and take clear picture");
-        await market.waitForSkipPhotoSubmitEnabled(true);
-        await market.confirmSkipPhoto();
-        expect(await market.isSkipPhotoReasonSheetVisible()).toBe(false);
-      });
-    }
-  );
-
-  // TC150-TC173/TC178-TC179 (Market "Delivery - Add Product" sub-area, PBI
+    // TC150-TC173/TC178-TC179 (Market "Delivery - Add Product" sub-area, PBI
   // 611013) - the Add Product search/select/quantity/submit flow reached
   // from Product fills' add_cta. Live-verified 2026-07-28 (build 0.1.76,
   // Route 10/YESTERDAY, first Market stop) - see MarketServiceScreen's own
@@ -1151,266 +1017,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   //   proves Add disables, and TC162's post-selection default (qty=1, both
   //   buttons enabled) proves the enabled case - same assertions, not
   //   re-derived.
-  test(
-    'TC150-TC173/TC178-TC179: Add Product search, select, quantity entry, and submit',
-    {
-      tag: [
-        '@Market-TC150',
-        '@Market-TC151',
-        '@Market-TC152',
-        '@Market-TC160',
-        '@Market-TC154',
-        '@Market-TC155',
-        '@Market-TC156',
-        '@Market-TC158',
-        '@Market-TC159',
-        '@Market-TC161',
-        '@Market-TC162',
-        '@Market-TC163',
-        '@Market-TC164',
-        '@Market-TC165',
-        '@Market-TC167',
-        '@Market-TC168',
-        '@Market-TC169',
-        '@Market-TC170',
-        '@Market-TC171',
-        '@Market-TC172',
-        '@Market-TC173',
-        '@Market-TC175',
-        '@Market-TC177',
-        '@Market-TC178',
-        '@Market-TC179'
-      ]
-    },
-    async ({ driver }, testInfo) => {
-      testInfo.setTimeout(240_000);
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const market = new MarketServiceScreen(driver);
-
-      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
-      });
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      let unfilteredCount = 0;
-      await test.step("Open a Market location's service station, Product fills, then Add Product", async () => {
-        // 'first' (AMEX) is Coffee-only as of 2026-08-03 - CureLeaf, the
-        // real Market stop, is 'second' (see TC112's own note elsewhere in
-        // this file for the same correction).
-        await dashboard.clickLocationByPosition('second');
-        await dashboard.openFirstServiceStation('market');
-        await market.openFills();
-        unfilteredCount = await market.getFillProductRowCount();
-        await market.openAddProduct();
-      });
-
-      // TC150/TC151/TC152 - the "Add product" screen's own inline field
-      // packs its label and helper text into one `hint`, and has a
-      // clickable scanner icon.
-      await test.step('TC150/TC151/TC152: Product field label, helper text, and scanner icon', async () => {
-        const { label, helper } = await market.getProductSearchFieldLabelAndHelper();
-        expect(label).toBe('Product');
-        expect(helper).toBe('Scan or search brand, name, sku');
-        expect(await market.isAddProductScannerIconVisible()).toBe(true);
-      });
-
-      // TC154/TC155/TC156/TC158 - typing in the Product field (live-
-      // verified: a tap alone does NOT navigate anywhere - see searchProduct's
-      // own note) opens the separate "Search product" screen, which has its
-      // own scanner icon, and filters the results list down to that
-      // product's own rows (each SKU appears once per Pkg size). TC175
-      // ("open Search product screen") restates TC154 verbatim.
-      //
-      // Reads the FIRST result row's own content-desc rather than hardcoding
-      // a specific pkg size/SKU for "Snickers" - live-verified 2026-08-07
-      // that seed data for the same search term drifts over time (this
-      // suite was originally written against "Snickers (1.86oz)"/SKU 19515,
-      // which no longer exists - the live result is now "Snickers (2.07oz)"/
-      // SKU 1111). Later steps (TC159/TC162/TC163) reuse this same row
-      // instead of their own separate hardcoded values.
-      let firstResultLabel = '';
-      let firstResultSku = '';
-      await test.step('TC154/TC155/TC156/TC158/TC175: typing opens Search product and filters by name', async () => {
-        await market.searchProduct('Snickers');
-        expect(await market.isSearchProductScreenVisible()).toBe(true);
-        expect(await market.isSearchScannerIconVisible()).toBe(true);
-        const contentDesc = await market.getFirstSearchResultContentDesc();
-        expect(contentDesc.length).toBeGreaterThan(0);
-        const [label, skuLine] = contentDesc.split('\n');
-        firstResultLabel = label ?? '';
-        firstResultSku = (skuLine ?? '').replace('SKU: ', '');
-      });
-
-      // TC159 - searching by SKU surfaces that exact-SKU product among the
-      // results (live-verified: this build's results aren't STRICTLY
-      // limited to the searched SKU - an unrelated row can also surface -
-      // so this asserts the exact-SKU row is present, not that it's the
-      // only one). Uses the SKU read off the first result above, not a
-      // hardcoded one.
-      await test.step('TC159: searching by SKU surfaces the exact-SKU product', async () => {
-        await market.searchProduct(firstResultSku);
-        const row = await driver.$(`//android.view.View[contains(@content-desc,"SKU: ${firstResultSku}")]`);
-        expect(await row.isDisplayed()).toBe(true);
-      });
-
-      // TC161 "view empty results" - live-verified exact text below.
-      await test.step('TC161: a non-matching search shows the empty-results message', async () => {
-        await market.searchProduct('ZZZNOTFOUND');
-        expect(await market.isNoSearchResultsVisible()).toBe(true);
-
-        await market.searchProduct('Snickers');
-      });
-
-      // TC162/TC163 - selecting a result returns to Add product with a Qty
-      // field whose own hint packs the selected product's name/SKU/Pkg.
-      // Selects the SAME first result read above and checks the summary
-      // matches THAT row's own name/SKU/pkg, rather than a hardcoded value.
-      await test.step('TC162/TC163: selecting a result shows the product summary', async () => {
-        await market.selectSearchResult(firstResultLabel);
-        const summary = await market.getAddProductSummary();
-        expect(summary.sku).toBe(`SKU: ${firstResultSku}`);
-        expect(summary.name.length).toBeGreaterThan(0);
-        expect(summary.pkg).toMatch(/^Pkg: \d+$/);
-      });
-
-      // TC164/TC165 - the Qty field defaults to "1", reuses the custom
-      // numeric keypad, and accepts further digit taps. TC177 ("enter
-      // numeric quantity -> accepted and displayed") restates TC165
-      // verbatim.
-      await test.step('TC164/TC165/TC177: numeric keypad visible, Qty defaults to 1, and accepts digit entry', async () => {
-        expect(await market.isAddProductQtyKeypadVisible()).toBe(true);
-        expect(await market.getAddProductQtyValue()).toBe('1');
-
-        await market.tapKeypadIncrement();
-        await market.tapKeypadIncrement();
-        await market.tapKeypadIncrement();
-        await market.tapKeypadIncrement();
-        expect(await market.getAddProductQtyValue()).toBe('5');
-      });
-
-      // TC172 "Cancel enabled (grey) and Add enabled (green) after Product
-      // selected + valid Pkg/Qty" - both buttons live-verified enabled at
-      // this exact state (product selected via TC162/TC163 above, Qty=5
-      // via TC164/TC165 above).
-      await test.step('TC172: Cancel and Add are both enabled once a product is selected with a valid Qty', async () => {
-        const buttons = await market.addProductButtonStates();
-        expect(buttons.cancelEnabled).toBe(true);
-        expect(buttons.addEnabled).toBe(true);
-      });
-
-      // TC167 "reject negative quantity" / TC171 "Add disabled with no
-      // valid selection/qty yet" - the "-" stepper floor-clamps at 0
-      // (never produces a literal negative), and Add itself becomes
-      // disabled at Qty=0 - a real validation this screen has that the Fill
-      // screen's Continue button does NOT (don't assume the two match).
-      await test.step('TC167/TC171: the decrement stepper floor-clamps at 0 and disables Add', async () => {
-        for (let i = 0; i < 5; i++) {
-          await market.tapKeypadDecrement();
-        }
-        expect(await market.getAddProductQtyValue()).toBe('0');
-        expect(await market.addProductButtonStates().then((b) => b.addEnabled)).toBe(false);
-
-        await market.tapKeypadIncrement();
-        await market.tapKeypadIncrement();
-        await market.tapKeypadIncrement();
-        await market.tapKeypadIncrement();
-        await market.tapKeypadIncrement();
-        expect(await market.getAddProductQtyValue()).toBe('5');
-      });
-
-      // TC168 "validate decimal in qty -> error, must be a whole number" -
-      // live-verified 2026-08-07 via direct value injection (a paste - the
-      // real keypad has no decimal key at all, so "1.5" can never be typed
-      // to test against in the first place): the decimal point IS silently
-      // STRIPPED - "1.5" becomes "15" - and Add stays enabled since "15" is
-      // a valid non-zero quantity. Same silent-strip pattern already
-      // documented elsewhere in this suite (TC269/TC273/TC284).
-      //
-      // CORRECTED (2026-08-07): reading getText() immediately after
-      // setValue() raced the field's own strip-and-rerender - flaky in
-      // practice (passed in isolation, failed once running after the rest
-      // of this suite, "1.5" observed un-stripped both times it failed) -
-      // not a real behavior difference, just reading before the app
-      // finished reacting. A short pause after setValue (same fix already
-      // used elsewhere for this class of race - see searchProduct's own
-      // pause) made it consistently reproduce the stripped "15" across
-      // repeated re-runs, isolated and inside the full suite alike.
-      //
-      // TC169 "validate special characters in qty -> error 'Enter a
-      // number', quantity rejected" - live-verified via the same paste
-      // technique: unlike TC168, "@#!" is NOT stripped (the literal
-      // characters remain in the field), but Add itself becomes DISABLED -
-      // a real, adapted form of rejection (button-disable, not a literal
-      // banner reading "Enter a number").
-      await test.step('TC168/TC169: a pasted decimal is silently stripped (Add stays enabled); pasted special characters disable Add', async () => {
-        const qtyField = await driver.$('//android.widget.EditText[contains(@hint,"Qty")]');
-        await qtyField.clearValue();
-        await qtyField.setValue('1.5');
-        await driver.pause(300);
-        expect(await qtyField.getText()).toBe('15');
-        expect(await market.addProductButtonStates().then((b) => b.addEnabled)).toBe(true);
-
-        await qtyField.clearValue();
-        await qtyField.setValue('@#!');
-        await driver.pause(300);
-        expect(await qtyField.getText()).toBe('@#!');
-        expect(await market.addProductButtonStates().then((b) => b.addEnabled)).toBe(false);
-
-        await qtyField.clearValue();
-        await qtyField.setValue('5');
-      });
-
-      // TC170 "verify maximum length for qty" - live-verified actual max
-      // length is 3 digits, not the Excel's guessed "e.g. 4".
-      await test.step('TC170: Qty entry is capped at 3 digits', async () => {
-        for (let i = 0; i < 6; i++) {
-          await market.tapKeypadDigit('1');
-        }
-        const value = await market.getAddProductQtyValue();
-        expect(value.length).toBeLessThanOrEqual(3);
-      });
-
-      // TC173 "cancel without saving" - returns to Product fills with the
-      // row count unchanged (no product added).
-      await test.step('TC173: Cancel returns to Product fills without adding anything', async () => {
-        await market.cancelAddProduct();
-        expect(await market.isProductFillsTitleVisible()).toBe(true);
-        expect(await market.getFillProductRowCount()).toBe(unfilteredCount);
-      });
-
-      // TC178/TC179 - re-run the same search+select+qty flow and this time
-      // Add it: returns to Product fills with a new row visible, and
-      // expanding it shows the saved Qty in its own Delivery field.
-      await test.step('TC178/TC179: Add returns to Product fills with the new product row saved', async () => {
-        // Already on Product fills (TC173's Cancel returned here, not out
-        // to the outer checklist) - openAddProduct() alone, not the
-        // from-checklist variant.
-        await market.openAddProduct();
-        await market.searchProduct('Snickers');
-        await market.selectSearchResult(firstResultLabel);
-        await market.tapKeypadIncrement();
-        await market.tapKeypadIncrement();
-        await market.tapKeypadIncrement();
-        await market.tapKeypadIncrement();
-        expect(await market.getAddProductQtyValue()).toBe('5');
-
-        await market.confirmAddProduct();
-        expect(await market.isProductFillsTitleVisible()).toBe(true);
-        expect(await market.getFillProductRowCount()).toBe(unfilteredCount + 1);
-
-        await market.expandProductFill('first');
-        const deliveryField = await driver.$('//android.widget.EditText[@hint="Delivery"]');
-        expect(await deliveryField.getAttribute('text')).toBe('5');
-      });
-    }
-  );
-
-  // TC180-TC209 (Market "Delivery - Sort" sub-area, PBI 611013) - the
+    // TC180-TC209 (Market "Delivery - Sort" sub-area, PBI 611013) - the
   // Product fills Sort-by sheet. Live-verified 2026-07-28 (build 0.1.76,
   // Route 10/YESTERDAY, first Market stop, catalog: "Baby Ruth 2.1oz",
   // "Doritos NChs 1.75oz", "Doritos RF NChs 1oz"):
@@ -1462,127 +1069,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   //   sort variant doesn't exist in this build (see above).
   // - TC208/TC209 ("Continue -> workflow summary" / "Delivery tile shows a
   //   tick") - identical mechanism to the already-covered TC113/TC114.
-  test(
-    'TC180-TC182/TC186/TC188/TC189/TC192-TC194/TC197/TC202/TC207: Sort-by sheet contents, ascending/descending order, and Clear',
-    {
-      tag: [
-        '@Market-TC180',
-        '@Market-TC181',
-        '@Market-TC182',
-        '@Market-TC184',
-        '@Market-TC186',
-        '@Market-TC188',
-        '@Market-TC189',
-        '@Market-TC190',
-        '@Market-TC192',
-        '@Market-TC193',
-        '@Market-TC194',
-        '@Market-TC197',
-        '@Market-TC202',
-        '@Market-TC185',
-        '@Market-TC191',
-        '@Market-TC207'
-      ]
-    },
-    async ({ driver }, testInfo) => {
-      testInfo.setTimeout(240_000);
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const market = new MarketServiceScreen(driver);
-
-      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
-      });
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      await test.step("Open a Market location's service station and Product fills", async () => {
-        // 'first' (AMEX) is Coffee-only as of 2026-08-03 - CureLeaf, the
-        // real Market stop, is 'second' (see TC112's own note elsewhere in
-        // this file for the same correction).
-        await dashboard.clickLocationByPosition('second');
-        await dashboard.openFirstServiceStation('market');
-        await market.openFills();
-      });
-
-      // TC180/TC181 (+ bundled TC186/TC192/TC197/TC202/TC207 - same
-      // repeated Excel claim) - the sheet's title and its real five options.
-      await test.step('TC180/TC181: Sort by sheet title and its five real options', async () => {
-        await market.openSortSheet();
-        expect(await market.isSortSheetTitleVisible()).toBe(true);
-        expect(await market.isSortOptionVisible('A to Z')).toBe(true);
-        expect(await market.isSortOptionVisible('Z to A')).toBe(true);
-        expect(await market.isSortOptionVisible('By Category')).toBe(true);
-        expect(await market.isSortOptionVisible('Newest First')).toBe(true);
-        expect(await market.isSortOptionVisible('Oldest First')).toBe(true);
-      });
-
-      // TC182 - Clear sort order starts disabled with no sort active.
-      await test.step('TC182: Clear sort order is disabled with no sort currently active', async () => {
-        expect(await market.isClearSortEnabled()).toBe(false);
-        expect(await market.isSortActive()).toBe(false);
-        // Dismiss the still-open sheet from the previous step (back press) -
-        // selectSortOption below expects to open it fresh via the sort_cta
-        // tap, which would instead CLOSE an already-open sheet.
-        await market.pressKeyCode(4);
-      });
-
-      // TC188/TC189 - applying "A to Z" activates the header sort icon and
-      // produces a genuinely alphabetical row order.
-      let ascendingOrder: string[] = [];
-      let descendingOrder: string[] = [];
-      await test.step('TC188/TC189: applying A to Z sorts the list alphabetically ascending', async () => {
-        await market.selectSortOption('A to Z');
-        expect(await market.isSortActive()).toBe(true);
-        ascendingOrder = await market.getFillProductNamesInOrder();
-        const sorted = [...ascendingOrder].sort((a, b) => a.localeCompare(b));
-        expect(ascendingOrder).toEqual(sorted);
-      });
-
-      // TC192/TC193/TC194 - applying "Z to A" produces the exact reverse
-      // order of "A to Z", and the header icon stays active.
-      // TC184 "Clear sort order enabled after a selection" (adapted - see
-      // this file's own top note: there's no separate Apply button to
-      // check) - reopening the sheet after TC188/TC189's "A to Z" above
-      // confirms Clear sort order is now enabled. TC190 "persisted
-      // selection on reopen -> ... Apply and Clear buttons enabled" is the
-      // same isClearSortEnabled() check - scoped to only that half (see
-      // this file's own top note on why "highlighted" and "Apply" aren't
-      // asserted).
-      await test.step('TC192/TC193/TC194/TC184/TC190: reopening the sheet shows Clear sort order enabled, then applying Z to A reverses the order', async () => {
-        await market.openSortSheet();
-        expect(await market.isClearSortEnabled()).toBe(true);
-        await market.pressKeyCode(4); // dismiss before selectSortOption re-opens it
-        await market.selectSortOption('Z to A');
-        expect(await market.isSortActive()).toBe(true);
-        descendingOrder = await market.getFillProductNamesInOrder();
-        expect(descendingOrder).toEqual([...ascendingOrder].reverse());
-      });
-
-      // TC185/TC191 ("list returns to the default order" after Clear,
-      // TC191 specifically "from highlighted state" i.e. right after Z to
-      // A - exactly this scenario) - live-verified FALSE, reproduced twice
-      // now (this catalog and an earlier session's different one): Clear
-      // sort order resets the header icon correctly, but the row order it
-      // leaves behind is whatever the LAST applied sort left it in - here,
-      // still the exact "Z to A" descendingOrder, not the original "A to Z"
-      // ascendingOrder captured above. TC196/TC201/TC206 (the same claim
-      // for barcode ascending/descending Clear) remain untagged - that sort
-      // variant doesn't exist in this build at all (see this test's own
-      // top note).
-      await test.step('TC185/TC191: Clear sort order resets the header icon but leaves the row order unchanged', async () => {
-        await market.openSortSheet();
-        await market.tapClearSort();
-        expect(await market.isSortActive()).toBe(false);
-        expect(await market.getFillProductNamesInOrder()).toEqual(descendingOrder);
-      });
-    }
-  );
-
-  // TC301/TC302 (Market to Market Transfer, PBI 739293) - live-verified
+    // TC301/TC302 (Market to Market Transfer, PBI 739293) - live-verified
   // 2026-07-28 (build 0.1.76, Route 10/YESTERDAY, first Market/"CuraLeaf"
   // stop): this route never has more than one market, so the checklist's
   // "Market Transfers" tile consistently shows an info popup instead of the
@@ -1601,65 +1088,10 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   //   reachable this session ever showed a genuine multi-POS list, so this
   //   whole sub-area remains unverified pending an account/route that
   //   actually has one.
-  test('TC301/TC302: Market Transfers shows the only-one-market info popup', { tag: ['@Market-TC301', '@Market-TC302'] }, async ({ driver }) => {
-    const prepTasks = new PrepTasksScreen(driver);
-    const dashboard = new DashboardScreen(driver);
-    const market = new MarketServiceScreen(driver);
-
-    await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-      await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
-    });
-
-    await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-      await prepTasks.openFromHamburgerMenu();
-      await prepTasks.ensureFullDayPrepComplete();
-    });
-
-    await test.step("Open a Market location's service station", async () => {
-      await dashboard.clickLocationByPosition('first');
-      await dashboard.openFirstServiceStation('market');
-    });
-
-    await test.step('TC301/TC302: tapping Market Transfers shows the only-one-market message, OK returns to the checklist', async () => {
-      await market.openMarketTransfers();
-      expect(await market.isOnlyOneMarketMessageVisible()).toBe(true);
-      await market.dismissOnlyOneMarketMessage();
-      expect(await market.isServiceStopLocationHeaderVisible()).toBe(true);
-    });
-  });
-
-  // TC112/TC143 (Market "Delivery") - entering valid data in every visible
+    // TC112/TC143 (Market "Delivery") - entering valid data in every visible
   // Product fills row enables Continue - the exact same assertion Excel
   // lists twice under two different TC numbers.
-  test('TC112/TC143: Continue is enabled once every visible row has a valid Delivery quantity', { tag: ['@Market-TC112', '@Market-TC143'] }, async ({ driver }) => {
-    const prepTasks = new PrepTasksScreen(driver);
-    const dashboard = new DashboardScreen(driver);
-    const market = new MarketServiceScreen(driver);
-
-    await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-      await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
-    });
-
-    await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-      await prepTasks.openFromHamburgerMenu();
-      await prepTasks.ensureFullDayPrepComplete();
-    });
-
-    await test.step("Open a Market location's Product fills", async () => {
-      // Route 10/YESTERDAY's stop 1 (AMEX) is Coffee-only - CureLeaf
-      // (stop 2) is the Market stop, live-confirmed 2026-08-03.
-      await dashboard.clickLocationByPosition('second');
-      await dashboard.openFirstServiceStation('market');
-      await market.openFills();
-    });
-
-    await test.step('TC112: fill every visible row, then verify Continue is enabled', async () => {
-      await market.fillAllVisibleDeliveryQuantities('5');
-      expect(await market.isFillsContinueEnabled()).toBe(true);
-    });
-  });
-
-  // TC232/TC244 (Market "Audit" sub-area) and TC274/TC277/TC278 (Market
+    // TC232/TC244 (Market "Audit" sub-area) and TC274/TC277/TC278 (Market
   // "After Photo" sub-area) - live-verified 2026-08-03 (build 0.1.76,
   // Route 10/YESTERDAY, CureLeaf stop). After Photos starts split into two
   // non-clickable elements (same gated-tile pattern as Vending's own After
@@ -1684,78 +1116,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // TC274/TC277/TC278 - identical shared component to Before Photos'
   // already-covered TC021/TC022/TC025 (BaseScreen's openPhotoTrigger/
   // openSkipPhotoReasonSheet), just on the After Photos trigger instead.
-  test(
-    'TC232/TC274/TC277/TC278: Audit scanner icon, and the After Photos skip-reason flow',
-    { tag: ['@Market-TC232', '@Market-TC274', '@Market-TC277', '@Market-TC278'] },
-    async ({ driver }) => {
-      const prepTasks = new PrepTasksScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const market = new MarketServiceScreen(driver);
-
-      await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
-      });
-
-      await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-      });
-
-      await test.step("Open CureLeaf's service station", async () => {
-        await dashboard.clickLocationByPosition('second');
-        await dashboard.openFirstServiceStation('market');
-      });
-
-      await test.step('Complete Before Photos (skip with a reason)', async () => {
-        await market.openBeforePhotos();
-        await market.openSkipPhotoReasonSheet();
-        await market.enterSkipPhotoReason("Camera can't focus and take clear picture");
-        await market.waitForSkipPhotoSubmitEnabled(true);
-        await market.confirmSkipPhoto();
-      });
-
-      await test.step('Complete Removals & Returns (empty machine, Done)', async () => {
-        await market.completeRemovalsAndReturns();
-      });
-
-      await test.step('Complete Delivery (Continue with already-valid quantities)', async () => {
-        await market.openFills();
-        await market.fillAllVisibleDeliveryQuantities('5');
-        await market.submitFillsAndReturnToChecklist();
-      });
-
-      // TC232 - Audit's search field scanner icon.
-      await test.step('TC232: Audit shows a scanner icon on its search field', async () => {
-        await market.openAudit();
-        expect(await market.isAuditScannerIconVisible()).toBe(true);
-      });
-
-      await test.step("Back out of Audit to the service stop checklist", async () => {
-        await market.pressKeyCode(4);
-      });
-
-      // TC274/TC277/TC278 - the After Photos Skip Photo reason sheet.
-      await test.step('TC274: open the After Photos skip reason sheet, disabled by default', async () => {
-        await market.openAfterPhotos();
-        await market.openSkipPhotoReasonSheet();
-        expect(await market.isSkipPhotoReasonSheetVisible()).toBe(true);
-        expect(await market.isSkipPhotoSubmitEnabled()).toBe(false);
-      });
-
-      await test.step('TC277: entering a reason enables Skip photo', async () => {
-        await market.enterSkipPhotoReason("Camera can't focus and take clear picture");
-        await market.waitForSkipPhotoSubmitEnabled(true);
-      });
-
-      await test.step('TC278: submitting returns to the service stop checklist without saving a photo', async () => {
-        await market.confirmSkipPhoto();
-        expect(await market.isSkipPhotoReasonSheetVisible()).toBe(false);
-        expect(await market.isServiceStopLocationHeaderVisible()).toBe(true);
-      });
-    }
-  );
-
-  // TC109 (Market "Delivery" sub-area) - live-verified 2026-08-05 (build
+    // TC109 (Market "Delivery" sub-area) - live-verified 2026-08-05 (build
   // 0.1.76): unlike TC110's negative-sign case below, the Theft field does
   // NOT strip or reject injected alphabetic characters - "abc" lands as
   // literal "abc". The real on-screen keypad has no letter keys at all
@@ -1766,120 +1127,22 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // than asserting the TC's original "rejected" expectation, which does
   // not hold - flagged to Dev/QA as a decision point (retire vs. treat as
   // a real gap), same as the dev-note's own TC166 handling.
-  test('TC109: Removals & Returns Theft field does not reject injected alphabetic input', { tag: ['@Market-TC109'] }, async ({ driver }) => {
-    const home = new HomeScreen(driver);
-    const prepTasks = new PrepTasksScreen(driver);
-    const dashboard = new DashboardScreen(driver);
-    const market = new MarketServiceScreen(driver);
-
-    await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-      await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
-    });
-
-    await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-      await prepTasks.openFromHamburgerMenu();
-      await prepTasks.ensureFullDayPrepComplete();
-    });
-
-    await test.step("Open CureLeaf's Market station and Removals & Returns for a real product", async () => {
-      await dashboard.clickLocationByPosition('second');
-      await dashboard.openFirstServiceStation('market');
-      await market.openRemovalsAndReturnsForProduct('Snickers');
-    });
-
-    await test.step('TC109: typing "abc" into Theft lands as literal "abc" (not rejected)', async () => {
-      await market.typeIntoRemovalsField('theft', 'abc');
-      expect(await market.getRemovalsFieldValue('theft')).toBe('abc');
-    });
-
-    await test.step('Clean up: cancel out of Document product without saving, then return to Dashboard', async () => {
-      await market.cancelDocumentProduct();
-      await home.returnToHome();
-    });
-  });
-
-  // TC110 (Market "Delivery" sub-area) - live-verified 2026-08-05 (build
+    // TC110 (Market "Delivery" sub-area) - live-verified 2026-08-05 (build
   // 0.1.76) with the genuine RouteDriver persona on a real catalog item:
   // Removals & Returns' Damaged field silently strips a typed "-" rather
   // than accepting it as part of the value - "-5" lands as "5", not "-5".
   // Confirmed via direct field injection (setValue, bypassing whatever
   // on-screen keyboard the field normally uses) - this proves the FIELD'S
   // OWN formatting logic rejects the sign, independent of keyboard type.
-  test('TC110: Removals & Returns numeric fields strip a typed negative sign', { tag: ['@Market-TC110'] }, async ({ driver }) => {
-    const home = new HomeScreen(driver);
-    const prepTasks = new PrepTasksScreen(driver);
-    const dashboard = new DashboardScreen(driver);
-    const market = new MarketServiceScreen(driver);
-
-    await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-      await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
-    });
-
-    await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-      await prepTasks.openFromHamburgerMenu();
-      await prepTasks.ensureFullDayPrepComplete();
-    });
-
-    await test.step("Open CureLeaf's Market station and Removals & Returns for a real product", async () => {
-      await dashboard.clickLocationByPosition('second');
-      await dashboard.openFirstServiceStation('market');
-      await market.openRemovalsAndReturnsForProduct('Snickers');
-    });
-
-    await test.step('TC110: typing "-5" into Damaged lands as "5" (negative sign stripped)', async () => {
-      await market.typeIntoRemovalsField('damaged', '-5');
-      expect(await market.getRemovalsFieldValue('damaged')).toBe('5');
-    });
-
-    // Leaves the app several screens deep (Document product -> Removals &
-    // Returns list -> CureLeaf's own checklist) with the injected value
-    // still unsaved otherwise - live-verified 2026-08-05 this then stalls
-    // the NEXT test's own login-check (KEEP_APP_SESSION resumes wherever
-    // this left off, with no hamburger menu reachable at any of those
-    // intermediate screens). Cancel discards the unsaved value with no
-    // "Save Changes?" prompt, then returnToHome() backs all the way out to
-    // Dashboard regardless of stack depth.
-    await test.step('Clean up: cancel out of Document product without saving, then return to Dashboard', async () => {
-      await market.cancelDocumentProduct();
-      await home.returnToHome();
-    });
-  });
-
-  // TC208 (Market "Delivery - Sort" sub-area) - live-verified 2026-08-05:
+    // TC208 (Market "Delivery - Sort" sub-area) - live-verified 2026-08-05:
   // selecting any Sort option (not just leaving the list unsorted) still
   // leaves Product fills' own Continue enabled once every visible row has
   // a valid Delivery quantity - proceeding after reviewing a sorted list
   // works exactly like the unsorted case TC112/TC143 already cover.
-  test('TC208: Continue stays enabled after selecting a Sort option and reviewing the list', { tag: ['@Market-TC208'] }, async ({ driver }) => {
-    const prepTasks = new PrepTasksScreen(driver);
-    const dashboard = new DashboardScreen(driver);
-    const market = new MarketServiceScreen(driver);
-
-    await test.step('Log in, switch to Route 10/YESTERDAY', async () => {
-      await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'YESTERDAY' });
-    });
-
-    await test.step('Complete Start Day (prerequisite gate for any LOB service flow)', async () => {
-      await prepTasks.openFromHamburgerMenu();
-      await prepTasks.ensureFullDayPrepComplete();
-    });
-
-    await test.step("Open CureLeaf's Product fills and fill every visible row", async () => {
-      await dashboard.clickLocationByPosition('second');
-      await dashboard.openFirstServiceStation('market');
-      await market.openFills();
-      await market.fillAllVisibleDeliveryQuantities('5');
-    });
-
-    await test.step('TC208: select a Sort option, then verify Continue is still enabled', async () => {
-      await market.selectSortOption('A to Z');
-      expect(await market.isFillsContinueEnabled()).toBe(true);
-    });
-  });
-
-  // ==== MONEY OPERATIONS (regression sheet "Market", M-TC-017..021/030/031) ====
+    // ==== MONEY OPERATIONS (regression sheet "Market", M-TC-017..021/030/031) ====
   //
-  // ROUTE/DAY: Miami 001 on marketRoute's own day (TODAY).
+  // ROUTE/DAY: Miami 001 on MARKET_ROUTE's day - see MARKET_DAY at the top of
+  // this file, and the warning kept below about pinning a RELATIVE day.
   //
   // CORRECTED 2026-08-31: this used to pin YESTERDAY, as a workaround from
   // 2026-08-27 for the app being parked on 26 Aug while the Route Setup
@@ -1894,7 +1157,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // Coffee: a relative YESTERDAY silently walks the tests onto a different
   // calendar date every day, and the resulting "missing account" failures
   // read as data gaps rather than as a stale config.
-  const MONEY_OPS_ROUTE = mobileConfig.marketRoute;
+  const MONEY_OPS_ROUTE = MARKET_ROUTE;
 
   const reachMoneyOpsChecklist = async (driver: any, account = 'Teva Pharmaceutical'): Promise<MarketServiceScreen> => {
     const prepTasks = new PrepTasksScreen(driver);
@@ -1910,9 +1173,10 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
     await prepTasks.ensureFullDayPrepComplete();
     await home.returnToHome();
     await reachMarketAccount(driver, account);
-    await dashboard.openFirstServiceStation('market');
-    return new MarketServiceScreen(driver);
+    return (await openMarketStationWithMoneyOps(driver)).market;
   };
+
+
 
   // ==== M-TC-020 - OUT OF SCOPE (no live scanner) ====
   //
@@ -2240,14 +1504,43 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
         expect(await market.getMoneyFieldValue('refund')).toBe('4.44');
       });
 
-      await test.step('A negative sign is rejected', async () => {
-        // "-5" comes back as "0.05" - the sign is dropped and the digits are
-        // currency-formatted. Rejecting the sign is the behaviour the case
-        // asks for, so this clause PASSES.
+      // WHY BOTH CLAUSES - added 2026-09-04 after QA asked the obvious question
+      // ("why are we entering -5?") and then established the answer on the
+      // device. There are TWO ways to attempt a negative and they are not the
+      // same test:
+      //
+      //   1. INJECTION (below): setValue bypasses the keypad, so the FIELD'S own
+      //      parsing is what runs. "-5" lands as "0.05" - the sign is dropped and
+      //      the digits are read as cents.
+      //   2. THE INTENDED PATH: the custom keypad's "-" key is NOT a sign key at
+      //      all, it is a DECREMENT stepper sitting beside "+", floor-clamped at
+      //      zero (QA-confirmed on the device: holding it down bottoms out at
+      //      0.00). MarketServiceScreen.tapKeypadDecrement's own note already
+      //      recorded this for the Fill screen's fields - this case simply never
+      //      used it.
+      //
+      // Asserting only (1) was testing a path a driver cannot take, and would
+      // have gone on passing even if the stepper let a value go negative - which
+      // is the behaviour the case actually cares about. Both are asserted now.
+      await test.step('An injected negative sign is dropped by the field', async () => {
         await market.typeIntoMoneyField('coins', '-5');
         const v = await market.getMoneyFieldValue('coins');
-        console.log(`[M-TC-030] coins after "-5" = "${v}"`);
+        console.log(`[M-TC-030] coins after injecting "-5" = "${v}"`);
         expect(v).not.toContain('-');
+      });
+
+      await test.step('The keypad decrement floor-clamps at zero - the field cannot be driven negative', async () => {
+        await market.typeIntoMoneyField('coins', '2');
+        for (let i = 0; i < 6; i++) {
+          await market.tapKeypadDecrement();
+        }
+        const v = await market.getMoneyFieldValue('coins');
+        console.log(`[M-TC-030] coins after 6 decrements from "2" = "${v}"`);
+        expect(v).not.toContain('-');
+        // Asserted numerically rather than as a literal "0.00": the meaningful
+        // property is that it bottoms out at zero, and pinning the exact string
+        // would encode a formatting detail this clause is not about.
+        expect(Number.parseFloat(v || '0')).toBe(0);
       });
 
       await test.step('Leave without saving anything', async () => {
@@ -2510,62 +1803,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   //
   // IDEMPOTENT: a skipped station stays skipped, so the skip half runs only
   // when the station is not already skipped. The resume half always runs.
-  test(
-    'M-TC-032: a skipped station is marked complete and can still be re-entered to resume service',
-    { tag: ['@Market-M-TC-032'] },
-    async ({ driver }) => {
-      test.setTimeout(900_000);
-      const home = new HomeScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const prepTasks = new PrepTasksScreen(driver);
-      const market = new MarketServiceScreen(driver);
-
-      await test.step('Reach the second Market stop', async () => {
-        await loginAndEnsureRoute(driver, MONEY_OPS_ROUTE);
-        await home.returnToHome();
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-        await home.returnToHome();
-        await reachMarketAccount(driver, 'United Collection Bureau');
-      });
-
-      await test.step('M-TC-032: skip the station if it is not already skipped', async () => {
-        const alreadySkipped = (await dashboard.getServiceStationProgress('market')) === 100;
-        console.log(`[M-TC-032] station already skipped/complete = ${alreadySkipped}`);
-        if (!alreadySkipped) {
-          await dashboard.openSkipStopSheet('market', 'first');
-          await dashboard.selectSkipReason('Driver Skipped');
-          await dashboard.selectSkipDisposition('leaveOnTruck');
-          expect(await dashboard.isSkipStopButtonEnabled()).toBe(true);
-          await dashboard.tapSkipStop();
-        }
-      });
-
-      await test.step('M-TC-032: the skip is reflected on the stop', async () => {
-        // The app exposes NO distinct "skipped" marker - a skipped station
-        // reads exactly like a completed one (progress 100, and the stop moves
-        // to Home's Completed tab). So the indicator is asserted by that
-        // observable effect rather than by a label that does not exist.
-        await expect
-          .poll(() => dashboard.getServiceStationProgress('market').catch(() => -1), { timeout: 20_000 })
-          .toBe(100);
-      });
-
-      await test.step('M-TC-032: the skipped station re-opens to a full task list', async () => {
-        // "Navigate to Service Selection and complete the required service" -
-        // the checklist IS that destination, and it comes back fully
-        // actionable, which is what makes resuming possible.
-        await dashboard.openFirstServiceStation('market');
-        const tasks = await market.getMarketChecklistTasks();
-        console.log(`[M-TC-032] tasks on the skipped station = ${JSON.stringify(tasks)}`);
-        expect(tasks.delivery).toBe(true);
-        expect(tasks.audit).toBe(true);
-        expect(tasks.moneyOperations).toBe(true);
-      });
-    }
-  );
-
-  // ==== M-TC-036 (Complete Stop navigates to Schedule) ====
+    // ==== M-TC-036 (Complete Stop navigates to Schedule) ====
   //
   // "App navigates to Schedule after Complete Stop is selected" -> "the app
   // should navigate to the Scheduled screen".
@@ -2601,127 +1839,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   //  2. An AD-HOC stop can never be completed: it has "No Orders", and its
   //     Delivery tile never ticks even after Fills is submitted.
   //  3. A SINGLE-station stop has no separate "Complete Stop" button at all.
-  test(
-    'M-TC-036/M-TC-027: a full market service journey completes the stop and returns to the Schedule',
-    // Also carries M-TC-027 ("Route driver completes full market service
-    // journey end to end" -> "the home screen should reflect the updated
-    // completed stop status"). The journey below IS that end-to-end flow -
-    // Before Photos, Delivery, Audit, Money Operations, then completion - so
-    // it is tagged rather than duplicated as a second expensive run. The
-    // Home-status clause is asserted in its own step at the end.
-    // Also carries M-TC-007 ("Complete Delivery remains disabled until
-    // mandatory tasks are complete ... then Continue should become enabled").
-    // This journey asserts BOTH halves of that transition - disabled before
-    // servicing, enabled after - which is the whole of that case. Its sheet
-    // status is "Blocked", but that predates the four-task gate being
-    // established here; it is reachable.
-    { tag: ['@Market-M-TC-036', '@Market-M-TC-027', '@Market-M-TC-007'] },
-    async ({ driver }) => {
-      test.setTimeout(900_000);
-      const home = new HomeScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const prepTasks = new PrepTasksScreen(driver);
-      const market = new MarketServiceScreen(driver);
-
-      await test.step('Log in and complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, MONEY_OPS_ROUTE);
-        await home.returnToHome();
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-        await home.returnToHome();
-      });
-
-      await test.step('Reach the second real Market stop', async () => {
-        await reachMarketAccount(driver, 'United Collection Bureau');
-        await dashboard.openFirstServiceStation('market');
-      });
-
-      // FOUR tasks gate Complete Delivery, not two: Before Photos, Delivery,
-      // Audit AND Money Operations. An earlier version of this test did only
-      // the first two (ensureAuditPrerequisites) and Complete Delivery never
-      // enabled. M-TC-008 already walks the full sequence - this mirrors it.
-      // Removals & Returns is genuinely NOT required (M-TC-014 proves that).
-      await test.step('M-TC-007: Complete Delivery is disabled before the mandatory tasks are done', async () => {
-        // The first half of M-TC-007's transition. Asserted BEFORE any
-        // servicing, so the enable below is demonstrably caused by completing
-        // the tasks rather than having been true all along - the exact trap
-        // M-TC-011 fell into on the Fills Continue button.
-        const before = await market.isCompleteDeliveryEnabled();
-        console.log(`[M-TC-007] Complete Delivery enabled before servicing = ${before}`);
-        expect(before).toBe(false);
-      });
-
-      await test.step('Service it: Before Photos and Delivery', async () => {
-        await ensureAuditPrerequisites(market);
-      });
-
-      await test.step('Service it: Audit (count one product)', async () => {
-        const auditDone = await market.isChecklistIconChecked(
-          '//android.view.View[starts-with(@content-desc,"Market Physical") or starts-with(@content-desc,"Audit")]'
-        );
-        if (!auditDone) {
-          await market.tapAuditTile();
-          if (await market.isCountTypeModalVisible()) {
-            await market.selectCountType('cycle');
-          }
-          await market.searchAndSelectAuditProduct('Balance C', 'Balance CkieDough1.76oz - pkg: 1', 'Balance CkieDough1.76oz');
-          await market.tap('~Continue');
-        }
-      });
-
-      await test.step('Service it: Money Operations', async () => {
-        await market.skipMoneyOperations();
-      });
-
-      await test.step('Complete the delivery', async () => {
-        await expect
-          .poll(() => market.isCompleteDeliveryEnabled().catch(() => false), { timeout: 60_000 })
-          .toBe(true);
-        await market.tap('~Complete Delivery');
-      });
-
-      await test.step('M-TC-036: completing the stop returns to the Schedule', async () => {
-        // On a stop with ONE service station there is NO separate "Complete
-        // Stop" button - completing the last service completes the stop, and
-        // the app navigates straight to the Schedule. Live-verified
-        // 2026-08-27 on United Collection Bureau: tapping Complete Delivery
-        // landed directly on Home with the stop moved to Completed.
-        //
-        // A multi-station stop DOES surface Complete Stop at the stop level
-        // (Coffee's own suite taps it), so this handles both rather than
-        // assuming one shape: if the button is there, tap it; otherwise the
-        // completion above already was the stop completion.
-        if (await dashboard.isCompleteStopVisible().catch(() => false)) {
-          expect(await dashboard.isCompleteStopEnabled()).toBe(true);
-          await dashboard.tapCompleteStop();
-        }
-        // "the Scheduled screen" is Home - the schedule list with its date,
-        // route badge and delivery counters. isLoaded() is this suite's own
-        // "we are on Home" signal.
-        await expect.poll(() => home.isLoaded().catch(() => false), { timeout: 30_000 }).toBe(true);
-        // Settle on Home before reading any counter: the delivery count is
-        // SCROLLING content, not a fixed header, so arriving here mid-scroll
-        // makes getDeliveriesCount() throw "element wasn't found" rather than
-        // return a number. returnToHome() scrolls to top first.
-        await home.returnToHome();
-        console.log(`[M-TC-036] after completing the stop, deliveries = ${await home.getDeliveriesCount()}`);
-        expect(await home.isLoaded()).toBe(true);
-      });
-
-      await test.step('M-TC-027: Home reflects the updated completed-stop status', async () => {
-        // The clause M-TC-036 alone does not cover: not just that we ARRIVED
-        // at the Schedule, but that the Schedule now REPORTS the stop as
-        // completed. Asserted on the tab counts rather than on a row, since a
-        // completed stop moves between tabs.
-        const completed = await dashboard.getCompletedCount();
-        const pending = await dashboard.getPendingActionCount();
-        console.log(`[M-TC-027] pending=${pending} completed=${completed}`);
-        expect(completed).toBeGreaterThan(0);
-      });
-    }
-  );
-
-  // ==== M-TC-001 / M-TC-042 (stop list -> Stop Preview) ====
+    // ==== M-TC-001 / M-TC-042 (stop list -> Stop Preview) ====
   //
   // These two rows are WORD-FOR-WORD IDENTICAL - "Driver views market stops
   // and navigates to stop preview", same Expected text, differing only in Sub
@@ -3219,7 +2337,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // editable quantity field.
   test(
     'M-TC-040 (gap): one Down-arrow tap does not reach the next editable quantity field',
-    { tag: ['@Market-M-TC-040', '@known-pbi'] },
+    { tag: ['@Market-M-TC-040'] },
     async ({ driver }) => {
       test.setTimeout(900_000);
       test.fail();
@@ -3299,68 +2417,7 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // Narrowing already established by M-TC-032: SKIPPING ALONE does not
   // corrupt - counts stayed consistent after a skip. The damage belongs to the
   // COMPLETE-after-skip step, which is what this exercises.
-  test(
-    'M-TC-035 (gap): completing a previously skipped station corrupts the schedule counts',
-    { tag: ['@Market-M-TC-035', '@corrupts-route'] },
-    async ({ driver }) => {
-      test.setTimeout(900_000);
-      test.fail();
-      const home = new HomeScreen(driver);
-      const dashboard = new DashboardScreen(driver);
-      const prepTasks = new PrepTasksScreen(driver);
-      const market = new MarketServiceScreen(driver);
-
-      await test.step('Log in and complete Start Day', async () => {
-        await loginAndEnsureRoute(driver, MONEY_OPS_ROUTE);
-        await home.returnToHome();
-        await prepTasks.openFromHamburgerMenu();
-        await prepTasks.ensureFullDayPrepComplete();
-        await home.returnToHome();
-      });
-
-      await test.step('Skip a station, then re-enter and complete it', async () => {
-        await reachMarketAccount(driver, 'United Collection Bureau');
-        if ((await dashboard.getServiceStationProgress('market')) !== 100) {
-          await dashboard.openSkipStopSheet('market', 'first');
-          await dashboard.selectSkipReason('Driver Skipped');
-          await dashboard.selectSkipDisposition('leaveOnTruck');
-          await dashboard.tapSkipStop();
-          await driver.pause(4_000);
-        }
-        await home.returnToHome();
-        await reachMarketAccount(driver, 'United Collection Bureau');
-        await dashboard.openFirstServiceStation('market');
-        await ensureAuditPrerequisites(market);
-        const auditDone = await market.isChecklistIconChecked(
-          '//android.view.View[starts-with(@content-desc,"Market Physical") or starts-with(@content-desc,"Audit")]'
-        );
-        if (!auditDone) {
-          await market.tapAuditTile();
-          if (await market.isCountTypeModalVisible()) {
-            await market.selectCountType('cycle');
-          }
-          await market.searchAndSelectAuditProduct('Balance C', 'Balance CkieDough1.76oz - pkg: 1', 'Balance CkieDough1.76oz');
-          await market.tap('~Continue');
-        }
-        await market.skipMoneyOperations();
-        if (await market.isCompleteDeliveryEnabled()) {
-          await market.tap('~Complete Delivery');
-        }
-      });
-
-      await test.step('M-TC-035: the schedule counts should still add up', async () => {
-        await home.returnToHome();
-        const total = await home.getDeliveriesCount();
-        const pending = await dashboard.getPendingActionCount();
-        const completed = await dashboard.getCompletedCount();
-        console.log(`[M-TC-035] deliveries=${total} pending=${pending} completed=${completed}`);
-        // The invariant. The sheet records it breaking here.
-        expect(pending + completed).toBe(total);
-      });
-    }
-  );
-
-  // ==== SEARCH AND SCAN (M-TC-028, M-TC-033, M-TC-034) ====
+    // ==== SEARCH AND SCAN (M-TC-028, M-TC-033, M-TC-034) ====
   //
   // All three pair "search AND scan". The SCAN half is OUT OF SCOPE for the
   // same reason as M-TC-020: no live scanner on this emulator. The SEARCH half
@@ -3664,4 +2721,345 @@ test.describe('Market - Delivery, Add Product, Money Operations', () => {
   // below reads "Market Transfers | 0 Transfers", so this checklist plainly
   // CAN render a count next to a task title. Money Operations does it too,
   // flipping to "POS 58 [77]" once a bag exists (M-TC-021).
+
+  // ---------------------------------------------------------------------
+  // DESTRUCTIVE - deliberately last.
+  //
+  // These COMPLETE or SKIP a service station, and completion is server-tracked
+  // and one-way: Route Setup re-pulls server truth rather than restoring it, so
+  // nothing in the app un-completes a stop.
+  //
+  // Moved here 2026-09-03 after M-TC-008 was fixed and started actually
+  // succeeding. Succeeding means it taps Complete Delivery on Teva's SECOND
+  // Market station - the one station every Money Operations case needs - and a
+  // completed station silently accepts a bag code without persisting it. That
+  // turned four green Money Ops tests red on that day, and they stayed red on
+  // re-run because the damage outlives the run. Proven by contrast: M-TC-017
+  // fails on the spent day and passes on an untouched one.
+  //
+  // Ordering does not undo the day-burn, it just stops one run poisoning
+  // itself. A day these have run against is spent for the Money Ops cases.
+  // ---------------------------------------------------------------------
+
+test(
+    'M-TC-008: a completed service station shows a green tick and a fully-updated progress bar',
+    { tag: ['@Market-M-TC-008'] },
+    async ({ driver }) => {
+      const dashboard = new DashboardScreen(driver);
+      const home = new HomeScreen(driver);
+      const market = new MarketServiceScreen(driver);
+      let servicedPosition: Position = 'first';
+
+      await test.step('Log in, ensure Miami/Route 001, complete Start Day', async () => {
+        await loginAndStartDay(driver);
+      });
+
+      // Money Operations is part of what this case completes (skipMoneyOperations
+      // below), so it needs the station that HAS it - Teva's FIRST Market station
+      // does not, which is why this failed on "Money Operations still not
+      // displayed" while reading as a missing feature. Was
+      // openFirstServiceStation('market'); see openMarketStationWithMoneyOps for
+      // the live evidence.
+      await test.step("Reach Teva Pharmaceutical's Money-Operations checklist", async () => {
+        await home.returnToHome();
+        await reachMarketAccount(driver, 'Teva Pharmaceutical');
+        servicedPosition = (await openMarketStationWithMoneyOps(driver)).position;
+      });
+
+      // Before Photos, Delivery, and Market Physical/Audit are all
+      // idempotent no-ops if a previous test already completed them on
+      // this same account (isChecklistIconChecked-backed helpers below
+      // just skip re-doing work that's already checked).
+      await test.step('Ensure Before Photos and Delivery are complete (Audit\'s prerequisites)', async () => {
+        await ensureAuditPrerequisites(market);
+      });
+
+      await test.step('Ensure Market Physical/Audit is complete (count one product)', async () => {
+        const auditTileChecked = await market.isChecklistIconChecked(
+          '//android.view.View[starts-with(@content-desc,"Audit") or starts-with(@content-desc,"Market Physical")]'
+        );
+        if (!auditTileChecked) {
+          await market.tapAuditTile();
+          // The Count Type modal is a once-per-account, server-tracked event
+          // (see tapAuditTile's own note) - on an account that has already
+          // picked one, the tile lands straight on the Audit screen.
+          if (await market.isCountTypeModalVisible()) {
+            await market.selectCountType('cycle');
+          }
+          await market.searchAndSelectAuditProduct('Balance C', 'Balance CkieDough1.76oz - pkg: 1', 'Balance CkieDough1.76oz');
+          await market.tap('~Continue');
+        }
+      });
+
+      await test.step('Complete Money Operations (skip money bag, save)', async () => {
+        await market.skipMoneyOperations();
+      });
+
+      await test.step('M-TC-008: Complete Delivery is now enabled - tap it', async () => {
+        expect(await market.isCompleteDeliveryEnabled()).toBe(true);
+        await market.tap('~Complete Delivery');
+      });
+
+      // ASSERT THE STATION WE ACTUALLY SERVICED - corrected 2026-09-03.
+      // Both assertions here were position-coupled to the same wrong assumption
+      // as the navigation above: this completes Teva's SECOND Market station (the
+      // one with Money Operations) but checked the FIRST for its green tick, and
+      // demanded 100% - which on a two-station account needs BOTH complete, not
+      // one. The case is about a completed station showing its tick and the bar
+      // moving, so that is what is asserted: the serviced station specifically,
+      // and progress consistent with one of N done rather than a hardcoded 100.
+      await test.step('M-TC-008: the serviced station shows a green tick and the progress bar has moved', async () => {
+        const stations = await dashboard.getServiceStationNames('market');
+        const progress = await dashboard.getServiceStationProgress('market');
+        console.log(`[M-TC-008] progress=${progress}% across ${stations.length} market station(s)`);
+        expect(progress).toBeGreaterThanOrEqual(Math.floor(100 / Math.max(stations.length, 1)));
+        const isComplete = await dashboard.isNthServiceStationComplete('market', servicedPosition);
+        expect(isComplete).toBe(true);
+      });
+    }
+  );
+
+
+
+test(
+    'M-TC-032: a skipped station is marked complete and can still be re-entered to resume service',
+    { tag: ['@Market-M-TC-032'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const home = new HomeScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const prepTasks = new PrepTasksScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Reach the second Market stop', async () => {
+        await loginAndEnsureRoute(driver, MONEY_OPS_ROUTE);
+        await home.returnToHome();
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+        await reachMarketAccount(driver, 'United Collection Bureau');
+      });
+
+      await test.step('M-TC-032: skip the station if it is not already skipped', async () => {
+        const alreadySkipped = (await dashboard.getServiceStationProgress('market')) === 100;
+        console.log(`[M-TC-032] station already skipped/complete = ${alreadySkipped}`);
+        if (!alreadySkipped) {
+          await dashboard.openSkipStopSheet('market', 'first');
+          await dashboard.selectSkipReason('Driver Skipped');
+          await dashboard.selectSkipDisposition('leaveOnTruck');
+          expect(await dashboard.isSkipStopButtonEnabled()).toBe(true);
+          await dashboard.tapSkipStop();
+        }
+      });
+
+      await test.step('M-TC-032: the skip is reflected on the stop', async () => {
+        // The app exposes NO distinct "skipped" marker - a skipped station
+        // reads exactly like a completed one (progress 100, and the stop moves
+        // to Home's Completed tab). So the indicator is asserted by that
+        // observable effect rather than by a label that does not exist.
+        await expect
+          .poll(() => dashboard.getServiceStationProgress('market').catch(() => -1), { timeout: 20_000 })
+          .toBe(100);
+      });
+
+      await test.step('M-TC-032: the skipped station re-opens to a full task list', async () => {
+        // "Navigate to Service Selection and complete the required service" -
+        // the checklist IS that destination, and it comes back fully
+        // actionable, which is what makes resuming possible.
+        await dashboard.openFirstServiceStation('market');
+        const tasks = await market.getMarketChecklistTasks();
+        console.log(`[M-TC-032] tasks on the skipped station = ${JSON.stringify(tasks)}`);
+        expect(tasks.delivery).toBe(true);
+        expect(tasks.audit).toBe(true);
+        expect(tasks.moneyOperations).toBe(true);
+      });
+    }
+  );
+
+
+
+test(
+    'M-TC-036/M-TC-027: a full market service journey completes the stop and returns to the Schedule',
+    // Also carries M-TC-027 ("Route driver completes full market service
+    // journey end to end" -> "the home screen should reflect the updated
+    // completed stop status"). The journey below IS that end-to-end flow -
+    // Before Photos, Delivery, Audit, Money Operations, then completion - so
+    // it is tagged rather than duplicated as a second expensive run. The
+    // Home-status clause is asserted in its own step at the end.
+    // Also carries M-TC-007 ("Complete Delivery remains disabled until
+    // mandatory tasks are complete ... then Continue should become enabled").
+    // This journey asserts BOTH halves of that transition - disabled before
+    // servicing, enabled after - which is the whole of that case. Its sheet
+    // status is "Blocked", but that predates the four-task gate being
+    // established here; it is reachable.
+    { tag: ['@Market-M-TC-036', '@Market-M-TC-027', '@Market-M-TC-007'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      const home = new HomeScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const prepTasks = new PrepTasksScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in and complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, MONEY_OPS_ROUTE);
+        await home.returnToHome();
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Reach the second real Market stop', async () => {
+        await reachMarketAccount(driver, 'United Collection Bureau');
+        await dashboard.openFirstServiceStation('market');
+      });
+
+      // FOUR tasks gate Complete Delivery, not two: Before Photos, Delivery,
+      // Audit AND Money Operations. An earlier version of this test did only
+      // the first two (ensureAuditPrerequisites) and Complete Delivery never
+      // enabled. M-TC-008 already walks the full sequence - this mirrors it.
+      // Removals & Returns is genuinely NOT required (M-TC-014 proves that).
+      await test.step('M-TC-007: Complete Delivery is disabled before the mandatory tasks are done', async () => {
+        // The first half of M-TC-007's transition. Asserted BEFORE any
+        // servicing, so the enable below is demonstrably caused by completing
+        // the tasks rather than having been true all along - the exact trap
+        // M-TC-011 fell into on the Fills Continue button.
+        const before = await market.isCompleteDeliveryEnabled();
+        console.log(`[M-TC-007] Complete Delivery enabled before servicing = ${before}`);
+        expect(before).toBe(false);
+      });
+
+      await test.step('Service it: Before Photos and Delivery', async () => {
+        await ensureAuditPrerequisites(market);
+      });
+
+      await test.step('Service it: Audit (count one product)', async () => {
+        const auditDone = await market.isChecklistIconChecked(
+          '//android.view.View[starts-with(@content-desc,"Market Physical") or starts-with(@content-desc,"Audit")]'
+        );
+        if (!auditDone) {
+          await market.tapAuditTile();
+          if (await market.isCountTypeModalVisible()) {
+            await market.selectCountType('cycle');
+          }
+          await market.searchAndSelectAuditProduct('Balance C', 'Balance CkieDough1.76oz - pkg: 1', 'Balance CkieDough1.76oz');
+          await market.tap('~Continue');
+        }
+      });
+
+      await test.step('Service it: Money Operations', async () => {
+        await market.skipMoneyOperations();
+      });
+
+      await test.step('Complete the delivery', async () => {
+        await expect
+          .poll(() => market.isCompleteDeliveryEnabled().catch(() => false), { timeout: 60_000 })
+          .toBe(true);
+        await market.tap('~Complete Delivery');
+      });
+
+      await test.step('M-TC-036: completing the stop returns to the Schedule', async () => {
+        // On a stop with ONE service station there is NO separate "Complete
+        // Stop" button - completing the last service completes the stop, and
+        // the app navigates straight to the Schedule. Live-verified
+        // 2026-08-27 on United Collection Bureau: tapping Complete Delivery
+        // landed directly on Home with the stop moved to Completed.
+        //
+        // A multi-station stop DOES surface Complete Stop at the stop level
+        // (Coffee's own suite taps it), so this handles both rather than
+        // assuming one shape: if the button is there, tap it; otherwise the
+        // completion above already was the stop completion.
+        if (await dashboard.isCompleteStopVisible().catch(() => false)) {
+          expect(await dashboard.isCompleteStopEnabled()).toBe(true);
+          await dashboard.tapCompleteStop();
+        }
+        // "the Scheduled screen" is Home - the schedule list with its date,
+        // route badge and delivery counters. isLoaded() is this suite's own
+        // "we are on Home" signal.
+        await expect.poll(() => home.isLoaded().catch(() => false), { timeout: 30_000 }).toBe(true);
+        // Settle on Home before reading any counter: the delivery count is
+        // SCROLLING content, not a fixed header, so arriving here mid-scroll
+        // makes getDeliveriesCount() throw "element wasn't found" rather than
+        // return a number. returnToHome() scrolls to top first.
+        await home.returnToHome();
+        console.log(`[M-TC-036] after completing the stop, deliveries = ${await home.getDeliveriesCount()}`);
+        expect(await home.isLoaded()).toBe(true);
+      });
+
+      await test.step('M-TC-027: Home reflects the updated completed-stop status', async () => {
+        // The clause M-TC-036 alone does not cover: not just that we ARRIVED
+        // at the Schedule, but that the Schedule now REPORTS the stop as
+        // completed. Asserted on the tab counts rather than on a row, since a
+        // completed stop moves between tabs.
+        const completed = await dashboard.getCompletedCount();
+        const pending = await dashboard.getPendingActionCount();
+        console.log(`[M-TC-027] pending=${pending} completed=${completed}`);
+        expect(completed).toBeGreaterThan(0);
+      });
+    }
+  );
+
+
+
+test(
+    'M-TC-035 (gap): completing a previously skipped station corrupts the schedule counts',
+    { tag: ['@Market-M-TC-035'] },
+    async ({ driver }) => {
+      test.setTimeout(900_000);
+      test.fail();
+      const home = new HomeScreen(driver);
+      const dashboard = new DashboardScreen(driver);
+      const prepTasks = new PrepTasksScreen(driver);
+      const market = new MarketServiceScreen(driver);
+
+      await test.step('Log in and complete Start Day', async () => {
+        await loginAndEnsureRoute(driver, MONEY_OPS_ROUTE);
+        await home.returnToHome();
+        await prepTasks.openFromHamburgerMenu();
+        await prepTasks.ensureFullDayPrepComplete();
+        await home.returnToHome();
+      });
+
+      await test.step('Skip a station, then re-enter and complete it', async () => {
+        await reachMarketAccount(driver, 'United Collection Bureau');
+        if ((await dashboard.getServiceStationProgress('market')) !== 100) {
+          await dashboard.openSkipStopSheet('market', 'first');
+          await dashboard.selectSkipReason('Driver Skipped');
+          await dashboard.selectSkipDisposition('leaveOnTruck');
+          await dashboard.tapSkipStop();
+          await driver.pause(4_000);
+        }
+        await home.returnToHome();
+        await reachMarketAccount(driver, 'United Collection Bureau');
+        await dashboard.openFirstServiceStation('market');
+        await ensureAuditPrerequisites(market);
+        const auditDone = await market.isChecklistIconChecked(
+          '//android.view.View[starts-with(@content-desc,"Market Physical") or starts-with(@content-desc,"Audit")]'
+        );
+        if (!auditDone) {
+          await market.tapAuditTile();
+          if (await market.isCountTypeModalVisible()) {
+            await market.selectCountType('cycle');
+          }
+          await market.searchAndSelectAuditProduct('Balance C', 'Balance CkieDough1.76oz - pkg: 1', 'Balance CkieDough1.76oz');
+          await market.tap('~Continue');
+        }
+        await market.skipMoneyOperations();
+        if (await market.isCompleteDeliveryEnabled()) {
+          await market.tap('~Complete Delivery');
+        }
+      });
+
+      await test.step('M-TC-035: the schedule counts should still add up', async () => {
+        await home.returnToHome();
+        const total = await home.getDeliveriesCount();
+        const pending = await dashboard.getPendingActionCount();
+        const completed = await dashboard.getCompletedCount();
+        console.log(`[M-TC-035] deliveries=${total} pending=${pending} completed=${completed}`);
+        // The invariant. The sheet records it breaking here.
+        expect(pending + completed).toBe(total);
+      });
+    }
+  );
+
+
 });
