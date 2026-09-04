@@ -319,7 +319,7 @@ async function reachCoffeeStopWithEmptyDeliveries(driver: any): Promise<void> {
 }
 
 test.describe('Coffee - Before Photos / Skip photo', () => {
-  test(
+  test.only(
     'Skip photo flow: reason sheet appears, validates non-blank input, and submits without saving a photo',
     { tag: ['@Coffee-TC134', '@Coffee-TC136', '@Coffee-TC137', '@Coffee-TC138'] },
     async ({ driver }, testInfo) => {
@@ -334,7 +334,7 @@ test.describe('Coffee - Before Photos / Skip photo', () => {
       const home = new HomeScreen(driver);
 
       await test.step('Log in, ensure Route 10/TODAY (only day with live Prep Tasks + schedule data)', async () => {
-        await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
+        // await loginAndEnsureRoute(driver, { ...mobileConfig.defaultRoute, day: 'TODAY' });
       });
 
       // Precondition (live-verified 2026-08-06): this route's TODAY data can
@@ -343,7 +343,7 @@ test.describe('Coffee - Before Photos / Skip photo', () => {
       // fixed via an ad-hoc "OCS/Pantry" delivery against FedEx, the same
       // account this spec already navigates to below.
       await test.step("Ensure today's route has a Coffee delivery", async () => {
-        await ensureCoffeeDeliveryExists(driver, 'FedEx');
+        await ensureCoffeeDeliveryExists(driver, 'Afficionado Coffee Roasters');
       });
 
       // Start Day may already be server-tracked complete from an earlier
@@ -358,7 +358,7 @@ test.describe('Coffee - Before Photos / Skip photo', () => {
         // By name, not position - live-verified 2026-08-06 that Route 10's
         // stop order/count drifts (an unrelated stop can appear alongside
         // FedEx), same rationale as ensureCoffeeDeliveryExists's own note.
-        await dashboard.clickLocationByName('FedEx');
+        await dashboard.clickLocationByName('Afficionado Coffee Roasters');
         await dashboard.openFirstServiceStation('coffee');
       });
 

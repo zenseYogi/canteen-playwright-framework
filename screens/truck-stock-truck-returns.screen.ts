@@ -20,8 +20,8 @@ export class TruckStockTruckReturnsScreen extends BaseScreen {
   // rather than one `~Truck returns` accessibility-id lookup, since that
   // shorthand can't disambiguate between them if both exist in the view
   // hierarchy at the same time (e.g. a nav drawer that stays mounted while closed).
-  private readonly navMenuTruckReturns = '//android.widget.Button[@content-desc="Truck returns"]';
-  private readonly truckReturnsTitle = '//android.view.View[@content-desc="Truck returns"]';
+  private readonly navMenuTruckReturns = '//android.widget.Button[@content-desc="Truck Returns"]';
+  private readonly truckReturnsTitle = '//android.view.View[@content-desc="Truck Returns"]';
 
   // Truck Returns' own tabs use lowercase content-desc ("coffee"/"market"),
   // the same mismatch already found on Transfers' tabs - the shared
@@ -37,7 +37,7 @@ export class TruckStockTruckReturnsScreen extends BaseScreen {
   // matches zero elements and searchAndSelect() throws on `options[0]`
   // being undefined. This locator instead matches on content, not container
   // type, so it works regardless of result count.
-  protected readonly searchList = '//android.view.View[@clickable="true" and contains(@content-desc,"pkg:")]';
+  // protected readonly searchList = '//android.view.View[@clickable="true" and contains(@content-desc,"pkg:")]';
 
   private readonly addProductTitle = '//android.view.View[@content-desc="Add product"]';
   // The Add Product screen's Damaged/Spoiled fields have no content-desc,
@@ -83,10 +83,10 @@ export class TruckStockTruckReturnsScreen extends BaseScreen {
       await this.tap(this.navMenuTruckStockCollapsed);
     }
     const result = {
-      truckStock: await this.isVisible('//android.view.View[contains(@content-desc,"Truck stock")]'),
+      truckStock: await this.isVisible('//android.view.View[contains(@content-desc,"Truck Stock")]'),
       truckReturns: await this.isVisible(this.navMenuTruckReturns),
       routeInventory: await this.isVisible('//android.widget.Button[@content-desc="Route Inventory"]'),
-      routeShopping: await this.isVisible('//android.widget.Button[@content-desc="Route shopping"]'),
+      routeShopping: await this.isVisible('//android.widget.Button[@content-desc="Route Shopping"]'),
       transfers: await this.isVisible('//android.widget.Button[@content-desc="Transfers"]')
     };
     await this.tap(this.navMenuTruckReturns);
@@ -157,6 +157,8 @@ export class TruckStockTruckReturnsScreen extends BaseScreen {
     await this.waitFor(this.truckReturnsTitle);
     return productName;
   }
+
+  
 
   /**
    * Deletes a previously-added product. `productName` is accepted for call-

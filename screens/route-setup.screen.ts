@@ -20,18 +20,10 @@ export class RouteSetupScreen extends BaseScreen {
   private readonly settingsMenuItem = '~Settings, Collapsed';
   private readonly settingsExpandedMarker = '~Settings, Expanded';
   private readonly routeSetupMenuItem = '~Route setup';
-  // RE-RE-CORRECTED 2026-08-20: the "lowercase s" claim was right all
-  // along FOR THIS SCREEN specifically - a fresh raw `uiautomator dump`
-  // taken right after openFromHamburgerMenu's own navigation (Hamburger >
-  // Settings > Route setup) confirms content-desc="Route setup" (lowercase
-  // s) on this screen's own header. The capital-S "Route Setup" is a
-  // DIFFERENT screen: the fresh-account post-MFA gate MfaScreen detects
-  // directly (no menu navigation involved) - see its own
-  // routeSetupGateTitle, independently confirmed capital via the same
-  // dump technique. Two real screens, two real (different) casings - not
-  // one locator that kept getting mis-transcribed.
   private readonly screenTitle = '~Route setup';
-  private readonly operationField = '(//android.view.View[@clickable="true"])[1]';
+  // private readonly operationField = '(//android.view.View[@clickable="true"])[1]';
+  private readonly operationField = '//android.view.View[contains(@hint,"Operation")]';
+  //android.widget.EditText[contains(@hint,"Add product")]
   private readonly routeField = '(//android.view.View[@clickable="true"])[2]';
   private readonly modalSearchField = '//android.widget.EditText';
   /**
@@ -240,10 +232,39 @@ export class RouteSetupScreen extends BaseScreen {
    * option label, e.g. "Miami, FL"). See typeAndSelectFromModal for the
    * retry behavior.
    */
+  // async selectOperation(searchTerm: string, resultLabel: string): Promise<void> {
+  //   await this.tap(this.operationField);
+  //   await this.typeAndSelectFromModal(searchTerm, resultLabel);
+  // }
+
+
   async selectOperation(searchTerm: string, resultLabel: string): Promise<void> {
+    const operationField = await this.driver.$(this.operationField);
+    await operationField.waitForDisplayed({ timeout: 10000 });
+    await this.driver.waitUntil(
+      async () => {
+        await operationField.click();
+        const sheet = await this.driver.$('~Select operation');
+        try {
+          await sheet.waitForDisplayed({ timeout: 10000 });
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      {
+        timeout: 30000,
+        interval: 5000,
+        timeoutMsg: 'Select operation sheet did not appear'
+      }
+    );
     await this.tapFieldUntilModalOpens(this.operationField);
     await this.typeAndSelectFromModal(searchTerm, resultLabel);
   }
+
+
+
+
 
   /** Same pattern as selectOperation, for the "Select route" modal (e.g. "Route 010"). */
   async selectRoute(searchTerm: string, resultLabel: string): Promise<void> {
@@ -309,6 +330,9 @@ export class RouteSetupScreen extends BaseScreen {
    * 26-test suite is most of an hour spent waiting for something known not
    * to be coming.
    */
+  async waitForSyncAndDaySheet(timeoutMs = 360_000): Promise<void> {
+    const el = await this.driver.$('~Select Day');
+    await el.waitForDisplayed({ timeout: timeoutMs });
   private async waitForDaySheetOrLandedPast(timeoutMs = 120_000): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
@@ -348,6 +372,27 @@ export class RouteSetupScreen extends BaseScreen {
     if (await this.isVisible(this.confirmDateButton)) {
       await this.tap(this.confirmDateButton);
     }
+  }
+
+  async confirmRoute(timeoutMs = 120_000): Promise<void> {
+    const el = await this.driver.$('~Confirm');
+    await el.waitForDisplayed({ timeout: timeoutMs });
+    await el.click();
+    await this.verifyStartDayRouteDisplayed();
+  }
+
+
+
+  async verifyStartDayRouteDisplayed(): Promise<void> {
+    const element = await this.driver.$(
+      `//android.view.View[contains(@content-desc,"Start day")]`
+    );
+    await element.waitForDisplayed({
+      timeout: 360_000,
+      timeoutMsg: `Start day header for route was not displayed`
+    });
+    const text =
+      (await element.getAttribute('content-desc')) ?? '';
   }
 
   /**
@@ -432,6 +477,7 @@ export class RouteSetupScreen extends BaseScreen {
       return false;
     }
     await this.selectDay(params.day);
+    await this.confirmRoute();
     return true;
   }
 }

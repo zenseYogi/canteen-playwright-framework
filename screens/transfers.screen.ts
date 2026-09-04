@@ -29,7 +29,7 @@ export class TransfersScreen extends BaseScreen {
   // transfers.yaml declared route_to_click_on_to_modify and
   // route_to_warehouse_to_delete as the exact same xpath under two names -
   // collapsed into one template here.
-  private readonly routeRow = (label: string) => `//android.view.View[contains(@content-desc,"${label}")]`;
+  readonly routeRow = (label: string) => `//android.view.View[contains(@content-desc,"${label}")]`;
   private readonly firstAddedProduct = '(//android.widget.EditText[@text="1"])[1]';
   // Deliberately NOT the same as BaseScreen.backButton - transfers.yaml
   // declares this as a bare, generic //android.widget.Button (matches the
@@ -52,7 +52,9 @@ export class TransfersScreen extends BaseScreen {
   // not a custom in-app keypad - so "opens the alphabet keypad" is
   // satisfied simply by the system keyboard appearing on focus.
   private readonly searchProductSheetTitle = '~Search product';
-  private readonly noSearchResultsFoundMessage = '~No search results found';
+  // private readonly noSearchResultsFoundMessage = '~No search results found';
+  private readonly noSearchResultsFoundMessage =
+  '//android.view.View[@content-desc="No search results found" or @content-desc="No products recorded"]';
   // The barcode-scanner screen's only labeled element is its "Continue"
   // button - the camera preview itself carries no content-desc.
   private readonly scannerContinueButton = '~Continue';
@@ -101,6 +103,11 @@ export class TransfersScreen extends BaseScreen {
 
   // CORRECTED (live-verified 2026-08-03): BaseScreen's own lobTabSelector
   // uses capitalized "Coffee"/"Market"/"Vending" - this screen's real tabs
+  // are lowercase ("coffee"/"market"/"vending"), same capitalization
+  // mismatch already documented elsewhere in this app (e.g. Dashboard's
+  // own lowercase "market" LOB card). Not reusing the shared helper here.
+  private readonly lowercaseLobTab = (lob: 'Coffee' | 'Market' | 'Vending') =>
+    `//android.view.View[@content-desc="${lob}"]`;
   // CASE-INSENSITIVE, corrected 2026-08-28. These tabs were live-verified
   // LOWERCASE on 2026-08-03 ("coffee"/"market"/"vending"); on build 0.1.90
   // they render CAPITALISED ("Coffee"/"Market"/"Vending"). The exact-match
@@ -126,9 +133,9 @@ export class TransfersScreen extends BaseScreen {
     routeToWarehouse: boolean;
   }> {
     return {
-      coffee: await this.isVisible(this.lobTab('coffee')),
-      market: await this.isVisible(this.lobTab('market')),
-      vending: await this.isVisible(this.lobTab('vending')),
+      coffee: await this.isVisible(this.lowercaseLobTab('Coffee')),
+      market: await this.isVisible(this.lowercaseLobTab('Market')),
+      vending: await this.isVisible(this.lowercaseLobTab('Vending')),
       routeToRoute: await this.isVisible(this.routeToRouteTab),
       routeToWarehouse: await this.isVisible(this.routeToWarehouseTab)
     };
@@ -198,7 +205,8 @@ export class TransfersScreen extends BaseScreen {
 
   /** Taps a LOB tab (coffee/market/vending) on the Transfers landing page (assumes open() was already called). */
   async switchToLob(lob: Lob): Promise<void> {
-    await this.tap(this.lobTab(lob));
+    const capitalizedLob = (lob.charAt(0).toUpperCase() + lob.slice(1)) as 'Coffee' | 'Market' | 'Vending';
+    await this.tap(this.lowercaseLobTab(capitalizedLob));
   }
 
   // Excel TC138/TC139/TC145 - live-verified 2026-08-04: this account has
@@ -290,6 +298,10 @@ export class TransfersScreen extends BaseScreen {
     await this.waitFor(this.rtrDetailsHeading(routeLabel));
   }
 
+
+
+
+  
   /** Excel TC103 - the RTR Details screen's heading (naming the route), search field, and search/scanner icons are all visible (assumes openRtrDetails() was already called). */
   async isRtrDetailsScreenVisible(routeLabel: string): Promise<{
     heading: boolean;
@@ -311,9 +323,13 @@ export class TransfersScreen extends BaseScreen {
   }
 
   /** Excel TC105 - tapping the Product search field opens the real Android soft keyboard (a standard qwerty IME, not a custom in-app keypad). */
+  // async isAlphabetKeypadVisible(): Promise<boolean> {
+  //   return this.driver.execute('mobile: isKeyboardShown');
+  // }
+
   async isAlphabetKeypadVisible(): Promise<boolean> {
-    return this.driver.execute('mobile: isKeyboardShown');
-  }
+  return await this.driver.isKeyboardShown();
+}
 
   /** Excel TC110 - taps the scanner icon on RTR Details, opening the real barcode-scanner screen (a live camera preview with a "Continue" button - confirmed a genuine camera view, not a mock, via the recording indicator appearing in the status bar). */
   async openProductScanner(): Promise<void> {
@@ -408,7 +424,9 @@ export class TransfersScreen extends BaseScreen {
 
   private async openTab(lob: Lob, transferType: TransferType): Promise<void> {
     await this.open();
-    await this.tap(this.lobTab(lob));
+    const capitalizedLob = (lob.charAt(0).toUpperCase() + lob.slice(1)) as 'Coffee' | 'Market' | 'Vending';
+    
+    await this.tap(this.lowercaseLobTab(capitalizedLob));
     await this.tap(transferType === 'routeToRoute' ? this.routeToRouteTab : this.routeToWarehouseTab);
   }
 

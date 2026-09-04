@@ -14,6 +14,11 @@ export class HomeScreen extends BaseScreen {
   private readonly deliveriesTitle = '//android.view.View[contains(@content-desc, "Deliver")]';
 
   // PBI 622025 "Home Page: Dynamic data with functionality" - live-verified
+  // against build 0.1.76 (Miami/010). The day badge's content-desc is the
+  // whole string (e.g. "Yesterday, Thu 23 Jul") - matched by its one of
+  // three fixed prefixes, since the day/date portion changes daily.
+  // private readonly currentDateBadge =
+  //   '//android.view.View[starts-with(@content-desc,"Today") or starts-with(@content-desc,"Yesterday") or starts-with(@content-desc,"Tomorrow")]';
   // against build 0.1.76 (Miami/010). The day badge's content-desc used to
   // be a relative label (e.g. "Yesterday, Thu 23 Jul").
   //
@@ -98,6 +103,50 @@ export class HomeScreen extends BaseScreen {
     await this.pressKeyCode(4);
   }
 
+  /** TC007 "view the System Date" - the day/date badge in the navigation bar (e.g. "Yesterday, Thu 23 Jul"). */
+  // async getCurrentDateText(): Promise<string> {
+  //   const el = await this.driver.$(this.currentDateBadge);
+  //   return (await el.getAttribute('content-desc')) ?? '';
+  // }
+
+  // async getCurrentDateText(): Promise<string> {
+  //   const todayText = this.formatAppDate(new Date());
+  //   const exactToday = await this.driver.$(
+  //     `//android.view.View[@content-desc="${todayText}"]`
+  //   );
+  //   if (await exactToday.isExisting()) {
+  //     const value = await exactToday.getAttribute('content-desc');
+  //     if (value) {
+  //       return value;
+  //     }
+  //   }
+  //   const el = await this.driver.$(this.currentDateBadge);
+  //   if (await el.isExisting()) {
+  //     return (await el.getAttribute('content-desc')) ?? '';
+  //   }
+  //   return '';
+  // }
+  
+
+  private readonly currentDateBadge =
+  '//android.widget.Button[@content-desc="Open navigation menu"]/following-sibling::android.view.View[1]';
+
+// async getCurrentDateText(): Promise<string> {
+//   const el = await this.driver.$(this.currentDateBadge);
+//   await el.waitForDisplayed({ timeout: 10000 });
+//   return (await el.getAttribute('content-desc')) ?? '';
+// }
+
+
+
+
+  private formatAppDate(date: Date): string {
+    const month = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(date);
+    const day = date.getDate();
+    const year = date.getFullYear();
+    return `${month} ${day},${year}`;
+    
+  }
   /**
    * TC007 "view the System Date" - the day/date badge in the navigation bar
    * (e.g. "Yesterday, Thu 23 Jul").
@@ -449,10 +498,16 @@ export class HomeScreen extends BaseScreen {
         }
       } else if (await this.isVisible(this.backButton)) {
         await this.tap(this.backButton);
-      } else {
+        if (await this.isVisible('~Yes')) {
+          await this.tap('~Yes');
+        }
+      }else if(await this.isVisible('~Scrim')){
+        await this.tap('~Scrim');
+      }else {
         await this.pressKeyCode(4);
       }
       await this.driver.pause(700);
+      // await this.tap('~Yes');
     }
     if (!reachedHamburger) {
       // LAST-RESORT RECOVERY. BACK cannot always get us home, and when it

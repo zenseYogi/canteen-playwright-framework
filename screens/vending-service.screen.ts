@@ -1,5 +1,8 @@
 import { BaseScreen } from './base.screen';
 import { positionToIndex, type Position } from '../utils/position';
+import { expect } from '@playwright/test';
+import { PNG } from 'pngjs';
+import { mobileConfig } from '@config/mobile.config';
 
 /**
  * Vending LOB - servicing a delivery location. Ported from vending_keywords.robot,
@@ -15,7 +18,8 @@ export class VendingServiceScreen extends BaseScreen {
   // Collection" (same pattern as Market's), not "Money Operations" - that
   // label only belongs to the trigger tile on the machine's service menu.
   private readonly moneyCollectionTitle = '~Money Collection';
-  private readonly skipMoneyBagCheckbox = '//android.widget.CheckBox';
+  readonly skipMoneyBagCheckbox = '//android.widget.CheckBox';
+  readonly deleteDelivery = '~section_header_custom_cta';
   // Vending's Money Collection has 3 EditTexts (bag code / Replenishment
   // Bills / Refund amount) - one fewer than Market's 4 (no separate coins
   // field). CORRECTED: all three DO carry their own accessible hint
@@ -23,9 +27,16 @@ export class VendingServiceScreen extends BaseScreen {
   // dump) - the original claim that none expose one was wrong; kept as
   // positional indexing anyway since that's already proven working
   // throughout this file and every other caller.
-  private readonly bagCodeField = '//android.widget.EditText[1]';
-  private readonly billsField = '//android.widget.EditText[2]';
-  private readonly refundField = '//android.widget.EditText[3]';
+  // private readonly bagCodeField = '//android.widget.EditText[1]';
+  // private readonly billsField = '//android.widget.EditText[2]';
+  // private readonly refundField = '//android.widget.EditText[3]';
+
+  private readonly bagCodeField = '(//android.widget.EditText[contains(@hint,"Bag code")])';
+  private readonly billsField = '//android.widget.EditText[@hint="Bills"]';
+  private readonly refundField = '//android.widget.EditText[@hint="Amounts"]';
+  private readonly disabledBagCodeField = '(//android.view.View[@hint="Bag code"])';
+  private readonly billExchangeAmount = '//android.widget.EditText[@hint="Bill Exchange Amount"]';
+
 
   // Excel TC250/TC251/TC253/TC254/TC256/TC259/TC260/TC264 (Vending "Money
   // ops" - the Bag code sub-flow) - live-verified 2026-07-30 (build
@@ -60,7 +71,7 @@ export class VendingServiceScreen extends BaseScreen {
   //   and Money Collection stays open. This is the closest real
   //   validation behavior to TC264's own intent.
   private readonly addBagCodeIcon = '~section_header_add_cta';
-  private readonly additionalCodeField = '//android.widget.EditText[@hint="Additional code"]';
+  private readonly additionalCodeField = '//android.widget.EditText[contains(@hint,"Additional code")]';
   private readonly bagCodeFieldsError = '~All bag code fields must be filled in.';
   // The Bag code field's own barcode-scanner icon - live-verified as an
   // unlabeled ImageView immediately following the field itself (no
@@ -103,6 +114,12 @@ export class VendingServiceScreen extends BaseScreen {
     return `(${this.additionalCodeField}/following-sibling::android.widget.ImageView)[${n}]`;
   }
 
+  /**
+   * Checks whether the scanner icon is visible for the requested additional bag code field.
+   *
+   * @param {number} [n=1] - The additional bag code field index to inspect.
+   * @returns {Promise<boolean>} Resolves to true when the scanner icon is displayed.
+   */
   async isAdditionalCodeScannerIconVisible(n = 1): Promise<boolean> {
     return this.isVisible(this.additionalCodeScannerIconAt(n));
   }
@@ -112,6 +129,11 @@ export class VendingServiceScreen extends BaseScreen {
     await this.tap(this.addBagCodeIcon);
   }
 
+  /**
+   * Counts how many additional bag code fields are currently visible.
+   *
+   * @returns {Promise<number>} The number of additional code fields on screen.
+   */
   async getAdditionalCodeFieldCount(): Promise<number> {
     const fields = await this.driver.$$(this.additionalCodeField);
     return fields.length;
@@ -126,6 +148,1232 @@ export class VendingServiceScreen extends BaseScreen {
     }
     await this.dismissNumericKeypad();
   }
+
+
+
+
+
+
+  /** Opens the Before Photos step's "Add supporting photo" modal - see BaseScreen's openPhotoTrigger/isPhotoModalVisible/openSkipPhotoReasonSheet for the shared skip-photo flow beyond this. */
+  /**
+   * Opens the Before Photos step by triggering the supporting photo modal.
+   *
+   * @returns {Promise<void>} Resolves once the Before Photos flow is opened.
+   */
+  async openBeforePhotos(): Promise<void> {
+    await this.openPhotoTrigger(this.beforePhotos);
+  }
+
+  /**
+   * Checks whether the After Photos tile is disabled.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the tile is non-clickable.
+   */
+  async isAfterPhotosDisabled(): Promise<boolean> {
+    // return !this.isEnabled(this.afterPhotos);
+    const el = await this.driver.$('//android.view.View[contains(@content-desc,"After Photos")]');
+    return (await el.getAttribute('clickable')) === 'false';
+  }
+
+
+  protected readonly audit = '//android.view.View[contains(@content-desc,"Audit")]';
+
+  /**
+   * Checks whether the Audit tile is visible in the service checklist.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the audit item is shown.
+   */
+  async isAuditVisible(): Promise<boolean> {
+    return this.isVisible(this.audit);
+  }
+
+  /**
+   * Checks whether the Money Operations tile is visible on the service checklist.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the money operations item is displayed.
+   */
+  async isMoneyOperationsVisible(): Promise<boolean> {
+    return this.isVisible(this.moneyOperations);
+  }
+
+  protected readonly fillsAndEndingInventoryTile = '//android.view.View[contains(@content-desc,"Fills & Ending Inventory")]';
+
+  /**
+   * Opens the Fills & Ending Inventory screen.
+   *
+   * @returns {Promise<void>} Resolves once the screen is opened and the product fills title loads.
+   */
+  async openFillsAndEndingInventory(): Promise<void> {
+    await this.tap(this.fillsAndEndingInventoryTile);
+
+    try {
+      const okBtn = await this.driver.$('~OK');
+      if (await okBtn.waitForDisplayed({ timeout: 3000 })) {
+        await okBtn.click();
+      }
+    } catch {
+      // OK popup not displayed, continue
+    }
+
+
+    await this.waitFor(this.productFillsTitle);
+
+  }
+
+  /**
+   * Checks whether the Product fills title is visible.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the screen title is displayed.
+   */
+  async isProductTitleVisible(): Promise<boolean> {
+    return this.isVisible(this.productFillsTitle);
+  }
+
+  private productCard(productName: string): string {
+    return `//android.view.View[contains(@content-desc,'${productName}')]`;
+  }
+
+  /**
+   * Reads the Par, Cap, Ordered, and Picked values for a specific product card.
+   *
+   * @param {string} productName - The product name to inspect.
+   * @returns {Promise<{ par: number; cap: number; ordered: number; picked: number }>} The extracted product metrics.
+   */
+  async getProductInfoLabels(productName: string): Promise<{
+    par: number;
+    cap: number;
+    ordered: number;
+    picked: number;
+  }> {
+    const card = this.productCard(productName);
+    await this.waitFor(card);
+    const content = (await this.driver.$(card).getAttribute('content-desc')) ?? '';
+    const readValue = (label: string): number => Number(new RegExp(`${label}\\s+(\\d+)`).exec(content)?.[1]);
+
+    return {
+      par: readValue('Par'),
+      cap: readValue('Cap'),
+      ordered: readValue('Ordered'),
+      picked: readValue('Picked')
+    };
+  }
+
+
+  /**
+   * Reads the metrics for the first visible product card in the fills view.
+   *
+   * @returns {Promise<{ par: number; cap: number; ordered: number; picked: number }>} The collected product metrics.
+   */
+  async getFirstProductInfoLabels(): Promise<{
+    par: number;
+    cap: number;
+    ordered: number;
+    picked: number;
+  }> {
+    const firstCard = await this.driver.$(
+      '(//android.widget.ScrollView/android.view.View)[1]'
+    );
+
+    await firstCard.waitForDisplayed({ timeout: 10000 });
+
+    const content =
+      (await firstCard.getAttribute('content-desc')) ?? '';
+
+    const readValue = (label: string): number =>
+      Number(
+        new RegExp(`${label}\\s+(\\d+)`).exec(content)?.[1]
+      );
+
+    return {
+      par: readValue('Par'),
+      cap: readValue('Cap'),
+      ordered: readValue('Ordered'),
+      picked: readValue('Picked')
+    };
+  }
+
+  /**
+   * Taps the more-info arrow for a named product row.
+   *
+   * @param {string} productName - The product whose more-info control should be opened.
+   * @returns {Promise<void>} Resolves after the control is tapped.
+   */
+  async clickMoreInfoArrow(productName: string) {
+    const moreInfoArrow = await this.driver.$(
+      `//android.view.View[contains(@content-desc,'${productName}')]/android.view.View`
+    );
+    await moreInfoArrow.click();
+  }
+
+  /**
+   * Taps the more-info arrow on the first visible product card.
+   *
+   * @returns {Promise<void>} Resolves after the first card's more-info action is opened.
+   */
+  async clickFirstMoreInfoArrow(): Promise<void> {
+    const moreInfoArrow = await this.driver.$('//android.widget.ScrollView/android.view.View[1]//android.view.View');
+    await moreInfoArrow.waitForDisplayed({ timeout: 10000 });
+    await moreInfoArrow.click();
+  }
+
+  private numericKeypadDigit(d: string): string {
+    return `//android.widget.Button[@content-desc="${d}"]`;
+  }
+  private readonly numericKeypadDownArrow = `${this.numericKeypadDigit('6')}/following-sibling::android.widget.Button[1]`;
+
+  /**
+   * Taps the keypad's down-arrow control.
+   *
+   * @returns {Promise<void>} Resolves after the keypad navigation action is triggered.
+   */
+  async tapKeypadDownArrow(): Promise<void> {
+    await this.tap(this.numericKeypadDownArrow);
+  }
+
+  // protected readonly keypadDownArrow = '(//android.widget.Button)[9]';
+  // async tapKeypadDownArrow() {
+  //   await this.tap(this.keypadDownArrow);
+  // }
+
+
+  protected readonly confirmDeletePopup =
+    '//android.view.View[contains(@content-desc,"Confirm delete")]';
+
+  /**
+   * Checks whether the confirm delete popup is visible.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the delete confirmation dialog is shown.
+   */
+  async isConfirmDeletePopupDisplayed(): Promise<boolean> {
+    const popup = await this.driver.$(this.confirmDeletePopup);
+    return await popup.isDisplayed();
+  }
+
+  /**
+   * Returns the editable quantity fields for the current service page.
+   *
+   * @returns {Promise<WebdriverIO.Element[]>} The matching delivery and end quantity editor elements.
+   */
+  async getEditableQuantityFields() {
+    return await this.driver.$$(
+      `//android.widget.EditText[@hint='Delivery' or @hint='End']`
+    );
+  }
+
+  /**
+   * Determines whether a service station has been completed by inspecting the screenshot for a green completion indicator.
+   *
+   * @param {string} stationName - The service station name to inspect.
+   * @returns {Promise<boolean>} Resolves to true when the completion checkmark is detected.
+   */
+  async isServiceStationCompleted(stationName: string): Promise<boolean> {
+    const row = await this.driver.$(
+      `//android.view.View[contains(@content-desc,"${stationName}")]`
+    );
+    const location = await row.getLocation();
+    const size = await row.getSize();
+    const base64 = await this.driver.takeScreenshot();
+    const png = PNG.sync.read(Buffer.from(base64, 'base64'));
+    // Scan right-most 100px where tick appears
+    const startX = location.x + size.width - 120;
+    const endX = location.x + size.width - 20;
+    const startY = location.y + 20;
+    const endY = location.y + size.height - 20;
+    for (let y = startY; y < endY; y += 5) {
+      for (let x = startX; x < endX; x += 5) {
+        const idx = (png.width * y + x) << 2;
+        const r = png.data[idx];
+        const g = png.data[idx + 1];
+        const b = png.data[idx + 2];
+        if (g > r + 40 && g > b + 40) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+
+
+  /**
+   * Checks whether a station row shows the skip icon instead of the completed state.
+   *
+   * @param {string} stationName - The service station label to inspect.
+   * @returns {Promise<boolean>} Resolves to true when the skip indicator is detected.
+   */
+  async isServiceStationSkipped(stationName: string): Promise<boolean> {
+    const row = await this.driver.$(
+      `//android.view.View[contains(@content-desc,"${stationName}")]`
+    );
+
+    const location = await row.getLocation();
+    const size = await row.getSize();
+
+    const base64 = await this.driver.takeScreenshot();
+    const png = PNG.sync.read(Buffer.from(base64, 'base64'));
+
+    // Area where skip icon appears
+    const startX = location.x + size.width - 100;
+    const endX = location.x + size.width - 20;
+    const startY = location.y + 20;
+    const endY = location.y + size.height - 20;
+
+    let orangePixelCount = 0;
+
+    for (let y = startY; y < endY; y += 2) {
+      for (let x = startX; x < endX; x += 2) {
+        const idx = (png.width * y + x) << 2;
+
+        const r = png.data[idx];
+        const g = png.data[idx + 1];
+        const b = png.data[idx + 2];
+
+        // Orange icon detection
+        if (
+          r > 180 &&
+          g > 80 &&
+          g < 180 &&
+          b < 100
+        ) {
+          orangePixelCount++;
+        }
+      }
+    }
+
+    return orangePixelCount > 15;
+  }
+
+  /**
+   * Checks whether the Skip money bag checkbox is selected.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the checkbox is checked.
+   */
+  async isSkipMoneyBagChecked(): Promise<boolean> {
+    const checkbox = await this.driver.$(
+      '//android.widget.CheckBox[following-sibling::android.view.View[@content-desc="Skip money bag"]]'
+    );
+
+    return (await checkbox.getAttribute('checked')) === 'true';
+  }
+
+  /**
+   * Verifies the Skip money bag checkbox state against the expected value.
+   *
+   * @param {boolean} expected - The checked state expected for the checkbox.
+   * @returns {Promise<void>} Resolves once the assertion is complete.
+   */
+  async verifySkipMoneyBagChecked(expected: boolean): Promise<void> {
+    expect(await this.isSkipMoneyBagChecked()).toBe(expected);
+  }
+
+  private readonly deliveryLocationList =
+    '//android.view.View[contains(@content-desc,"Pending action")]/following-sibling::android.view.View//*[@clickable="true" and string-length(@content-desc) > 0]';
+
+
+  /**
+   * Gets the location name for a given positional index in the pending action list.
+   *
+   * @param {Position} position - The location position to read.
+   * @returns {Promise<string>} The matching location label.
+   */
+  async getLocationNameByPosition(position: Position): Promise<string> {
+    // await this.ensurePendingActionTabSelected();
+    await this.waitFor(this.deliveryLocationList);
+    const elements = await this.driver.$$(this.deliveryLocationList);
+    const index = positionToIndex(position, 0);
+    const contentDesc =
+      (await elements[index].getAttribute('content-desc')) ?? '';
+    // If location name is the first line
+    return contentDesc.split('\n')[0].trim();
+  }
+
+  // async verifyFocusMovedToNextEditableField(currentIndex: number) {
+  //   const fields = await this.getEditableQuantityFields();
+  //   const nextField = fields[currentIndex + 1];
+  //   nextField.waitForDisplayed();
+  //   const isFocused = await nextField.getAttribute('focused');
+  //   expect(isFocused).toBe('true');
+  // }
+
+  /**
+   * Verifies the focused field advances to the next editable field when the down-arrow action is used.
+   *
+   * @returns {Promise<void>} Resolves once the focus assertion is complete.
+   */
+  async verifyArrowDownMovesToNextEditableField() {
+    // const deliveryFields = await this.driver.$$(
+    //   `//android.widget.EditText[@hint='Delivery' or @hint='End']`
+    // );
+    // await deliveryFields[0].click();
+    // // Press keypad down arrow
+    // await this.driver.pressKeyCode(20); // KEYCODE_DPAD_DOWN
+    const focusedElement = await this.driver.$(`//*[@focused='true']`);
+    const hint = await focusedElement.getAttribute('hint');
+    expect(hint).toBe('End');
+  }
+
+  /**
+   * Selects the requested category filters from the filter sheet.
+   *
+   * @param {string[]} categoryLabels - The filter labels to toggle on.
+   * @returns {Promise<void>} Resolves once the selected filters are applied.
+   */
+  async selectFilterCategories(categoryLabels: string[]): Promise<void> {
+    await this.tap(this.filterCta);
+    for (const label of categoryLabels) {
+      await this.tap(`//android.widget.Button[contains(@content-desc,"${label}")]`);
+    }
+    await this.tap('~Apply filters');
+  }
+
+  /**
+     * Checks whether a named header is currently visible on screen.
+     *
+     * Uses the header content-desc locator and suppresses locator failures.
+     *
+     * @param headerLabel Header content-desc to verify.
+     * @returns True if the header is displayed.
+     */
+  async isHeaderDisplayed(headerLabel: string): Promise<boolean> {
+    const selector = `//android.view.View[@content-desc="${headerLabel}" or contains(@content-desc,"${headerLabel}")]`;
+    const header = await this.driver.$(selector);
+
+    try {
+      await header.waitForDisplayed({ timeout: 10000 });
+      return true;
+    } catch {
+      return false;
+    }
+
+
+    // return header.isDisplayed().catch(() => false);
+  }
+
+
+
+
+  readonly layoutToggle = '//android.view.View[contains(@content-desc,"Label name")]/following-sibling::android.widget.ImageView';
+  readonly labelNameDropdown = '//android.view.View[contains(@content-desc,"Label name")]';
+  readonly parCapacityHeader = '//android.view.View[contains(@content-desc,"Par / Capacity")]';
+  readonly parCapacityRowSelector = '//android.view.View[starts-with(@content-desc,"Row ") and contains(@content-desc,"Par") and contains(@content-desc,"Cap")]';
+
+  /**
+   * Checks whether the grid layout toggle is visible.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the toggle is displayed.
+   */
+  async isGridLayoutToggleVisible(): Promise<boolean> {
+    return this.isVisible(this.layoutToggle);
+  }
+
+  /**
+   * Checks whether the list layout toggle is visible.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the list toggle is displayed.
+   */
+  async isListLayoutToggleVisible(): Promise<boolean> {
+    return this.isVisible(this.layoutToggle);
+  }
+
+  /**
+   * Checks whether the Par / Capacity header is visible.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the header is shown.
+   */
+  async isParCapacityHeaderVisible(): Promise<boolean> {
+    return this.isVisible(this.parCapacityHeader);
+  }
+
+  /**
+   * Checks whether a Par field is visible in the row selector.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the Par field is present.
+   */
+  async isParFieldVisible(): Promise<boolean> {
+    return this.isVisible(`${this.parCapacityRowSelector}[contains(@content-desc,"Par")]`);
+  }
+
+  /**
+   * Checks whether a specific Par value is displayed.
+   *
+   * @param {string} value - The expected Par value.
+   * @returns {Promise<boolean>} Resolves to true when the value is displayed.
+   */
+  async isParValueDisplayed(value: string): Promise<boolean> {
+    const selector = `${this.parCapacityRowSelector}[contains(@content-desc,"Par") and contains(@content-desc,"${value}")]`;
+    return this.isVisible(selector);
+  }
+
+  /**
+   * Reads the visible Par / Capacity row values from the current layout.
+   *
+   * @returns {Promise<string[]>} The visible row strings.
+   */
+  async getParCapacityRowStrings(): Promise<string[]> {
+    const elements = await this.driver.$$(this.parCapacityRowSelector);
+    const count = await elements.length;
+    const values: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const el = elements[i];
+      const raw = (await el.getAttribute('content-desc'))?.trim() ?? '';
+      if (raw) {
+        values.push(raw);
+      }
+    }
+    return values;
+  }
+
+  /**
+   * Switches the layout to the grid view.
+   *
+   * @returns {Promise<void>} Resolves once the toggle action is triggered.
+   */
+  async switchToGridView(): Promise<void> {
+    await this.tap(this.layoutToggle);
+  }
+
+  /**
+   * Switches the layout to the list view.
+   *
+   * @returns {Promise<void>} Resolves once the toggle action is triggered.
+   */
+  async switchToListView(): Promise<void> {
+    await this.tap(this.layoutToggle);
+  }
+
+  /**
+   * Opens the Label name dropdown.
+   *
+   * @returns {Promise<void>} Resolves once the dropdown is opened.
+   */
+  async openLabelNameDropdown(): Promise<void> {
+    await this.tap(this.labelNameDropdown);
+  }
+
+  /**
+   * Selects a label-name option from the dropdown.
+   *
+   * @param {string} option - The option label to choose.
+   * @returns {Promise<void>} Resolves once the option is selected.
+   */
+  async selectLabelNameOption(option: string): Promise<void> {
+    await this.tap(`//android.widget.Button[contains(@content-desc,"${option}")]`);
+  }
+
+  /**
+   * Checks whether a label-name value is displayed.
+   *
+   * @param {string} option - The label option to verify.
+   * @returns {Promise<boolean>} Resolves to true when the value is shown.
+   */
+  async isLabelNameValueDisplayed(option: string): Promise<boolean> {
+    const selector = `//android.view.View[contains(@content-desc,"${option}") and contains(@content-desc,"Label name")]`;
+    return this.isVisible(selector);
+  }
+
+  /**
+   * Returns the display state for each label-name option.
+   *
+   * @param {string[]} options - The options to inspect.
+   * @returns {Promise<Record<string, boolean>>} A map of each option and its visibility state.
+   */
+  async getLabelNameValueDisplayStatus(
+    options: string[]
+  ): Promise<Record<string, boolean>> {
+    const result: Record<string, boolean> = {};
+    for (const option of options) {
+      const selector = `//android.view.View[contains(@content-desc,"${option}") and contains(@content-desc,"Label name")]`;
+      result[option] = await this.isVisible(selector);
+    }
+    return result;
+  }
+
+  /**
+   * Checks whether a given option is displayed for selection.
+   *
+   * @param {string} option - The option label to find.
+   * @returns {Promise<boolean>} Resolves to true when the option is visible.
+   */
+  async isOptionDisplayed(option: string): Promise<boolean> {
+    const selector = `//android.widget.Button[@content-desc="${option}"]`;
+
+    try {
+      const element = await this.driver.$(selector);
+      return await element.isDisplayed();
+    } catch {
+      return false;
+    }
+  }
+
+
+
+  /**
+   * Skips the Google Maps sign-in prompt if it is currently displayed.
+   *
+   * @returns {Promise<void>} Resolves after the prompt is skipped or confirmed absent.
+   */
+  async skipGoogleMapsSigninIfDisplayed(): Promise<void> {
+    const skipLocator = '//android.widget.Button[@text="SKIP"]';
+    const skipButton = await this.driver.$(skipLocator);
+    const isVisible = await skipButton.waitForDisplayed({ timeout: 5000 }).then(() => true).catch(() => false);
+    if (isVisible) {
+      await skipButton.click();
+    }
+  }
+
+  /**
+   * Reads the current Bag code, Bills, and Refund values from Money Operations.
+   *
+   * @returns {Promise<{ bagCode: string | null; bills: string | null; refund: string | null }>} The current field values.
+   */
+  async getMoneyOperationsValues() {
+    return {
+      bagCode: await (await this.driver.$(this.bagCodeField)).getAttribute('text'),
+      bills: await (await this.driver.$(this.billsField)).getAttribute('text'),
+      refund: await (await this.driver.$(this.refundField)).getAttribute('text'),
+    };
+  }
+
+  /**
+   * Clears the Bag code value from the Money Operations form.
+   *
+   * @returns {Promise<void>} Resolves once the field is cleared.
+   */
+  async clearBagCode(): Promise<void> {
+    const bagCode = await this.driver.$(this.bagCodeField);
+    await bagCode.click();
+    await bagCode.clearValue();
+    await this.driver.hideKeyboard().catch(() => { });
+  }
+
+  /**
+   * Checks whether the Skip money bag option is selected.
+   *
+   * @returns {Promise<boolean>} Resolves to true when the option is checked.
+   */
+  async isSkipMoneyBagSelected(): Promise<boolean> {
+    const checkbox = await this.driver.$(this.skipMoneyBagCheckbox);
+    return (await checkbox.getAttribute('checked')) === 'true';
+  }
+
+
+
+  async verifyBagCodeDisabledWhenSkipSelected(): Promise<void> {
+    const checkbox = await this.driver.$(this.skipMoneyBagCheckbox);
+    if ((await checkbox.getAttribute('checked')) !== 'true') {
+      await checkbox.click();
+    }
+    const bagCode = await this.driver.$(this.disabledBagCodeField);
+    await this.driver.waitUntil(
+      async () => !(await bagCode.isEnabled()), {
+      timeout: 15000,
+      timeoutMsg: 'Bag Code field did not become disabled after selecting Skip Money Bag'
+    });
+    expect(await bagCode.isEnabled()).toBe(false);
+
+    // const enabled = await bagCode.getAttribute("enabled");
+    // expect(enabled).toBe(false);
+  }
+
+  async deleteAdditionalBagCodeRow(): Promise<void> {
+    await this.waitFor(this.additionalCodeField);
+    const row = await this.driver.$(this.additionalCodeField);
+    await this.driver.execute('mobile: swipeGesture', {
+      elementId: row.elementId,
+      direction: 'left',
+      percent: 0.9,
+      speed: 1000
+    });
+
+    const deleteButton = `${this.additionalCodeField}/android.widget.Button`;
+    await this.waitFor(deleteButton);
+    await this.tap(deleteButton);
+    await this.waitFor('~OK');
+    await this.tap('~OK');
+  }
+
+
+  /**
+   * Enters a Bag code value in the Money Operations form.
+   *
+   * @param {string} digits - The bag code digits to enter.
+   * @returns {Promise<void>} Resolves once the value is entered and the keypad closes.
+   */
+  async enterBagCodeInMoneyOperations(digits: string): Promise<void> {
+    const field = await this.driver.$(this.bagCodeField);
+    await field.click();
+    await field.setValue(digits);
+    await this.dismissNumericKeypad();
+  }
+
+  private readonly leaveOnTruckRadioButton = '~Leave on truck';
+
+  /**
+   * Selects the Leave on truck option when it is not already checked.
+   *
+   * @returns {Promise<void>} Resolves after the radio button state is confirmed.
+   */
+  async selectLeaveOnTruck(): Promise<void> {
+    const radioBtn = await this.driver.$(this.leaveOnTruckRadioButton);
+    await radioBtn.waitForDisplayed({ timeout: 10000 });
+    const isChecked = (await radioBtn.getAttribute('checked')) === 'true';
+    if (!isChecked) {
+      await radioBtn.click();
+    }
+  }
+
+  /**
+   * Checks whether the Continue button is enabled.
+   *
+   * @returns {Promise<boolean>} Resolves to true when Continue is enabled.
+   */
+  async isContinueEnabled(): Promise<boolean> {
+    return this.isEnabled(this.continueButton);
+  }
+
+
+  /**
+   * Enters the specified spoiled and RETK values for a product row.
+   *
+   * @param {string} productName - The product whose row should be updated.
+   * @param {string} [spoiled] - The spoiled quantity to enter.
+   * @param {string} [retk] - The RETK quantity to enter.
+   * @returns {Promise<void>} Resolves once the values are written.
+   */
+  async enterRemovalReturnValues(
+    productName: string,
+    spoiled?: string,
+    retk?: string
+  ): Promise<void> {
+    const row = `//android.view.View[contains(@content-desc,"${productName}")]`;
+    if (spoiled !== undefined) {
+      const spoiledField = await this.driver.$(
+        `${row}//android.widget.EditText[@hint="Spoiled"]`
+      );
+      await spoiledField.click();
+      const existing = (await spoiledField.getText()).trim();
+      if (existing && existing !== '-') {
+        await spoiledField.clearValue();
+      }
+      await spoiledField.setValue(spoiled);
+    }
+
+    if (retk !== undefined) {
+      const retkField = await this.driver.$(
+        `${row}//android.widget.EditText[@hint="RETK"]`
+      );
+      await retkField.click();
+      const existing = (await retkField.getText()).trim();
+      if (existing && existing !== '-') {
+        await retkField.clearValue();
+      }
+      await retkField.setValue(retk);
+    }
+  }
+
+
+
+  /**
+   * Enters values for the first visible removal return row and returns the product name.
+   *
+   * @param {string} [spoiled] - The spoiled amount to set.
+   * @param {string} [retk] - The RETK amount to set.
+   * @returns {Promise<string>} The product name whose row was edited.
+   */
+  async enterRemovalReturnValuesForFirstRow(spoiled?: string, retk?: string): Promise<string> {
+    const row = '(//android.widget.ScrollView/android.view.View)[1]';
+    const rowEl = await this.driver.$(row);
+    const contentDesc = (await rowEl.getAttribute('content-desc')) ?? '';
+    // content-desc format:
+    // "1\nDasani Wtr 20oz"
+    const productName = contentDesc.split('\n').slice(1).join(' ').trim();
+    if (spoiled !== undefined) {
+      const spoiledField = await this.driver.$(
+        `${row}//android.widget.EditText[@hint="Spoiled"]`
+      );
+      await spoiledField.click();
+      const existing = (await spoiledField.getText()).trim();
+      if (existing && existing !== '-') {
+        await spoiledField.clearValue();
+      }
+      await spoiledField.setValue(spoiled);
+    }
+    if (retk !== undefined) {
+      const retkField = await this.driver.$(
+        `${row}//android.widget.EditText[@hint="RETK"]`
+      );
+      await retkField.click();
+      const existing = (await retkField.getText()).trim();
+      if (existing && existing !== '-') {
+        await retkField.clearValue();
+      }
+      await retkField.setValue(retk);
+    }
+    return productName;
+  }
+
+
+  /**
+   * Enters the first-row delivery and spoil values and returns the product name.
+   *
+   * @param {string} [delivery] - The delivery quantity to set.
+   * @param {string} [spoil] - The spoil quantity to set.
+   * @returns {Promise<string>} The product name from the first row.
+   */
+  // async enterFillsAndRemovalsForFirstRow(delivery?: string, spoil?: string): Promise<string> {
+  //   const row = '(//android.widget.ScrollView/android.view.View)[1]';
+  //   const rowEl = await this.driver.$(row);
+  //   const contentDesc = (await rowEl.getAttribute('content-desc')) ?? '';
+  //   // content-desc format:
+  //   // "1\nDasani Wtr 20oz"
+  //   const productName = contentDesc.split('\n').slice(1).join(' ').trim();
+  //   if (delivery !== undefined) {
+  //     ////android.widget.EditText[@text="-"]
+  //     const spoiledField = await this.driver.$(
+  //       `${row}//android.widget.EditText[1]`
+  //     );
+  //     await spoiledField.click();
+  //     const existing = (await spoiledField.getText()).trim();
+  //     if (existing && existing !== '-') {
+  //       await spoiledField.clearValue();
+  //     }
+  //     await spoiledField.setValue(delivery);
+  //   }
+  //   if (spoil !== undefined) {
+  //     const retkField = await this.driver.$(
+  //       `${row}//android.widget.EditText[2]`
+  //     );
+  //     await retkField.click();
+  //     const existing = (await retkField.getText()).trim();
+  //     if (existing && existing !== '-') {
+  //       await retkField.clearValue();
+  //     }
+  //     await retkField.setValue(spoil);
+  //   }
+  //   return productName;
+  // }
+
+
+  async enterFillsAndRemovalsForFirstRow(
+    spoil?: string,
+    retToTrk?: string
+): Promise<string> {
+
+    const row = '(//android.view.View[@content-desc and android.widget.EditText])[1]';
+    const rowEl = await this.driver.$(row);
+    await rowEl.waitForDisplayed({ timeout: 10000 });
+    const contentDesc =
+        (await rowEl.getAttribute('content-desc')) ?? '';
+
+    // Example:
+    // "1\nDasani Wtr 20oz"
+    const productName =
+        contentDesc.split('\n').slice(1).join(' ').trim();
+    const fields = await rowEl.$$('android.widget.EditText');
+    if (spoil !== undefined) {
+        const spoiledField = fields[0];
+        await spoiledField.click();
+        const existing = (await spoiledField.getText()).trim();
+        if (existing && existing !== '-') {
+            await spoiledField.clearValue();
+        }
+        await spoiledField.setValue(spoil);
+    }
+    if (retToTrk !== undefined) {
+        const retToTrkField = fields[1];
+        await retToTrkField.click();
+        const existing = (await retToTrkField.getText()).trim();
+        if (existing && existing !== '-') {
+            await retToTrkField.clearValue();
+        }
+        await retToTrkField.setValue(retToTrk);
+    }
+    return productName;
+}
+
+
+
+  private async enterFieldValue(
+    row: string,
+    hint: string,
+    value?: string
+  ): Promise<void> {
+    if (value === undefined) return;
+    const field = await this.driver.$(
+      `${row}//android.widget.EditText[@hint="${hint}"]`
+    );
+    await field.click();
+    const existing = (await field.getText()).trim();
+    if (existing && existing !== '-') {
+      await field.clearValue();
+    }
+
+    await field.setValue(value);
+  }
+
+  /**
+   * Fills multiple named value fields for a product row.
+   *
+   * @param {string} productName - The product name whose row should be updated.
+   * @param {Record<string, string>} values - The field names and values to set.
+   * @returns {Promise<void>} Resolves once all provided values are entered.
+   */
+  async enterProductValues(
+    productName: string,
+    values: Record<string, string>
+  ): Promise<void> {
+    const row = `//android.view.View[contains(@content-desc,"${productName}")]`;
+
+    for (const [hint, value] of Object.entries(values)) {
+      await this.enterFieldValue(row, hint, value);
+    }
+    await this.driver.hideKeyboard().catch(() => { });
+  }
+
+
+
+
+
+
+
+  /**
+   * Verifies the real values stored for a product's removal return fields.
+   *
+   * @param {string} productName - The product name whose row should be checked.
+   * @param {string} [expectedSpoiled] - The expected spoiled value.
+   * @param {string} [expectedRetk] - The expected RETK value.
+   * @returns {Promise<void>} Resolves once the assertions pass.
+   */
+  // async verifyRemovalReturnValues(
+  //   productName: string,
+  //   expectedSpoiled?: string,
+  //   expectedRetk?: string
+  // ): Promise<void> {
+
+  //   const row = `//android.view.View[contains(@content-desc,"${productName}")]`;
+
+  //   if (expectedSpoiled !== undefined) {
+  //     const spoiledField = await this.driver.$(
+  //       `${row}//android.widget.EditText[@hint="Spoiled"]`
+  //     );
+
+  //     const actualSpoiled =
+  //       (await spoiledField.getAttribute('text')) ||
+  //       (await spoiledField.getText());
+
+  //     expect(actualSpoiled.trim()).toBe(expectedSpoiled);
+  //   }
+
+  //   if (expectedRetk !== undefined) {
+  //     const retkField = await this.driver.$(
+  //       `${row}//android.widget.EditText[@hint="RETK"]`
+  //     );
+
+  //     const actualRetk =
+  //       (await retkField.getAttribute('text')) ||
+  //       (await retkField.getText());
+
+  //     expect(actualRetk.trim()).toBe(expectedRetk);
+  //   }
+  // }
+
+  async verifyRemovalReturnValues(
+    productName: string,
+    expectedSpoiled?: string,
+    expectedRetk?: string
+): Promise<void> {
+
+    const row =
+        `//android.view.View[contains(@content-desc,"${productName}") and android.widget.EditText]`;
+
+    const rowEl = await this.driver.$(row);
+    await rowEl.waitForDisplayed({ timeout: 10000 });
+
+    const fields = await rowEl.$$('android.widget.EditText');
+
+    if (expectedSpoiled !== undefined) {
+        const spoiledField = fields[0];
+
+        const actualSpoiled =
+            (await spoiledField.getAttribute('text')) ??
+            (await spoiledField.getText());
+
+        expect(
+            actualSpoiled.trim(),
+            `Spoiled value mismatch for product "${productName}"`
+        ).toBe(expectedSpoiled);
+    }
+
+    if (expectedRetk !== undefined) {
+        const retkField = fields[1];
+
+        const actualRetk =
+            (await retkField.getAttribute('text')) ??
+            (await retkField.getText());
+
+        expect(
+            actualRetk.trim(),
+            `Ret To Trk value mismatch for product "${productName}"`
+        ).toBe(expectedRetk);
+    }
+}
+
+
+  /**
+   * Opens the reason-for-skipping dropdown.
+   *
+   * @returns {Promise<boolean>} Resolves to true after the dropdown is tapped.
+   */
+  async tapSkipReasonDropdown(): Promise<boolean> {
+    const dropdown = await this.driver.$(
+      '//android.view.View[contains(@content-desc,"Reason for skipping stop")]'
+    );
+    await dropdown.waitForDisplayed();
+    await dropdown.click();
+    return true;
+  }
+
+  /**
+   * Selects a skip reason from the reason list.
+   *
+   * @param {string} reason - The skip reason label to select.
+   * @returns {Promise<void>} Resolves after the option is tapped.
+   */
+  async selectSkipReason(reason: string): Promise<void> {
+    const option = await this.driver.$(
+      `//android.view.View[contains(@content-desc,'${reason}')]`
+    );
+    await option.waitForDisplayed();
+    await option.click();
+  }
+
+  /**
+   * Reads the order text from the visible order card.
+   *
+   * @returns {Promise<string>} The order value from the content description.
+   */
+  async getOrderText(): Promise<string> {
+    const card = await this.driver.$(
+      '//android.view.View[contains(@content-desc,"Order:")]'
+    );
+    const contentDesc = await card.getAttribute('content-desc');
+    const orderLine = (contentDesc ?? '').split('\n')
+      .find(line => line.startsWith('Order:'));
+    return orderLine ?? '';
+  }
+
+
+  /**
+     * Reads the address displayed immediately below a machine header.
+     *
+     * The element is selected by following sibling semantics from the named
+     * header row.
+     *
+     * @param headerLabel The visible machine header label.
+     * @returns The machine address text.
+     */
+  async getHeaderAddress(headerLabel: string): Promise<string> {
+    const selector = `//android.view.View[@content-desc="${headerLabel}"]/following-sibling::android.view.View[1]`;
+    const addressElement = await this.driver.$(selector);
+    await addressElement.waitForDisplayed({ timeout: 15000 });
+    const contentDesc = await addressElement.getAttribute('content-desc');
+    if (contentDesc && contentDesc.trim().length > 0) {
+      return contentDesc.trim();
+    }
+    return (await addressElement.getText()).trim();
+  }
+
+
+  async enterBillExchangeAmount(value: string): Promise<void> {
+    const bills = await this.driver.$(this.billExchangeAmount);
+    await bills.click();
+    await bills.setValue(value);
+    await this.driver.hideKeyboard().catch(() => { });
+  }
+
+
+
+  readonly fillsAndRemovals = '//android.view.View[contains(@content-desc,"Fills & Removals")]';
+  /**
+   * Opens the Fills & Removals screen.
+   *
+   * @returns {Promise<void>} Resolves once the screen is displayed.
+   */
+  async openFillsAndRemovals(): Promise<void> {
+    await this.tap(this.fillsAndRemovals);
+    await this.waitFor('~Fills/Removals');
+  }
+
+  /**
+   * Reads the current Google Maps destination text from the destination field.
+   *
+   * @returns {Promise<string>} The destination value shown in the Maps UI.
+   */
+  async getMapsDestination(): Promise<string> {
+    const address = await this.driver.$(
+      '//android.widget.EditText[@resource-id="com.google.android.apps.maps:id/search_omnibox_text_box"]/android.widget.TextView'
+    );
+
+    await address.waitForDisplayed({
+      timeout: 30000,
+      timeoutMsg: 'Maps destination address was not displayed'
+    });
+
+    await this.driver.waitUntil(
+      async () => {
+        const text = (await address.getText()).trim();
+        return text.length > 0;
+      }, {
+      timeout: 30000,
+      interval: 1000,
+      timeoutMsg: 'Maps destination address was not loaded'
+    }
+    );
+
+    return (await address.getText()).trim();
+  }
+
+  /**
+   * Counts the visible Par / Capacity rows.
+   *
+   * @returns {Promise<number>} The row count currently present in the view.
+   */
+  async getParCapacityRowCount(): Promise<number> {
+    const rows = await this.driver.$$('//android.view.View[contains(@content-desc,"Row ")]');
+    return rows.length;
+  }
+
+  /**
+   * Checks whether Par / Capacity data is displayed.
+   *
+   * @returns {Promise<boolean>} Resolves to true when data rows are visible.
+   */
+  async isParCapacityDataDisplayed(): Promise<boolean> {
+    const values = await this.driver.$$(
+      '//android.view.View[contains(@content-desc,"Par") and contains(@content-desc,"Cap")]'
+    );
+    return await values.length > 0;
+  }
+
+  /**
+   * Checks whether the grid view is currently displayed.
+   *
+   * @returns {Promise<boolean>} Resolves to true when grid-row layout is active.
+   */
+  async isGridViewDisplayed(): Promise<boolean> {
+    const rows = await this.driver.$$(
+      '//android.view.View[starts-with(@content-desc,"Row ")]/android.widget.HorizontalScrollView'
+    );
+
+    return await rows.length > 0;
+  }
+
+  /**
+   * Checks whether the list view is currently displayed.
+   *
+   * @returns {Promise<boolean>} Resolves to true when list layout is active.
+   */
+  async isListViewDisplayed(): Promise<boolean> {
+    const row = await this.driver.$(
+      '//android.view.View[@content-desc="Row 1"]'
+    );
+    const horizontalViews = await row.$$('./android.widget.HorizontalScrollView');
+    return await horizontalViews.length === 0;
+  }
+
+  /**
+   * Waits until the list view layout is visible.
+   *
+   * @returns {Promise<void>} Resolves once the list layout is confirmed.
+   */
+  async waitForListViewLayout(): Promise<void> {
+    await this.driver.waitUntil(
+      async () =>
+        await this.isListViewDisplayed(),
+      {
+        timeout: 5000,
+        timeoutMsg: 'Horizontal layout was not displayed',
+      }
+    );
+  }
+
+
+  // async switchParCapacityLayout(): Promise<void> {
+  //   const toggle = await this.driver.$(
+  //     '(//android.widget.ImageView)[1]'
+  //   );
+
+  //   await toggle.waitForDisplayed();
+  //   await toggle.click();
+  // }
+
+  private async tapLayoutToggle(position: 'left' | 'right'): Promise<void> {
+    const toggle = await this.driver.$('(//android.widget.ImageView)[1]');
+
+    await toggle.waitForDisplayed();
+
+    const location = await toggle.getLocation();
+    const size = await toggle.getSize();
+
+    const factor = position === 'left' ? 0.25 : 0.75;
+
+    const x = Math.floor(location.x + size.width * factor);
+    const y = Math.floor(location.y + size.height * 0.5);
+
+    await this.driver
+      .action('pointer', { parameters: { pointerType: 'touch' } })
+      .move({ x, y })
+      .down()
+      .pause(100)
+      .up()
+      .perform();
+  }
+
+  async switchParCapacityLayoutToLeft(): Promise<void> {
+    await this.tapLayoutToggle('left');
+  }
+
+  async switchParCapacityLayoutToRight(): Promise<void> {
+    await this.tapLayoutToggle('right');
+  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   /** Excel TC265 (adapted - see this class's own note above) - the real validation banner shown when Continue is tapped with two bag code fields sharing the same value. */
   async isDuplicateBagCodeErrorVisible(): Promise<boolean> {
@@ -190,7 +1438,7 @@ export class VendingServiceScreen extends BaseScreen {
     const bills = await this.driver.$(this.billsField);
     await bills.click();
     await bills.setValue(value);
-    await this.driver.hideKeyboard().catch(() => {});
+    await this.driver.hideKeyboard().catch(() => { });
   }
 
   async getBillsAmount(): Promise<string> {
@@ -283,7 +1531,7 @@ export class VendingServiceScreen extends BaseScreen {
     await field.click();
     await field.clearValue();
     await field.setValue(value);
-    await this.driver.hideKeyboard().catch(() => {});
+    await this.driver.hideKeyboard().catch(() => { });
   }
 
   /**
@@ -346,7 +1594,7 @@ export class VendingServiceScreen extends BaseScreen {
     await field.click();
     await field.clearValue();
     await field.setValue(value);
-    await this.driver.hideKeyboard().catch(() => {});
+    await this.driver.hideKeyboard().catch(() => { });
   }
 
   /** Excel TC259/TC260 - tapping the "+" icon reveals a second "Additional code" field (own hint/placeholder confirmed live). */
@@ -396,8 +1644,9 @@ export class VendingServiceScreen extends BaseScreen {
   // as Coffee's equivalent, carries NO accessible signal of its own
   // (content-desc/selected/checked all unchanged) - not independently
   // asserted, documented instead.
-  private readonly afterPhotos = '//android.view.View[starts-with(@content-desc,"After Photos")]';
+  // private readonly afterPhotos = '//android.view.View[starts-with(@content-desc,"After Photos")]';
   private readonly beforePhotos = '//android.view.View[starts-with(@content-desc,"Before Photos")]';
+  private readonly afterPhotosTile = '//android.view.View[starts-with(@content-desc,"After Photos")]';
   // removalsAndReturns itself is BaseScreen's own shared locator - not redeclared here.
 
   async clickServiceLocation(position: Position): Promise<void> {
@@ -469,7 +1718,7 @@ export class VendingServiceScreen extends BaseScreen {
   /** Opens Money Operations without filling/submitting - lets callers assert field presence first. */
   async openMoneyOperations(): Promise<void> {
     await this.tap(this.moneyOperations);
-    await this.waitFor(this.moneyCollectionTitle);
+    // await this.waitFor(this.moneyCollectionTitle);
   }
 
   /**
@@ -506,12 +1755,14 @@ export class VendingServiceScreen extends BaseScreen {
    * checklist.
    */
   async performMoneyOperations(values: { bagCode?: string; bills?: string; refund?: string } = {}): Promise<void> {
-    await this.openMoneyOperations();
+    // await this.openMoneyOperations();
     const bagCode = await this.driver.$(this.bagCodeField);
     await bagCode.click();
-    await bagCode.setValue(values.bagCode ?? '1234');
+    await bagCode.clearValue();
+    await bagCode.setValue(values.bagCode ?? '12345');
     const bills = await this.driver.$(this.billsField);
     await bills.click();
+    await bills.clearValue();
     await bills.setValue(values.bills ?? '120');
     const refund = await this.driver.$(this.refundField);
     await refund.click();
@@ -550,14 +1801,182 @@ export class VendingServiceScreen extends BaseScreen {
 
   /** Whether the machine checklist's After Photos tile is currently a single tappable "{Title}\n{Subtitle}" element (see this class's own note on why it starts disabled/split into two elements instead). */
   async isAfterPhotosEnabled(): Promise<boolean> {
-    const el = await this.driver.$(this.afterPhotos);
+    const el = await this.driver.$('//android.view.View[contains(@content-desc,"After Photos")]');
     return (await el.getAttribute('clickable').catch(() => 'false')) === 'true';
   }
 
   /** Opens the After Photos step's "Add supporting photo" modal - see BaseScreen's openPhotoTrigger/isPhotoModalVisible/openSkipPhotoReasonSheet for the shared skip-photo flow beyond this. Assumes the tile is already enabled (see isAfterPhotosEnabled/completeMachinePrerequisites). */
   async openAfterPhotos(): Promise<void> {
-    await this.openPhotoTrigger(this.afterPhotos);
+    await this.openPhotoTrigger(this.afterPhotosTile);
   }
+
+  async isMeterEnabled(): Promise<boolean> {
+    const el = await this.driver.$('//android.view.View[contains(@content-desc,"Meter")]');
+    return (await el.getAttribute('clickable').catch(() => 'false')) === 'true';
+  }
+
+  async isDexEnabled(): Promise<boolean> {
+    const el = await this.driver.$('//android.view.View[contains(@content-desc,"Dex")]');
+    return (await el.getAttribute('clickable').catch(() => 'false')) === 'true';
+  }
+
+  async isMachineDisplayed(machineId: string): Promise<boolean> {
+    const el = await this.driver.$(
+      `//android.view.View[@content-desc="Machine: ${machineId}"]`
+    );
+    return el.isDisplayed();
+  }
+
+  async isBeforePhotosEnabled(): Promise<boolean> {
+    const el = await this.driver.$(
+      '//android.view.View[contains(@content-desc,"Before Photos")]'
+    );
+    return el.isEnabled();
+  }
+
+  async isMoneyOperationsEnabled(): Promise<boolean> {
+    const el = await this.driver.$(
+      '//android.view.View[contains(@content-desc,"Money Operations")]'
+    );
+    return el.isEnabled();
+  }
+
+  async isFillsAndEndingInventoryDisabled(): Promise<boolean> {
+    const el = await this.driver.$(this.fillsAndEndingInventoryTile);
+    return (await el.getAttribute('clickable')) === 'false';
+    // return !(await el.isClickable());
+  }
+
+  readonly removalsReturns = '//android.view.View[contains(@content-desc,"Removals & Returns")]';
+  async isRemovalsAndReturnsDisabled(): Promise<boolean> {
+    const el = await this.driver.$(this.removalsReturns);
+    return (await el.getAttribute('clickable')) === 'false';
+  }
+
+  async isKitReturnsEnabled(): Promise<boolean> {
+    const el = await this.driver.$(
+      '//android.view.View[contains(@content-desc,"Kit Returns")]'
+    );
+    return (await el.isDisplayed()) && (await el.isEnabled());
+  }
+
+
+  async tapFinal(): Promise<void> {
+    await this.driver.$('//android.view.View[@content-desc="FINAL"]').click();
+  }
+
+  async isFinalServicePopupDisplayed(): Promise<boolean> {
+    const popup = await this.driver.$(
+      '//android.view.View[contains(@content-desc,"Do you want to continue with Final Service")]'
+    );
+    return popup.isDisplayed();
+  }
+
+  async isNoButtonDisplayed(): Promise<boolean> {
+    const btn = await this.driver.$(
+      '//android.widget.Button[@content-desc="No"]'
+    );
+    return btn.isDisplayed();
+  }
+
+  async isYesButtonDisplayed(): Promise<boolean> {
+    const btn = await this.driver.$(
+      '//android.widget.Button[@content-desc="Yes"]'
+    );
+    return btn.isDisplayed();
+  }
+
+  async isYesButtonEnabled(): Promise<boolean> {
+    const btn = await this.driver.$(
+      '//android.widget.Button[@content-desc="Yes"]'
+    );
+    return btn.isEnabled();
+  }
+
+
+  async tapYes(): Promise<void> {
+    await this.driver.$('//android.widget.Button[@content-desc="Yes"]').click();
+  }
+
+  async isRemovalsAndReturnsEnabled(): Promise<boolean> {
+    const el = await this.driver.$(this.removalsReturns);
+    return (await el.isDisplayed()) && (await el.getAttribute('clickable')) === 'true';
+  }
+
+
+
+
+  async tapSpot(): Promise<void> {
+    await this.driver.$('//android.view.View[@content-desc="SPOT"]').click();
+  }
+
+  async isRouteDisplayed(routeNumber: string): Promise<boolean> {
+    const el = await this.driver.$(
+      `//android.view.View[@content-desc="${routeNumber}"]`
+    );
+
+    return el.isDisplayed();
+  }
+
+  async isFillsAndRemovalsDisabled(): Promise<boolean> {
+    const el = await this.driver.$(
+      '//android.view.View[contains(@content-desc,"Fills")]'
+    );
+    return (await el.getAttribute('clickable')) === 'false';
+    // return !(await el.isClickable());
+  }
+
+  async isCompleteDeliveryDisabled(): Promise<boolean> {
+    const btn = await this.driver.$(
+      '//android.widget.Button[contains(@content-desc,"Complete Delivery")]'
+    );
+
+    return !(await btn.isEnabled());
+  }
+
+  async isCompleteDeliveryEnabled(): Promise<boolean> {
+    const btn = await this.driver.$(
+      '//android.widget.Button[contains(@content-desc,"Complete Delivery")]'
+    );
+
+    return (await btn.isEnabled());
+  }
+
+
+  formatStationName(station: string): string {
+    const lines = station
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean);
+    if (lines.length >= 2) {
+      return `${lines[0]} (${lines[1]})`;
+    }
+    return station.trim();
+  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   /**
    * Skips Before Photos (with a reason), Money Operations (Skip money bag
@@ -580,11 +1999,18 @@ export class VendingServiceScreen extends BaseScreen {
     await this.tap(this.moneyOperations);
     await this.waitFor(this.moneyCollectionTitle);
     await this.setCheckboxState(this.skipMoneyBagCheckbox, true);
-    await this.tap(this.continueButton);
+    // await this.tap(this.continueButton);
+    await this.tapBackArrow();
 
     await this.tap(this.fills);
     await this.waitFor(this.productFillsTitle);
-    await this.fillAllProductDeliveryQuantities();
+    // await this.fillAllProductDeliveryQuantities();
+    await this.fillAllProductEndQuantities();
+
+  }
+
+  async tapBackArrow(): Promise<void> {
+    await this.tap(this.backButton);
   }
 
   /**
@@ -599,9 +2025,9 @@ export class VendingServiceScreen extends BaseScreen {
   // 40+ products), not just a handful.
   async fillAllProductDeliveryQuantities(quantity = '5', maxRounds = 60): Promise<void> {
     for (let round = 0; round < maxRounds; round++) {
-      const fields = [...(await this.driver.$$('//android.widget.EditText'))];
+      const fields = [...(await this.driver.$$('//android.widget.EditText[2]'))];
       let filledAny = false;
-      for (let i = 0; i < fields.length; i += 2) {
+      for (let i = 0; i < fields.length; i += 1) {
         const text = await fields[i].getText().catch(() => '');
         if (!text) {
           // CORRECTED (live-verified): field.setValue() writes the
@@ -643,6 +2069,551 @@ export class VendingServiceScreen extends BaseScreen {
         percent: 2.0
       });
     }
+  }
+
+  // async fillAllProductDeliveryQuantities(
+  //   quantity = '5',
+  //   maxScrolls = 20
+  // ): Promise<void> {
+  //   const processedRows = new Set<string>();
+  //   let stalledScrolls = 0;
+
+  //   for (let scroll = 0; scroll < maxScrolls && stalledScrolls < 2; scroll++) {
+  //     const fields = [...(await this.driver.$$('//android.widget.EditText'))];
+  //     const processedBefore = processedRows.size;
+  //     for (let i = 0; i < fields.length; i += 2) {
+  //       const field = fields[i];
+  //       const location = await field.getLocation();
+  //       const key = `${location.x}-${location.y}`;
+  //       if (processedRows.has(key)) {
+  //         continue;
+  //       }
+  //       processedRows.add(key);
+  //       const text = (await field.getText().catch(() => '')).trim();
+  //       await field.click();
+  //       await field.clearValue();
+  //       for (const digit of quantity) {
+  //         await (await this.driver.$(`~${digit}`)).click();
+  //       }
+  //       await this.dismissNumericKeypad();
+  //     }
+
+  //     stalledScrolls =
+  //       processedRows.size === processedBefore
+  //         ? stalledScrolls + 1
+  //         : 0;
+
+  //     if (stalledScrolls < 2) {
+  //       await this.scrollDown({
+  //         left: 100,
+  //         top: 800,
+  //         width: 800,
+  //         height: 1200,
+  //         percent: 1.0
+  //       });
+  //     }
+  //   }
+  // }
+
+
+  // async fillAllProductDeliveryQuantities(quantity = '6', maxScrolls = 50 ): Promise<void> {
+  //   const processedRows = new Set<string>();
+  //   let stalledScrolls = 0;
+  //   for (let scroll = 0; scroll < maxScrolls && stalledScrolls < 2; scroll++) {
+  //     const fields = [...(await this.driver.$$('//android.widget.EditText'))];
+  //     const processedBefore = processedRows.size;
+  //     for (let i = 0; i < fields.length; i += 2) {
+  //       const field = fields[i];
+  //       const location = await field.getLocation();
+  //       const key = `${location.x}-${location.y}`;
+  //       if (processedRows.has(key)) {
+  //         continue;
+  //       }
+  //       processedRows.add(key);
+  //       const text = (await field.getText().catch(() => '')).trim();
+  //       await field.click();
+  //       await field.clearValue();
+  //       for (const digit of quantity) {
+  //         await (await this.driver.$(`~${digit}`)).click();
+  //       }
+  //     }
+  //     stalledScrolls =
+  //       processedRows.size === processedBefore
+  //         ? stalledScrolls + 1
+  //         : 0;
+  //     if (stalledScrolls < 2) {
+  //       await this.scrollDown({
+  //         left: 100,
+  //         top: 800,
+  //         width: 800,
+  //         height: 1200,
+  //         percent: 1.0
+  //       });
+  //     }
+  //   }
+  //   await this.dismissNumericKeypad();
+  // }
+
+  //  private readonly qtyKeypadConfirm = '(//android.widget.Button)[last()]';
+  //   async fillAllProductEndQuantities(
+  //   quantity = '6',
+  //   maxScrolls = 50
+  // ): Promise<void> {
+  //   const processedRows = new Set<string>();
+  //   let stalledScrolls = 0;
+
+  //   for (
+  //     let scroll = 0;
+  //     scroll < maxScrolls && stalledScrolls < 2;
+  //     scroll++
+  //   ) {
+  //     const fields = await this.driver.$$('//android.widget.EditText[2]');
+  //     const processedBefore = processedRows.size;
+  //     for (const field of fields) {
+  //       const location = await field.getLocation();
+  //       const key = `${location.x}-${location.y}`;
+
+  //       if (processedRows.has(key)) {
+  //         continue;
+  //       }
+
+  //       processedRows.add(key);
+
+  //       await field.click();
+  //       await field.clearValue();
+
+  //       for (const digit of quantity) {
+  //         await (await this.driver.$(`~${digit}`)).click();
+  //       }
+  //       await this.tap(this.qtyKeypadConfirm);
+  //     }
+  //     stalledScrolls =
+  //       processedRows.size === processedBefore
+  //         ? stalledScrolls + 1
+  //         : 0;
+
+  //     if (stalledScrolls < 2) {
+  //       await this.scrollDown({
+  //         left: 100,
+  //         top: 800,
+  //         width: 800,
+  //         height: 1200,
+  //         percent: 1.0
+  //       });
+  //     }
+  //   }
+  //   await this.dismissNumericKeypad();
+  // }
+
+
+  private readonly qtyKeypadConfirm = '(//android.widget.Button)[last()]';
+  async fillAllProductEndQuantities(quantity = '6', maxScrolls = 50): Promise<void> {
+    let consecutiveNoChanges = 0;
+    for (
+      let scroll = 0;
+      scroll < maxScrolls && consecutiveNoChanges < 3;
+      scroll++
+    ) {
+      let updatedThisPass = 0;
+      const endFields = await this.driver.$$('//android.widget.EditText[@hint="End"]'
+      );
+      for (const field of endFields) {
+        if (!(await field.isDisplayed())) {
+          continue;
+        }
+        const currentValue = (await field.getText()).trim();
+        if (currentValue === quantity) {
+          continue;
+        }
+        await field.click();
+        try {
+          await field.clearValue();
+        } catch { }
+        for (const digit of quantity) {
+          await (await this.driver.$(`~${digit}`)).click();
+        }
+        await this.tap(this.qtyKeypadConfirm);
+        updatedThisPass++;
+        await this.driver.pause(300);
+      }
+      if (updatedThisPass === 0) {
+        consecutiveNoChanges++;
+      } else {
+        consecutiveNoChanges = 0;
+      }
+      await this.scrollDown({
+        left: 100,
+        top: 1200,
+        width: 800,
+        height: 600,
+        percent: 0.7 // overlap scroll
+      });
+      await this.driver.pause(500);
+    }
+    // await this.dismissNumericKeypad();
+    this.driver.pause(3000);
+    // await this.tapBackArrow();
+  }
+
+
+  private readonly endQtyFields = '//android.widget.EditText[@hint="End"]';
+  async verifyAllProductEndQuantities(
+    expectedQuantity = '6',
+    maxScrolls = 50
+  ): Promise<void> {
+    const verifiedFields = new Set<string>();
+    let consecutiveNoChanges = 0;
+    for (
+      let scroll = 0;
+      scroll < maxScrolls && consecutiveNoChanges < 3;
+      scroll++
+    ) {
+      let newlyVerified = 0;
+      const endFields = await this.driver.$$(this.endQtyFields);
+      const productCards = await this.driver.$$('//android.view.View[contains(@content-desc,"More info")]');
+      for (let index = 0; index < await endFields.length; index++) {
+        const field = endFields[index];
+        if (!(await field.isDisplayed())) {
+          continue;
+        }
+        const location = await field.getLocation();
+        const uniqueKey = `${location.x}-${location.y}`;
+        if (verifiedFields.has(uniqueKey)) {
+          continue;
+        }
+        const actualValue = (await field.getText()).trim();
+        const productName = ((await productCards[index]?.getAttribute('content-desc')) ?? ''
+          ).split('\n')[1]?.trim() ?? 'Unknown Product';
+
+        expect(
+          actualValue,
+          `${productName} End quantity mismatch`
+        ).toBe(expectedQuantity);
+        verifiedFields.add(uniqueKey);
+        newlyVerified++;
+      }
+
+      if (newlyVerified === 0) {
+        consecutiveNoChanges++;
+      } else {
+        consecutiveNoChanges = 0;
+      }
+
+      await this.scrollDown({
+        left: 100,
+        top: 1200,
+        width: 800,
+        height: 600,
+        percent: 0.7
+      });
+      await this.driver.pause(500);
+    }
+    expect(
+      verifiedFields.size,
+      'No End quantity fields were verified'
+    ).toBeGreaterThan(0);
+  }
+
+
+
+
+
+
+
+
+
+  protected readonly headerRouteBadge =
+    '//android.view.View[starts-with(@content-desc,"Route")]';
+
+  protected readonly headerDateBadge =
+    `${this.headerRouteBadge}/preceding-sibling::android.view.View[1]`;
+
+  async verifyDateRouteHeader(): Promise<void> {
+    const expectedRoute = mobileConfig.vendingRoute.routeLabel;
+    const expectedDate = this.getExpectedHeaderDate(
+      mobileConfig.vendingRoute.day
+    );
+    const routeEl = await this.driver.$(this.headerRouteBadge);
+    const dateEl = await this.driver.$(this.headerDateBadge);
+    const actualRoute = (await routeEl.getAttribute('content-desc'))?.trim();
+    const actualDate = (await dateEl.getAttribute('content-desc'))?.trim();
+    expect(actualRoute).toBe(expectedRoute);
+    expect(actualDate).toBe(expectedDate);
+  }
+
+
+  async verifyMachinePogHeader(): Promise<void> {
+    const element = await this.driver.$(
+      '//android.view.View[starts-with(@content-desc,"Machine ") and contains(@content-desc," POG")]'
+    );
+    const header = await element.getAttribute('content-desc');
+    expect(header).toMatch(/^Machine \d+ POG$/);
+  }
+
+  // private getExpectedHeaderDate(
+  //   day: 'TODAY' | 'YESTERDAY' | 'TOMORROW'
+  // ): string {
+  //   const date = new Date();
+
+  //   switch (day) {
+  //     case 'YESTERDAY':
+  //       date.setDate(date.getDate() - 1);
+  //       break;
+
+  //     case 'TOMORROW':
+  //       date.setDate(date.getDate() + 1);
+  //       break;
+
+  //     case 'TODAY':
+  //     default:
+  //       break;
+  //   }
+
+  //   return date.toLocaleDateString('en-GB', {
+  //     day: 'numeric',
+  //     month: 'short',
+  //     year: 'numeric'
+  //   });
+  // }
+
+
+
+ private getExpectedHeaderDate(
+  day: 'TODAY' | 'YESTERDAY' | 'TOMORROW'
+): string {
+  const date = new Date();
+
+  switch (day) {
+    case 'YESTERDAY':
+      date.setDate(date.getDate() - 1);
+      break;
+
+    case 'TOMORROW':
+      date.setDate(date.getDate() + 1);
+      break;
+  }
+  const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+  const dayValue = String(date.getDate()).padStart(2, '0');
+  return `${dayValue} ${months[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+
+
+
+  protected readonly meterHeader =
+    '//android.view.View[@content-desc="Meters"]';
+
+  protected readonly unitMeterReadingField =
+    '//android.widget.EditText[contains(@hint,"Unit meter reading")]';
+
+  protected readonly meterValidationError = (message: string) =>
+    `//android.view.View[contains(@content-desc,"${message}")]`;
+
+
+  async tapMetersHeader(): Promise<void> {
+    const header = await this.driver.$(this.meterHeader);
+    await header.waitForDisplayed({
+      timeout: 5000,
+    });
+    await header.click();
+  }
+
+  async openMeters(): Promise<void> {
+    await this.tap('//android.view.View[contains(@content-desc,"Meter")]');
+    if (await this.isVisible('~OK')) {
+      await this.tap('~OK')
+    }
+    await this.waitFor(this.meterHeader);
+  }
+
+  async isMetersHeaderDisplayed(): Promise<boolean> {
+    const elements = await this.driver.$$(this.meterHeader);
+    return await elements.length > 0;
+  }
+
+
+  async enterUnitMeterReading(value: string | number): Promise<void> {
+    const field = await this.driver.$(this.unitMeterReadingField);
+    await field.waitForDisplayed({ timeout: 10000 });
+
+    const location = await field.getLocation();
+    const size = await field.getSize();
+    await this.tapAt(
+      Math.floor(location.x + size.width * 0.82),
+      Math.floor(location.y + size.height * 0.5)
+    );
+
+    await field.clearValue();
+    await field.setValue(value.toString());
+  }
+
+
+  async verifyMeterReadingErrorMessage(
+    expectedMessage: string
+  ): Promise<void> {
+    const error = await this.driver.$(
+      this.meterValidationError(expectedMessage)
+    );
+    await error.waitForDisplayed({
+      timeout: 10000,
+    });
+    expect(await error.isDisplayed()).toBe(true);
+  }
+
+
+  readonly pendingActionTab = '//android.view.View[contains(@content-desc,"Pending action")]';
+
+  async scrollUpUntilVisible(
+    locator: string,
+    maxScrolls: number = 15
+  ): Promise<void> {
+    let previousFirstItem = '';
+
+    const itemLocator =
+      '//android.widget.ScrollView//android.widget.ImageView[@clickable="true"]';
+
+    for (let i = 0; i < maxScrolls; i++) {
+      const target = await this.driver.$$(locator);
+      if (await target.length > 0 && await target[0].isDisplayed()) {
+        return;
+      }
+      const visibleItems = await this.driver.$$(itemLocator);
+      if (await visibleItems.length === 0) {
+        break;
+      }
+      const firstItem = visibleItems[0];
+      const firstItemName =
+        (await firstItem.getAttribute('content-desc')) ?? '';
+
+      // Reached top of list
+      if (firstItemName === previousFirstItem) {
+        break;
+      }
+      previousFirstItem = firstItemName;
+
+      // Scroll UP
+      await this.swipe(
+        540, 900,
+        540, 1900
+      );
+      await this.driver.pause(800);
+    }
+    throw new Error(`Element not found: ${locator}`);
+  }
+
+
+
+
+
+  async fillAllProductQuantities(
+    deliveryQty = '3',
+    endQty = '6',
+    maxScrolls = 20
+  ): Promise<void> {
+    const processedRows = new Set<string>();
+    let stalledScrolls = 0;
+
+    for (let scroll = 0; scroll < maxScrolls && stalledScrolls < 2; scroll++) {
+      const fields = [...(await this.driver.$$('//android.widget.EditText'))];
+
+      const processedBefore = processedRows.size;
+
+      for (let i = 0; i < fields.length; i += 2) {
+        const deliveryField = fields[i];
+        const endField = fields[i + 1];
+
+        const location = await deliveryField.getLocation();
+        const key = `${location.x}-${location.y}`;
+
+        if (processedRows.has(key)) {
+          continue;
+        }
+        processedRows.add(key);
+
+        // // Fill Delivery
+        // await deliveryField.click();
+        // await deliveryField.clearValue();
+
+        // for (const digit of deliveryQty) {
+        //   await (await this.driver.$(`~${digit}`)).click();
+        // }
+        // await this.dismissNumericKeypad();
+
+        // Fill End
+        if (endField) {
+          await endField.click();
+          await endField.clearValue();
+
+          for (const digit of endQty) {
+            await (await this.driver.$(`~${digit}`)).click();
+          }
+          await this.dismissNumericKeypad();
+        }
+      }
+
+      stalledScrolls =
+        processedRows.size === processedBefore
+          ? stalledScrolls + 1
+          : 0;
+
+      if (stalledScrolls < 2) {
+        await this.scrollDown({
+          left: 100,
+          top: 800,
+          width: 800,
+          height: 1200,
+          percent: 1.0
+        });
+      }
+    }
+  }
+
+
+  protected readonly vendingStationsHeader =
+    '//android.widget.ImageView[contains(@content-desc,"Service stations")]';
+
+  protected readonly firstVendingStationCard =
+    '//android.view.View[contains(@content-desc," - ")]';
+
+  async clickVendingStationsIfCollapsed(): Promise<void> {
+    const header = await this.driver.$(this.vendingStationsHeader);
+    await header.waitForDisplayed({ timeout: 10000 });
+    await header.click();
+  }
+
+  async tapFullButton(): Promise<void> {
+    const fullButton = await this.driver.$(
+      '//android.widget.Button[contains(@content-desc,"FULL")]'
+    );
+
+    await fullButton.waitForDisplayed({ timeout: 10000 });
+    await fullButton.click();
+  }
+
+  readonly spotDelivery = '//android.widget.Button[contains(@content-desc,"SPOT")]';
+  async verifySpotDeliveryDisplayed(): Promise<void> {
+    const spotDelivery = await this.driver.$(this.spotDelivery);
+    await spotDelivery.waitForDisplayed({ timeout: 15000 });
+    const contentDesc = await spotDelivery.getAttribute('content-desc');
+    expect(contentDesc).toMatch(/^SPOT,/);
+}
+
+  async enterFirstEndValue(value: string): Promise<void> {
+    const endField = await this.driver.$('(//android.widget.EditText)[2]');
+
+    await endField.waitForDisplayed({ timeout: 5000 });
+    await endField.click();
+
+    await endField.clearValue();
+
+    for (const digit of value) {
+      await (await this.driver.$(`~${digit}`)).click();
+    }
+
+    await this.dismissNumericKeypad();
   }
 
   /**
@@ -721,7 +2692,8 @@ export class VendingServiceScreen extends BaseScreen {
 
   async openRemovalsAndReturns(): Promise<void> {
     await this.tap(this.removalsAndReturns);
-    await this.waitFor('~Removals & Returns');
+    // await this.waitFor('~Removals & Returns');
+    await this.waitFor('~Removals');
   }
 
   async isRemovalsEmptyStateVisible(): Promise<boolean> {
@@ -741,7 +2713,7 @@ export class VendingServiceScreen extends BaseScreen {
   async searchRemovalsProduct(term: string): Promise<void> {
     const field = await this.driver.$(this.searchField);
     await field.click();
-    await field.clearValue().catch(() => {});
+    await field.clearValue().catch(() => { });
     await field.setValue(term);
     await this.driver.pause(1500);
   }
@@ -772,7 +2744,8 @@ export class VendingServiceScreen extends BaseScreen {
   /** Excel TC038 - cancels out of Document product without saving. */
   async cancelDocumentProduct(): Promise<void> {
     await this.tap(this.removalsCancelButton);
-    await this.waitFor('~Removals & Returns');
+    // await this.waitFor('~Removals & Returns');
+    await this.waitFor('~Removals');
   }
 
   /** Excel TC061/TC055 - count of saved rows on the Removals & Returns list. */
@@ -816,6 +2789,33 @@ export class VendingServiceScreen extends BaseScreen {
       await this.fillRemovalsField(this.removalsTruckReturnsField, values.truckReturns);
     }
   }
+
+
+  async fillRemovalsSpoiledRetkQuantities(values: { spoiled?: string; truckReturns?: string }): Promise<void> {
+    if (values.spoiled !== undefined) {
+      await this.fillRemovalsField(this.removalsSpoiledField, values.spoiled);
+    }
+    if (values.truckReturns !== undefined) {
+      await this.fillRemovalsField(this.removalsTruckReturnsField, values.truckReturns);
+    }
+  }
+
+  async getSpoiledQuantity(): Promise<string> {
+    return (
+      (await (await this.driver.$(this.removalsSpoiledField))
+        .getText()
+        .catch(() => '')) || ''
+    ).trim();
+  }
+
+  async getTruckReturnsQuantity(): Promise<string> {
+    return (
+      (await (await this.driver.$(this.removalsTruckReturnsField))
+        .getText()
+        .catch(() => '')) || ''
+    ).trim();
+  }
+
 
   async isRemovalsSaveEnabled(): Promise<boolean> {
     return this.isEnabled(this.removalsSaveButton);
@@ -947,13 +2947,84 @@ export class VendingServiceScreen extends BaseScreen {
   }
 
   /** Excel TC216/TC217 (Vending "delivery - Sort") - every visible row's own name, in on-screen order, for asserting sort-order changes and Clear sort order's reset back to the default (Par-position) order. */
+  // async getFillProductNamesInOrder(): Promise<string[]> {
+  //   const names = new Set<string>();
+  //   let stalledScrolls = 0;
+  //   let totalScroll = 0;
+
+  //   for (let scroll = 0; scroll < 20 && stalledScrolls < 2; scroll++) {
+  //     const visibleRows = await this.driver.$$(this.fillProductRow);
+  //     const namesBeforeRead = names.size;
+
+  //     for (const row of visibleRows) {
+  //       const desc = (await row.getAttribute('content-desc')) ?? '';
+  //       const name = desc.split('\n')[1] ?? '';
+  //       if (name) {
+  //         names.add(name);
+  //       }
+  //     }
+  //     stalledScrolls = names.size === namesBeforeRead ? stalledScrolls + 1 : 0;
+  //     if (stalledScrolls < 2) {
+  //       await this.scrollDown({ left: 100, top: 800, width: 800, height: 1200, percent: 1.0 });
+  //     }
+  //     totalScroll += 1;
+  //   }
+  //   stalledScrolls = 0;
+  //   for (totalScroll > 0; totalScroll--;) {
+  //     await this.scrollUp({ left: 100, top: 800, width: 800, height: 1200, percent: 1.0 });
+  //   }
+  //   return [...names];
+  // }
+
+
   async getFillProductNamesInOrder(): Promise<string[]> {
-    const rows = await this.driver.$$(this.fillProductRow);
     const names: string[] = [];
-    for (const row of rows) {
-      const desc = (await row.getAttribute('content-desc')) ?? '';
-      names.push(desc.split('\n')[1] ?? '');
+    const seen = new Set<string>();
+
+    let stalledScrolls = 0;
+    let totalScroll = 0;
+
+    for (let scroll = 0; scroll < 20 && stalledScrolls < 2; scroll++) {
+      const visibleRows = await this.driver.$$(this.fillProductRow);
+
+      const countBefore = seen.size;
+
+      for (const row of visibleRows) {
+        const desc = (await row.getAttribute('content-desc')) ?? '';
+        const name = desc.split('\n')[1]?.trim();
+
+        if (name && !seen.has(name)) {
+          seen.add(name);
+          names.push(name);
+        }
+      }
+
+      stalledScrolls =
+        seen.size === countBefore ? stalledScrolls + 1 : 0;
+
+      if (stalledScrolls < 2) {
+        await this.scrollDown({
+          left: 100,
+          top: 800,
+          width: 800,
+          height: 1200,
+          percent: 0.7 // overlap scroll
+        });
+      }
+
+      totalScroll++;
     }
+
+    for (; totalScroll > 0; totalScroll--) {
+      await this.scrollUp({
+        left: 100,
+        top: 800,
+        width: 800,
+        height: 1200,
+        percent: 0.7
+      });
+    }
+
     return names;
   }
 

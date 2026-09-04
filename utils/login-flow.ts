@@ -224,6 +224,28 @@ function dateForDaySelection(day: DaySelection): Date {
  * treating that as "confirmed" too could silently leave the app on the
  * wrong route if two blank-badge routes were ever compared.
  */
+// async function isOnRoute(
+//   driver: Browser,
+//   route: { routeLabel: string; day: DaySelection }
+// ): Promise<boolean> {
+//   const home = new HomeScreen(driver);
+//   const [routeText, dateText] = await Promise.all([home.getRouteBadgeText(), home.getCurrentDateText()]);
+//   const currentDayPrefix = dateText.split(',')[0]?.trim().toUpperCase();
+//   if (currentDayPrefix !== route.day) {
+//     return false;
+//   }
+//   const currentRoute = routeNumber(routeText);
+//   const targetRoute = routeNumber(route.routeLabel);
+//   if (currentRoute !== '') {
+//     return currentRoute === targetRoute;
+//   }
+//   if (targetRoute === routeNumber(mobileConfig.emptyRoute.routeLabel)) {
+//     return (await home.getDeliveriesCount()) === 0;
+//   }
+//   return false;
+// }
+
+
 // TIGHTENED 2026-08-31: the blank-badge fallback below used to key on the
 // route NUMBER alone ("001"), but TWO routes now carry that number -
 // Charlotte/001 (emptyRoute) and Miami/001 (marketRoute, which as of today
@@ -339,7 +361,13 @@ async function isOnRoute(
     // route" - so this must resolve to false, never to a bogus match.
     return (await home.getDeliveriesCount().catch(() => -1)) === 0;
   }
-  return false;
+  console.log(`App Date: ${appDate.toDateString()}`);
+  console.log(`Expected Date: ${expectedDate.toDateString()}`);
+  return (
+    appDate.getDate() === expectedDate.getDate() &&
+    appDate.getMonth() === expectedDate.getMonth() &&
+    appDate.getFullYear() === expectedDate.getFullYear()
+  );
 }
 
 /**

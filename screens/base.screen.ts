@@ -6,20 +6,20 @@ import { positionToIndex, type Position } from '../utils/position';
 import type { Lob } from '../utils/lob';
 
 export class BaseScreen {
-  constructor(protected driver: Browser) {}
+  constructor(protected driver: Browser) { }
 
   // Shared, app-wide locators ported from the Robot Framework suite's
   // common.yaml / navigation_menu.yaml - identical across every screen there,
   // so they belong here once rather than redeclared per screen.
   protected readonly hamburgerIcon = '~Open navigation menu';
-  protected readonly doneButton = '~Done';
+  readonly doneButton = '~Done';
   protected readonly continueButton = '~Continue';
   protected readonly skipButton = '~Skip';
   protected readonly saveButton = '~Save';
   protected readonly deleteButton = '~Delete';
   protected readonly yesButton = '~Yes';
   protected readonly noButton = '~No';
-  protected readonly addProductButton = '~section_header_add_cta';
+  readonly addProductButton = '~section_header_add_cta';
   protected readonly takePhotoButton = '~Take photo';
   protected readonly attachPhotoButton = '~Attach Photo';
   // Before/After Photos' "skip photo" sub-flow - live-verified 2026-07-27 on
@@ -38,6 +38,7 @@ export class BaseScreen {
   // title instead of the button, making an actually-disabled submit button
   // read as enabled. Scoped to the Button class specifically to avoid that.
   protected readonly skipPhotoModalTitle = '~Add supporting photo';
+  protected readonly afterPhotos = '~After Photos';
   protected readonly skipPhotoButton = '//android.widget.Button[@content-desc="Skip photo"]';
   // CORRECTED (live-verified 2026-07-28, Market's own equivalent flow):
   // once the field has been typed into and cleared once, its `hint`
@@ -53,8 +54,12 @@ export class BaseScreen {
   protected readonly skipPhotoReasonField = '//android.widget.EditText[starts-with(@hint,"Reason to skip photo")]';
   // Generic EditText/ScrollView with no content-desc/resource-id of their own -
   // must stay xpath, no accessibility-id shorthand available for these.
-  protected readonly searchField = '//android.widget.EditText';
-  protected readonly searchList = '//android.widget.ScrollView/android.view.View/android.view.View';
+  readonly searchField = '//android.widget.EditText';
+  // protected readonly searchList = '//android.widget.ScrollView/android.view.View/android.view.View';
+  // protected readonly searchList =
+  //   '//android.view.View[@clickable="true" and @focusable="true" and @content-desc]';
+    protected readonly searchList =
+  '//android.view.View[contains(@content-desc,"SKU:") and @clickable="true"]';
   protected readonly cameraPermissionAllowButton =
     '//android.widget.Button[@resource-id="com.android.permissioncontroller:id/permission_allow_foreground_only_button"]';
   // Product-list header controls (Sort/Filter/Planogram) - live-verified on
@@ -96,7 +101,7 @@ export class BaseScreen {
   protected readonly removalsSpoiledField = '//android.widget.EditText[1]';
   protected readonly removalsDamagedField = '//android.widget.EditText[2]';
   protected readonly removalsTheftField = '//android.widget.EditText[3]';
-  protected readonly removalsTruckReturnsField = '//android.widget.EditText[4]';
+  protected readonly removalsTruckReturnsField = '//android.widget.EditText[2]';
   protected readonly removalsSaveButton = '~Save';
   protected readonly removalsDoneButton = '~Done';
   // common.yaml's "delivery" trigger - identical usage in both
@@ -131,14 +136,14 @@ export class BaseScreen {
   // TruckStockRouteShoppingScreen alike to expand the group before its first
   // navigation in a fresh session (see TruckStockTruckReturnsScreen's open()
   // for why every Playwright test needs this, unlike RF's suite-shared session).
-  protected readonly navMenuTruckStockCollapsed = '//android.view.View[@content-desc="Truck stock, Collapsed"]';
+  protected readonly navMenuTruckStockCollapsed = '~Truck Stock, Collapsed';
 
   /**
    * `record_to_delete_xpath` / `route_inventory_record_to_delete_xpath` -
    * declared identically (down to the xpath itself) in both transfers.yaml
    * and truck_stock.yaml.
    */
-  protected recordByHint(name: string): string {
+  recordByHint(name: string): string {
     return `//android.widget.EditText[contains(@hint,"${name}")]`;
   }
   // FRAGILE: deeply nested structural path with no stable identifier, ported
@@ -146,6 +151,12 @@ export class BaseScreen {
   // relying on it - see docs/rf-to-playwright-reuse.md.
   protected readonly capturePhotoButton =
     '//android.widget.FrameLayout[@resource-id="android:id/content"]/android.widget.FrameLayout/android.view.View/android.view.View/android.view.View/android.view.View/android.view.View';
+
+
+
+  protected textBoxByHint(labelName: string, hint: string): string {
+    return `//android.view.View[contains(@content-desc,"${labelName}")]/android.widget.EditText[contains(@hint,"${hint}")]`
+  }
 
   /**
    * Switches the session into the app's WebView context so that WebView-rendered
@@ -400,7 +411,7 @@ export class BaseScreen {
    * the list and flips section_header_sort_cta's `checked` to true.
    */
   async selectSortOption(optionLabel: string): Promise<void> {
-    await this.tap(this.sortCta);
+    // await this.tap(this.sortCta);
     await this.tap(`~${optionLabel}`);
   }
 
@@ -754,20 +765,23 @@ export class BaseScreen {
    * could shift the icon's position or color).
    */
   private async isChecklistIconCheckedEl(el: any): Promise<boolean> {
-    // CORRECTED 2026-08-24 (build 0.1.90, live-verified on Route 990/Miami
-    // and Route 103/Charlotte): the raw protocol command getElementRect
-    // isn't meant to be called directly on an element at all - WebdriverIO's
-    // own internal usages (see node_modules/webdriverio/build/node.js)
-    // always call it on the browser/driver scope with an explicit
-    // elementId, never bare on the element. Calling el.getElementRect(...)
-    // - with OR without the elementId argument - throws inconsistently
-    // depending on the WDIO element handle's internal state (reproduced
-    // both as "Malformed type for elementId parameter" with the arg, and
-    // "Wrong parameters applied" without it). The stable, documented public
-    // API for this is getLocation()/getSize(), both plain element methods
-    // that resolve the same rect correctly regardless of route/element.
-    const [location, size] = await Promise.all([el.getLocation(), el.getSize()]);
-    const rect = { x: location.x, y: location.y, width: size.width, height: size.height };
+    // const rect = await el.getElementRect(el.elementId);
+
+
+    const location = await el.getLocation();
+    const size = await el.getSize();
+
+    const rect = {
+      x: location.x,
+      y: location.y,
+      width: size.width,
+      height: size.height,
+    };
+
+
+
+
+
     const base64 = await this.driver.takeScreenshot();
     const png = PNG.sync.read(Buffer.from(base64, 'base64'));
     const scanWidth = Math.min(140, rect.width - 10);
@@ -1061,15 +1075,89 @@ export class BaseScreen {
    * fixed xpath suffix (`/android.widget.Button`) to the same row locator,
    * rather than taking it as a separate argument - matched exactly here.
    */
+  // async swipeAndDelete(rowSelector: string): Promise<void> {
+  //   const row = await this.driver.$(rowSelector);
+  //   await row.waitForExist({ timeout: mobileConfig.timeouts.element });
+  //   const loc = await row.getLocation();
+  //   const size = await row.getSize();
+  //   await this.swipe(loc.x + size.width - 10, loc.y + size.height / 2, loc.x + 10, loc.y + size.height / 2);
+  //   await this.tap(`${rowSelector}/android.widget.Button`);
+  //   await this.tap(this.deleteButton);
+  // }
+
+
+
   async swipeAndDelete(rowSelector: string): Promise<void> {
     const row = await this.driver.$(rowSelector);
-    await row.waitForExist({ timeout: mobileConfig.timeouts.element });
+    await row.waitForDisplayed({
+      timeout: mobileConfig.timeouts.element,
+    });
     const loc = await row.getLocation();
     const size = await row.getSize();
-    await this.swipe(loc.x + size.width - 10, loc.y + size.height / 2, loc.x + 10, loc.y + size.height / 2);
-    await this.tap(`${rowSelector}/android.widget.Button`);
+    // await this.swipe(
+    //   loc.x + size.width - 20,
+    //   loc.y + size.height / 2,
+    //   loc.x + 50,
+    //   loc.y + size.height / 2
+    // );
+
+//     await this.swipe(
+//   loc.x + size.width - 10,
+//   loc.y + size.height / 2,
+//   loc.x + 10,
+//   loc.y + size.height / 2
+// );
+
+ const startX = loc.x + size.width - 20;
+const endX = loc.x + 50;
+const y = loc.y + size.height / 2;
+
+await this.driver.performActions([
+  {
+    type: 'pointer',
+    id: 'finger1',
+    parameters: { pointerType: 'touch' },
+    actions: [
+      {
+        type: 'pointerMove',
+        duration: 0,
+        x: startX,
+        y,
+      },
+      {
+        type: 'pointerDown',
+        button: 0,
+      },
+      {
+        type: 'pause',
+        duration: 500,
+      },
+      {
+        type: 'pointerMove',
+        duration: 1200,
+        x: endX,
+        y,
+      },
+      {
+        type: 'pointerUp',
+        button: 0,
+      },
+    ],
+  },
+]);
+
+await this.driver.releaseActions();
+
+
+    const deleteBtn = await this.driver.$(`${rowSelector}/android.widget.Button`);
+    await deleteBtn.waitForDisplayed({ timeout: 10000,});
+    await deleteBtn.click();
     await this.tap(this.deleteButton);
   }
+
+
+ 
+
 
   /**
    * Swipe-left-to-reveal-delete when the row must first be found by

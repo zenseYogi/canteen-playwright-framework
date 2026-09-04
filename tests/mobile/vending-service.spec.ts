@@ -914,6 +914,7 @@ test.describe('Vending - Product fills (Sort/Filter), Money Operations', () => {
         await vending.tapFilterChip('CAN BEV');
         await vending.tapApplyFilters();
         await vending.fillAllProductDeliveryQuantities();
+        //  await vending.fillAllProductEndQuantities();
         expect(await vending.isProductFillsTitleVisible()).toBe(false);
       });
     }
